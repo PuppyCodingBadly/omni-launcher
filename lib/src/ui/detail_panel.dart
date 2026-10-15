@@ -179,25 +179,29 @@ class DetailPanel extends StatelessWidget {
               : null);
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        height: 300,
-        color: context.palette.surface,
-        child: path == null
-            ? Center(
-                child: Text(
-                  game.name.isEmpty ? '?' : game.name.substring(0, 1).toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 72,
-                    fontWeight: FontWeight.w800,
-                    color: context.palette.previewLetter,
+      child: AspectRatio(
+        // The poster's own shape: a wide box would crop the art the tile shows
+        // (and a square one is what this launcher just got rid of).
+        aspectRatio: 2 / 3,
+        child: Container(
+          color: context.palette.surface,
+          child: path == null
+              ? Center(
+                  child: Text(
+                    game.name.isEmpty ? '?' : game.name.substring(0, 1).toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 72,
+                      fontWeight: FontWeight.w800,
+                      color: context.palette.previewLetter,
+                    ),
                   ),
+                )
+              : Image.file(
+                  File(path),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stack) => const SizedBox.shrink(),
                 ),
-              )
-            : Image.file(
-                File(path),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stack) => const SizedBox.shrink(),
-              ),
+        ),
       ),
     );
   }

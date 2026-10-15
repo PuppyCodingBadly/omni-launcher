@@ -408,6 +408,18 @@ void main() {
         closeTo((GameTile.coverHeight + 68) / GameTile.width, 0.001),
       );
       expect(controller.fetched, ['flatpak:alpha']);
+
+      // The detail panel draws the poster's own 2:3 too: a wide or square box
+      // there crops the art the tile shows.
+      controller.select(controller.games.first);
+      await tester.pumpAndSettle();
+      final preview = tester.getSize(
+        find.descendant(
+          of: find.byType(DetailPanel),
+          matching: find.byType(AspectRatio),
+        ),
+      );
+      expect(preview.width / preview.height, closeTo(2 / 3, 0.01));
     });
   });
 
