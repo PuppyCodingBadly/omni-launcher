@@ -1,0 +1,83 @@
+app-id: io.github.CoderPuppy.OmniLauncher
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+# Flutter's Linux build hard-codes CC=clang/CXX=clang++, and the base
+# SDK only ships gcc, so the LLVM extension provides the compiler.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm20
+command: omni_launcher
+separate-locales: false
+
+# The Flutter SDK is a build tool: the bundle it produces is self-contained, so
+# shipping 2 GB of SDK (and its git history) inside the app would be waste.
+cleanup:
+  - /flutter
+
+finish-args:
+  # The library *is* the host's games: Steam libraries, Heroic/Lutris/Faugus
+  # data, the Epic launcher's data root, other apps' flatpak data and the
+  # desktop entries that advertise games.
+  - --filesystem=host
+  # Launching a game means running the host's steam/flatpak/xdg-open/lutris, so
+  # the sandbox needs the portal that can start host processes.
+  - --talk-name=org.freedesktop.Flatpak
+  # Cover art from the Steam CDN and SteamGridDB.
+  - --share=network
+  # A GTK4/GTK3 window that renders with the GPU.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # Games that make noise.
+  - --socket=pulseaudio
+
+modules:
+  # The Flutter SDK is not packaged for freedesktop runtimes, so the build
+  # unpacks the official stable tarball into the app.
+  - name: flutter-sdk
+    buildsystem: simple
+    build-commands:
+      # flatpak-builder extracts the archive (and strips its single top-level
+      # directory), so the SDK files already sit in the build directory.
+      - mkdir -p /app/flutter
+      - cp -a . /app/flutter/
+    sources:
+      - type: archive
+        url: https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.7-stable.tar.xz
+        sha256: af7455f540df951184c7953fbe3cf884766e7541dacf8571f9f582db03dd6230
+
+  - name: omni-launcher
+    buildsystem: simple
+    build-options:
+      # `flutter pub get` and the first build fetch packages and engine
+      # artifacts; the sandbox is network-isolated by default.
+      build-args:
+        - --share=network
+      env:
+        PATH: /usr/lib/sdk/llvm20/bin:/app/flutter/bin:/usr/bin:/bin
+        LD_LIBRARY_PATH: /usr/lib/sdk/llvm20/lib64
+        PUB_CACHE: /run/build/omni-launcher/.pub-cache
+    build-commands:
+      - flutter config --no-analytics > /dev/null
+      - flutter pub get
+      - flutter build linux --release
+      - install -d /app/omni-launcher
+      - cp -r build/linux/x64/release/bundle/. /app/omni-launcher/
+      - install -d /app/bin
+      - ln -sf /app/omni-launcher/omni_launcher /app/bin/omni_launcher
+      - install -Dm644 data/io.github.CoderPuppy.OmniLauncher.desktop.in /app/share/applications/io.github.CoderPuppy.OmniLauncher.desktop
+      - sed -i 's|@EXEC@|omni_launcher|' /app/share/applications/io.github.CoderPuppy.OmniLauncher.desktop
+      - install -Dm644 data/icons/io.github.CoderPuppy.OmniLauncher.svg /app/share/icons/hicolor/scalable/apps/io.github.CoderPuppy.OmniLauncher.svg
+      - install -Dm644 flatpak/io.github.CoderPuppy.OmniLauncher.metainfo.xml /app/share/metainfo/io.github.CoderPuppy.OmniLauncher.metainfo.xml
+    sources:
+      - type: dir
+        path: ..
+        # The host's build tree must not leak into the sandbox: a stale
+        # CMakeCache.txt from the distrobox build breaks the flatpak build.
+        skip:
+          - build
+          - .dart_tool
+          - .git
+          - .flatpak-builder
+          - flatpak/build-dir

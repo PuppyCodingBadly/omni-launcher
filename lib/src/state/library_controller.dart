@@ -1,0 +1,557 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+
+import '../art/steamgriddb.dart';
+import '../config.dart';
+import '../covers.dart';
+import '../launcher.dart';
+import '../model/game.dart';
+import '../paths.dart';
+import '../sources/registry.dart';
+import '../util/proc.dart';
+import 'playtime_store.dart';
+
+enum LibraryStatus { loading, ready, failed }
+
+/// Library state: discovery, filtering, artwork, launching and persistence.
+class LibraryController extends ChangeNotifier {
+  LibraryController({
+    AppConfig? config,
+    String? configPath,
+    String? cachePath,
+    PlaytimeStore? playtime,
+    Duration? pollInterval,
+  }) : _configPath = configPath ?? AppPaths.configFile,
+       _cachePath = cachePath ?? AppPaths.cacheFile,
+       _pollInterval = pollInterval ?? const Duration(seconds: 5),
+       playtime = playtime ?? PlaytimeStore(),
+       config = config ?? AppConfig.load(configPath ?? AppPaths.configFile) {
+    covers.settings = ArtSettings.from(this.config);
+  }
+
+  final String _configPath;
+
+  /// Where the last scan is remembered; the app's cache folder by default.
+  final String _cachePath;
+
+  /// Played time history. Tests inject a store pointed at a temporary file.
+  final PlaytimeStore playtime;
+
+  /// Sessions still being watched, by game id.
+  final Map<String, Timer> _sessions = <String, Timer>{};
+
+  /// How often a launched pid is checked, and how often the store is told.
+  ///
+  /// The pid check is a `/proc` lookup, so it can afford to be frequent; the
+  /// store write is the part that is kept to [_touchInterval]. Tests shorten
+  /// [_pollInterval] so a session can be watched to its end quickly.
+  final Duration _pollInterval;
+  static const Duration _touchInterval = Duration(seconds: 30);
+
+  /// Consecutive polls a live launcher may have no descendants before it is
+  /// asked to close.
+  static const int closeAfterQuietTicks = 2;
+
+  AppConfig config;
+  final CoverStore covers = CoverStore();
+
+  LibraryStatus status = LibraryStatus.loading;
+
+  /// The library as discovered, before name overrides; [games] is this list
+  /// with the overrides applied.
+  List<Game> _discovered = const [];
+  List<Game> games = const [];
+  String query = '';
+  final Set<SourceKind> sourceFilter = <SourceKind>{};
+  Game? selected;
+
+  /// Last thing that happened, shown in the status bar.
+  String? notice;
+  String? failure;
+
+  /// Games matching the current query, filter and hidden settings.
+  List<Game> get visibleGames {
+    final needle = query.trim().toLowerCase();
+    return games.where((game) {
+      if (!config.showHidden && config.isHidden(game.id)) return false;
+      if (sourceFilter.isNotEmpty && !sourceFilter.contains(game.source)) return false;
+      if (needle.isEmpty) return true;
+      return game.name.toLowerCase().contains(needle) ||
+          game.id.toLowerCase().contains(needle) ||
+          game.displaySubtitle.toLowerCase().contains(needle);
+    }).toList();
+  }
+
+  int get hiddenCount => games.where((game) => config.isHidden(game.id)).length;
+
+  Map<SourceKind, int> get countsBySource {
+    final counts = <SourceKind, int>{};
+    for (final game in games) {
+      counts[game.source] = (counts[game.source] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Load the cached library first, then rescan when asked to.
+  Future<void> load({bool refresh = true}) async {
+    // A session left open by a previous run is closed at the last moment the
+    // game was seen, so a launcher that was killed mid-game cannot invent time.
+    playtime.closeOpenSessions(DateTime.now());
+    status = LibraryStatus.loading;
+    notifyListeners();
+    final cached = _readCache();
+    if (cached.isNotEmpty) {
+      _discovered = cached;
+      games = applyNameOverrides(cached, config.nameOverrides);
+      status = LibraryStatus.ready;
+      notifyListeners();
+    }
+    if (refresh) await rescan();
+  }
+
+  Future<void> rescan() async {
+    status = games.isEmpty ? LibraryStatus.loading : status;
+    notifyListeners();
+    try {
+      final found = await discoverAll(
+        // Overrides are applied here instead, so a rename can be undone.
+        config.copyWith(nameOverrides: const <String, String>{}),
+        onError: (kind, error) => failure = '${kind.label}: $error',
+      );
+      _discovered = found;
+      games = applyNameOverrides(found, config.nameOverrides);
+      _writeCache(found);
+      failure = null;
+      notice = '${found.length} games from ${countsBySource.length} sources';
+    } catch (error) {
+      failure = '$error';
+    }
+    status = LibraryStatus.ready;
+    if (selected != null) {
+      selected = _findById(selected!.id);
+    }
+    notifyListeners();
+  }
+
+  Game? _findById(String id) {
+    for (final game in games) {
+      if (game.id == id) return game;
+    }
+    return null;
+  }
+
+  void setQuery(String value) {
+    if (query == value) return;
+    query = value;
+    notifyListeners();
+  }
+
+  void toggleSource(SourceKind kind) {
+    if (!sourceFilter.remove(kind)) sourceFilter.add(kind);
+    notifyListeners();
+  }
+
+  void clearSources() {
+    sourceFilter.clear();
+    notifyListeners();
+  }
+
+  void select(Game? game) {
+    selected = game;
+    notifyListeners();
+  }
+
+  /// Rename a game for display and for SteamGridDB lookups.
+  ///
+  /// [name] null or blank resets it to the discovered name.
+  void setName(String gameId, String? name) {
+    final trimmed = (name ?? '').trim();
+    final overrides = {...config.nameOverrides};
+    if (trimmed.isEmpty) {
+      overrides.remove(gameId);
+    } else {
+      overrides[gameId] = trimmed;
+    }
+    _apply(config.copyWith(nameOverrides: overrides));
+    games = applyNameOverrides(_discovered, overrides);
+    if (selected?.id == gameId) selected = _findById(gameId);
+    notice = trimmed.isEmpty ? 'Name reset' : 'Renamed to $trimmed';
+    notifyListeners();
+  }
+
+  /// The name the launcher found for [gameId], before any rename.
+  ///
+  /// Null when the game is not in the discovered list, which is only possible
+  /// before the first scan has produced one.
+  String? discoveredNameFor(String gameId) {
+    for (final game in _discovered) {
+      if (game.id == gameId) return game.name;
+    }
+    return null;
+  }
+
+  Future<void> launch(Game game) async {
+    final startedAt = DateTime.now();
+    int? pid;
+    try {
+      pid = await Launcher.launch(game);
+      notice = 'Launched ${game.name}';
+    } catch (error) {
+      notice = 'Could not launch ${game.name}: $error';
+    }
+    // A launch that failed has nothing to record.
+    if (pid != null) _watchSession(game.id, pid, startedAt);
+    notifyListeners();
+  }
+
+  /// Total time played, from closed sessions plus the open one.
+  Duration playtimeOf(String gameId) => playtime.totalFor(gameId);
+
+  /// When the game was last seen running or stopped, if ever.
+  DateTime? lastPlayedFor(String gameId) => playtime.lastPlayedFor(gameId);
+
+  /// Whether an open session is due another persisted heartbeat.
+  ///
+  /// The store is told at most every [_touchInterval], however often the pid is
+  /// polled: writes stay rare without the session end losing accuracy, because
+  /// the session always ends at the last moment the process was seen.
+  static bool shouldTouch(DateTime lastTouched, DateTime now) =>
+      now.difference(lastTouched) >= _touchInterval;
+
+  /// Whether the process we started should be asked to close.
+  ///
+  /// Only true for a game the user asked for, while the process we launched is
+  /// still alive, once it has started something of its own and that something
+  /// has been gone for [closeAfterQuietTicks] polls. A process that never
+  /// started a child is left alone: that is the game itself, not a launcher
+  /// window around it, and `steam -applaunch` hands over and exits the same way.
+  static bool shouldCloseLauncher({
+    required bool closeWithGame,
+    required bool alive,
+    required bool sawDescendants,
+    required int quietTicks,
+  }) =>
+      closeWithGame && alive && sawDescendants && quietTicks >= closeAfterQuietTicks;
+
+  /// Follow a launched game's pid so its session ends when the game does.
+  ///
+  /// `Launcher` starts the game detached with `exec`, so [pid] is the game's
+  /// own. The session always ends at the last moment the process was seen: a
+  /// game that exits between two checks is never credited with the gap.
+  ///
+  /// The same poll asks a launcher window to close when the game it started is
+  /// gone (see [shouldCloseLauncher]) — a launcher that ignores the request
+  /// simply stays open.
+  void _watchSession(String gameId, int pid, DateTime startedAt) {
+    _sessions.remove(gameId)?.cancel();
+    playtime.begin(gameId, startedAt);
+    // Identifies the process we started: a recycled pid must never be signalled.
+    final startTick = processStartTime(pid);
+    var lastSeen = startedAt;
+    var lastTouched = startedAt;
+    var sawDescendants = false;
+    var quietTicks = 0;
+    var asked = false;
+    _sessions[gameId] = Timer.periodic(_pollInterval, (timer) {
+      final now = DateTime.now();
+      final alive = processRunning(pid) &&
+          (startTick == null || processStartTime(pid) == startTick);
+      if (!alive) {
+        timer.cancel();
+        _sessions.remove(gameId);
+        playtime.end(gameId, lastSeen);
+        notifyListeners();
+        return;
+      }
+      lastSeen = now;
+      if (shouldTouch(lastTouched, now)) {
+        lastTouched = now;
+        playtime.touch(gameId, now);
+      }
+      if (asked) return;
+      if (descendants(pid).isEmpty) {
+        quietTicks++;
+      } else {
+        // The launcher has its game running; losing it later means the game is
+        // over.
+        sawDescendants = true;
+        quietTicks = 0;
+      }
+      if (shouldCloseLauncher(
+        closeWithGame: config.closesWithGame(gameId),
+        alive: alive,
+        sawDescendants: sawDescendants,
+        quietTicks: quietTicks,
+      )) {
+        asked = true;
+        Process.killPid(pid, ProcessSignal.sigterm);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (final timer in _sessions.values) {
+      timer.cancel();
+    }
+    _sessions.clear();
+    super.dispose();
+  }
+
+  Future<void> openFolder(Game game) async {
+    final target = game.path ?? (game.command.isNotEmpty ? _parentOf(game.command.first) : null);
+    if (target == null || !Directory(target).existsSync()) {
+      notice = '${game.name}: no folder known';
+      notifyListeners();
+      return;
+    }
+    try {
+      await Launcher.openFolder(target);
+      notice = 'Opened $target';
+    } catch (error) {
+      notice = 'Could not open $target: $error';
+    }
+    notifyListeners();
+  }
+
+  static String? _parentOf(String path) {
+    final index = path.lastIndexOf('/');
+    return index <= 0 ? null : path.substring(0, index);
+  }
+
+  // ------------------------------------------------------------ artwork
+
+  /// Artwork for a tile: Steam CDN first, then SteamGridDB when enabled.
+  ///
+  /// A SteamGridDB pick is remembered in the config so it survives rescans.
+  Future<Artwork?> requestCoverArt(Game game, {GridShape shape = GridShape.portrait}) async {
+    if (covers.overrideFor(game) != null) return null;
+    if (covers.autoArtFor(game, shape) != null) return null;
+    if (shape == GridShape.portrait) {
+      final steam = await covers.fetchSteamCover(game);
+      if (steam != null) return steam;
+    }
+    // A square tile cannot use the portrait capsule, so a square window asks
+    // SteamGridDB for square grids even when the automatic portrait fetch is
+    // switched off.
+    final mayFetch =
+        covers.settings.sgdbEnabled &&
+        (shape == GridShape.square || covers.settings.sgdbAuto);
+    if (!mayFetch) return null;
+    try {
+      final grids = await covers.searchArt(game, shape: shape);
+      if (grids.isEmpty) return null;
+      final path = await covers.downloadArt(game, grids.first);
+      if (path == null) return null;
+      _apply(
+        config.copyWith(
+          autoArt: {
+            ...config.autoArt,
+            game.id: {...?config.autoArt[game.id], shape.name: path},
+          },
+        ),
+      );
+      return Artwork(ArtworkKind.cover, value: path);
+    } on SteamGridDbException catch (error) {
+      failure = '${game.name}: $error';
+      return null;
+    }
+  }
+
+  /// Candidates for the art picker; sets [failure] when the lookup fails.
+  Future<List<SgdbGrid>> searchArt(Game game, {GridShape shape = GridShape.portrait}) async {
+    try {
+      return await covers.searchArt(game, shape: shape);
+    } on SteamGridDbException catch (error) {
+      failure = '${game.name}: $error';
+      notifyListeners();
+      return const [];
+    }
+  }
+
+  /// Pin [grid] as this game's artwork.
+  ///
+  /// A download that fails is reported through [failure] and never thrown, so
+  /// a caller (the art picker) cannot be left stuck on its "applying" state.
+  Future<bool> applyArt(Game game, SgdbGrid grid) async {
+    String? path;
+    Object? problem;
+    try {
+      path = await covers.downloadArt(game, grid);
+    } catch (error) {
+      problem = error;
+    }
+    if (path == null) {
+      failure = problem == null
+          ? '${game.name}: artwork download failed'
+          : '${game.name}: $problem';
+      notifyListeners();
+      return false;
+    }
+    _apply(config.copyWith(artOverrides: {...config.artOverrides, game.id: path}));
+    notice = 'Artwork for ${game.name} set';
+    notifyListeners();
+    return true;
+  }
+
+  /// Drop the pinned artwork, falling back to the automatic sources.
+  void clearArt(Game game) {
+    final overrides = {...config.artOverrides}..remove(game.id);
+    _apply(config.copyWith(artOverrides: overrides));
+    notice = 'Artwork for ${game.name} reset';
+    notifyListeners();
+  }
+
+  /// Check a key without saving it; returns a human readable result.
+  Future<String> testSgdbKey(String key) async {
+    if (key.trim().isEmpty) return 'Paste a SteamGridDB API key first.';
+    final client = SteamGridDb(apiKey: key);
+    try {
+      final count = await client.testKey();
+      return 'Key works: $count results for "portal".';
+    } on SteamGridDbException catch (error) {
+      return '$error';
+    } finally {
+      client.close();
+    }
+  }
+
+  // -------------------------------------------------------------- config
+
+  void _apply(AppConfig next) {
+    config = next;
+    covers.settings = ArtSettings.from(next);
+    next.save(_configPath);
+  }
+
+  void setHidden(Game game, {required bool hidden}) {
+    final hiddenIds = {...config.hidden};
+    if (hidden) {
+      hiddenIds.add(game.id);
+    } else {
+      hiddenIds.remove(game.id);
+    }
+    _apply(config.copyWith(hidden: hiddenIds));
+    notice = hidden ? 'Hid ${game.name}' : 'Unhid ${game.name}';
+    notifyListeners();
+  }
+
+  void toggleShowHidden() {
+    _apply(config.copyWith(showHidden: !config.showHidden));
+    notifyListeners();
+  }
+
+  void setCoverFetch(bool value) {
+    _apply(config.copyWith(coverFetch: value));
+    notifyListeners();
+  }
+
+  void setSteamgriddbAuto(bool value) {
+    _apply(config.copyWith(steamgriddbAuto: value));
+    notifyListeners();
+  }
+
+  /// Palette selection, persisted with the rest of the config.
+  void setThemeMode(AppThemeMode mode) {
+    _apply(config.copyWith(themeMode: mode));
+    notifyListeners();
+  }
+
+  /// Accent colour, persisted with the rest of the config.
+  void setAccentColor(AppAccent accent) {
+    _apply(config.copyWith(accentColor: accent.id));
+    notifyListeners();
+  }
+
+  /// Whether the launcher window should close when this game exits.
+  void setCloseWithGame(String gameId, bool value) {
+    final ids = {...config.closeWithGame};
+    if (value) {
+      ids.add(gameId);
+    } else {
+      ids.remove(gameId);
+    }
+    _apply(config.copyWith(closeWithGame: ids));
+    notice = value
+        ? 'Launcher closes with the game'
+        : 'Launcher stays open';
+    notifyListeners();
+  }
+
+  void setSteamgriddbKey(String value) {
+    _apply(config.copyWith(steamgriddbKey: value.trim()));
+    notice = value.trim().isEmpty ? 'SteamGridDB key cleared' : 'SteamGridDB key saved';
+    notifyListeners();
+  }
+
+  void setAppimageDirs(List<String> dirs) {
+    _apply(config.copyWith(appimageDirs: dirs));
+    notifyListeners();
+  }
+
+  Future<void> addManual(String name, List<String> command, {String? cwd}) async {
+    // The name is the entry's identity (the game id is `manual:<name>`), so a
+    // second entry under the same name would never reach the library and could
+    // only be removed together with the first one.
+    final entry = ManualEntry(name: name, command: command, cwd: cwd);
+    final manual = List<ManualEntry>.from(config.manual);
+    final index = manual.indexWhere((existing) => existing.name == name);
+    if (index < 0) {
+      manual.add(entry);
+    } else {
+      manual[index] = entry;
+    }
+    _apply(config.copyWith(manual: manual));
+    await rescan();
+    notice = 'Added $name';
+    notifyListeners();
+  }
+
+  Future<void> removeManual(String name) async {
+    _apply(
+      config.copyWith(
+        manual: config.manual.where((entry) => entry.name != name).toList(),
+      ),
+    );
+    await rescan();
+    notice = 'Removed $name';
+    notifyListeners();
+  }
+
+  // --------------------------------------------------------------- cache
+
+  List<Game> _readCache() {
+    final file = File(_cachePath);
+    if (!file.existsSync()) return const [];
+    try {
+      final decoded = jsonDecode(file.readAsStringSync());
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<Map>()
+          .map((entry) => Game.fromJson(entry.cast<String, Object?>()))
+          .whereType<Game>()
+          .toList();
+    } on FileSystemException {
+      return const [];
+    } on FormatException {
+      return const [];
+    }
+  }
+
+  void _writeCache(List<Game> value) {
+    try {
+      final file = File(_cachePath);
+      file.parent.createSync(recursive: true);
+      // Through a sibling file and a rename: a crash halfway through writing
+      // must not leave a half written cache behind.
+      final temporary = File('$_cachePath.tmp');
+      temporary.writeAsStringSync(jsonEncode(value.map((game) => game.toJson()).toList()));
+      temporary.renameSync(_cachePath);
+    } on FileSystemException {
+      // The cache is only a fast start.
+    }
+  }
+}

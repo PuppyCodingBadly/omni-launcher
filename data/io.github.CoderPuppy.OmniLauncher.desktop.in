@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Omni Launcher
+GenericName=Game library
+Comment=One window for every game on this machine
+Exec=@EXEC@
+Icon=io.github.CoderPuppy.OmniLauncher
+Terminal=false
+Categories=Game;Utility;
+Keywords=games;launcher;library;steam;flatpak;
+StartupWMClass=omni_launcher

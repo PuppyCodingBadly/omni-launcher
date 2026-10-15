@@ -1,0 +1,76 @@
+name: Flatpak
+
+# Builds the flatpak, publishes an OSTree repo and the landing page to the
+# gh-pages branch, and attaches the standalone bundle plus the .flatpakref to a
+# release. Tag a version (`git tag v0.1.0 && git push --tags`) to run it.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-47
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: OmniLauncher-x86_64.flatpak
+          manifest-path: flatpak/io.github.CoderPuppy.OmniLauncher.yml
+          runtime-version: '25.08'
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      # The bundle above is the standalone file people can download. A
+      # .flatpakref needs a repository to point at, so build one and publish it
+      # on the Pages site.
+      - name: Build the repository
+        run: |
+          flatpak-builder --repo=repo --force-clean --disable-rofiles-fuse \
+            build-dir flatpak/io.github.CoderPuppy.OmniLauncher.yml
+          flatpak build-update-repo repo
+
+      - name: Write the .flatpakref
+        run: |
+          cat > io.github.CoderPuppy.OmniLauncher.flatpakref <<EOF
+          [Flatpak Ref]
+          Title=Omni Launcher
+          Name=io.github.CoderPuppy.OmniLauncher
+          Branch=master
+          Url=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo
+          RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
+          IsRuntime=false
+          Comment=One window for every game on this machine
+          EOF
+
+      - name: Assemble the Pages site
+        run: |
+          mkdir -p public
+          cp -r site/. public/
+          cp -r repo public/repo
+          cp io.github.CoderPuppy.OmniLauncher.flatpakref public/
+          # The page is written with placeholders so it works in any fork.
+          sed -i "s|OWNER/REPO|${{ github.repository }}|g" public/index.html
+
+      - name: Publish the Pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: public
+          publish_branch: gh-pages
+          keep_files: true
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            OmniLauncher-x86_64.flatpak
+            io.github.CoderPuppy.OmniLauncher.flatpakref
+          generate_release_notes: true

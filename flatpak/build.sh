@@ -1,0 +1,28 @@
+#!/bin/sh
+# Build and install Omni Launcher as a flatpak for the current user.
+#
+# Prerequisites (the LLVM extension is not optional: Flutter's Linux build
+# hard-codes clang, and the base SDK only ships gcc):
+#   flatpak install --user flathub org.flatpak.Builder \
+#       org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
+#
+# For a standalone file instead of an installed app:
+#   flatpak build-bundle "$BUILD_DIR/../repo" OmniLauncher-x86_64.flatpak \
+#       io.github.CoderPuppy.OmniLauncher
+set -eu
+
+SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+BUILD_DIR=${BUILD_DIR:-"$SELF/build-dir"}
+
+flatpak run org.flatpak.Builder \
+    --user \
+    --install \
+    --force-clean \
+    --disable-rofiles-fuse \
+    "$BUILD_DIR" \
+    "$SELF/io.github.CoderPuppy.OmniLauncher.yml"
+
+echo
+echo "Installed. Run it with:"
+echo "  flatpak run io.github.CoderPuppy.OmniLauncher"
+echo "or from your app grid as \"Omni Launcher (Flutter)\"."

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.CoderPuppy.OmniLauncher</id>
+  <name>Omni Launcher</name>
+  <summary>One window for every game on this machine</summary>
+  <developer id="io.github.coderpuppy">
+    <name>CoderPuppy</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Omni Launcher finds the games that are already installed on this machine,
+      whatever packaging they came in, and shows them as one cover wall.
+    </p>
+    <p>
+      It reads Steam libraries, flatpak apps, AppImages, Heroic, Lutris, Faugus,
+      the new Epic Games Launcher and plain desktop entries; it launches them
+      through their own launcher, so a game that is also a Steam shortcut goes
+      through Steam. Cover art comes from Steam's own cache or from SteamGridDB
+      with your own API key, and it can follow the shape of the window: square
+      displays get square posters.
+    </p>
+    <p>
+      Playtime, last played, hidden games, renames and per-game launch options
+      are stored under your XDG directories; nothing is uploaded anywhere.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.CoderPuppy.OmniLauncher.desktop</launchable>
+
+  <categories>
+    <category>Game</category>
+    <category>Utility</category>
+  </categories>
+
+  <keywords>
+    <keyword>games</keyword>
+    <keyword>launcher</keyword>
+    <keyword>library</keyword>
+    <keyword>steam</keyword>
+    <keyword>flatpak</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-14">
+      <description>
+        <p>First packaged release: eight discovery sources, cover art from Steam and SteamGridDB, appearance modes with a GNOME accent palette, playtime, renames and a sandbox-aware host layer.</p>
+      </description>
+    </release>
+  </releases>
+</component>
