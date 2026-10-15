@@ -20,12 +20,12 @@ rm -rf "$PREFIX/bundle"
 cp -r "$BUNDLE" "$PREFIX/bundle"
 
 ln -sf "$PREFIX/bundle/omni_launcher" "$BIN_DIR/omni-launcher"
-install -m 644 "$SELF/data/icons/io.github.CoderPuppy.OmniLauncher.svg" \
-    "$ICONS_DIR/io.github.CoderPuppy.OmniLauncher.svg"
+install -m 644 "$SELF/data/icons/io.github.PuppyCodingBadly.OmniLauncher.svg" \
+    "$ICONS_DIR/io.github.PuppyCodingBadly.OmniLauncher.svg"
 sed "s|@EXEC@|$BIN_DIR/omni-launcher|" \
-    "$SELF/data/io.github.CoderPuppy.OmniLauncher.desktop.in" \
-    > "$APPS_DIR/io.github.CoderPuppy.OmniLauncher.desktop"
-chmod 644 "$APPS_DIR/io.github.CoderPuppy.OmniLauncher.desktop"
+    "$SELF/data/io.github.PuppyCodingBadly.OmniLauncher.desktop.in" \
+    > "$APPS_DIR/io.github.PuppyCodingBadly.OmniLauncher.desktop"
+chmod 644 "$APPS_DIR/io.github.PuppyCodingBadly.OmniLauncher.desktop"
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS_DIR" || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 &&
@@ -34,5 +34,5 @@ command -v gtk-update-icon-cache >/dev/null 2>&1 &&
 echo "Installed:"
 echo "  bundle  $PREFIX/bundle/omni_launcher"
 echo "  binary  $BIN_DIR/omni-launcher"
-echo "  desktop $APPS_DIR/io.github.CoderPuppy.OmniLauncher.desktop"
-echo "  icon    $ICONS_DIR/io.github.CoderPuppy.OmniLauncher.svg"
+echo "  desktop $APPS_DIR/io.github.PuppyCodingBadly.OmniLauncher.desktop"
+echo "  icon    $ICONS_DIR/io.github.PuppyCodingBadly.OmniLauncher.svg"

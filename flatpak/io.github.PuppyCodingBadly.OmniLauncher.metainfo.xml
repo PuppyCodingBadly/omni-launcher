@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.CoderPuppy.OmniLauncher</id>
+  <id>io.github.PuppyCodingBadly.OmniLauncher</id>
   <name>Omni Launcher</name>
   <summary>One window for every game on this machine</summary>
-  <developer id="io.github.coderpuppy">
-    <name>CoderPuppy</name>
+  <developer id="io.github.puppycodingbadly">
+    <name>PuppyCodingBadly</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
@@ -28,7 +28,7 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">io.github.CoderPuppy.OmniLauncher.desktop</launchable>
+  <launchable type="desktop-id">io.github.PuppyCodingBadly.OmniLauncher.desktop</launchable>
 
   <categories>
     <category>Game</category>

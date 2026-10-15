@@ -8,7 +8,7 @@
 #
 # For a standalone file instead of an installed app:
 #   flatpak build-bundle "$BUILD_DIR/../repo" OmniLauncher-x86_64.flatpak \
-#       io.github.CoderPuppy.OmniLauncher
+#       io.github.PuppyCodingBadly.OmniLauncher
 set -eu
 
 SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -20,9 +20,9 @@ flatpak run org.flatpak.Builder \
     --force-clean \
     --disable-rofiles-fuse \
     "$BUILD_DIR" \
-    "$SELF/io.github.CoderPuppy.OmniLauncher.yml"
+    "$SELF/io.github.PuppyCodingBadly.OmniLauncher.yml"
 
 echo
 echo "Installed. Run it with:"
-echo "  flatpak run io.github.CoderPuppy.OmniLauncher"
+echo "  flatpak run io.github.PuppyCodingBadly.OmniLauncher"
 echo "or from your app grid as \"Omni Launcher (Flutter)\"."

@@ -24,7 +24,7 @@ jobs:
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: OmniLauncher-x86_64.flatpak
-          manifest-path: flatpak/io.github.CoderPuppy.OmniLauncher.yml
+          manifest-path: flatpak/io.github.PuppyCodingBadly.OmniLauncher.yml
           runtime-version: '25.08'
           cache-key: flatpak-builder-${{ github.sha }}
 
@@ -34,15 +34,15 @@ jobs:
       - name: Build the repository
         run: |
           flatpak-builder --repo=repo --force-clean --disable-rofiles-fuse \
-            build-dir flatpak/io.github.CoderPuppy.OmniLauncher.yml
+            build-dir flatpak/io.github.PuppyCodingBadly.OmniLauncher.yml
           flatpak build-update-repo repo
 
       - name: Write the .flatpakref
         run: |
-          cat > io.github.CoderPuppy.OmniLauncher.flatpakref <<EOF
+          cat > io.github.PuppyCodingBadly.OmniLauncher.flatpakref <<EOF
           [Flatpak Ref]
           Title=Omni Launcher
-          Name=io.github.CoderPuppy.OmniLauncher
+          Name=io.github.PuppyCodingBadly.OmniLauncher
           Branch=master
           Url=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo
           RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
@@ -55,7 +55,7 @@ jobs:
           mkdir -p public
           cp -r site/. public/
           cp -r repo public/repo
-          cp io.github.CoderPuppy.OmniLauncher.flatpakref public/
+          cp io.github.PuppyCodingBadly.OmniLauncher.flatpakref public/
           # The page is written with placeholders so it works in any fork.
           sed -i "s|OWNER/REPO|${{ github.repository }}|g" public/index.html
 
@@ -72,5 +72,5 @@ jobs:
         with:
           files: |
             OmniLauncher-x86_64.flatpak
-            io.github.CoderPuppy.OmniLauncher.flatpakref
+            io.github.PuppyCodingBadly.OmniLauncher.flatpakref
           generate_release_notes: true

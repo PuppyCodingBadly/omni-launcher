@@ -1,4 +1,4 @@
-app-id: io.github.CoderPuppy.OmniLauncher
+app-id: io.github.PuppyCodingBadly.OmniLauncher
 runtime: org.freedesktop.Platform
 runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
@@ -66,10 +66,10 @@ modules:
       - cp -r build/linux/x64/release/bundle/. /app/omni-launcher/
       - install -d /app/bin
       - ln -sf /app/omni-launcher/omni_launcher /app/bin/omni_launcher
-      - install -Dm644 data/io.github.CoderPuppy.OmniLauncher.desktop.in /app/share/applications/io.github.CoderPuppy.OmniLauncher.desktop
-      - sed -i 's|@EXEC@|omni_launcher|' /app/share/applications/io.github.CoderPuppy.OmniLauncher.desktop
-      - install -Dm644 data/icons/io.github.CoderPuppy.OmniLauncher.svg /app/share/icons/hicolor/scalable/apps/io.github.CoderPuppy.OmniLauncher.svg
-      - install -Dm644 flatpak/io.github.CoderPuppy.OmniLauncher.metainfo.xml /app/share/metainfo/io.github.CoderPuppy.OmniLauncher.metainfo.xml
+      - install -Dm644 data/io.github.PuppyCodingBadly.OmniLauncher.desktop.in /app/share/applications/io.github.PuppyCodingBadly.OmniLauncher.desktop
+      - sed -i 's|@EXEC@|omni_launcher|' /app/share/applications/io.github.PuppyCodingBadly.OmniLauncher.desktop
+      - install -Dm644 data/icons/io.github.PuppyCodingBadly.OmniLauncher.svg /app/share/icons/hicolor/scalable/apps/io.github.PuppyCodingBadly.OmniLauncher.svg
+      - install -Dm644 flatpak/io.github.PuppyCodingBadly.OmniLauncher.metainfo.xml /app/share/metainfo/io.github.PuppyCodingBadly.OmniLauncher.metainfo.xml
     sources:
       - type: dir
         path: ..
