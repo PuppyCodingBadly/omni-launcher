@@ -6,8 +6,6 @@ import '../paths.dart';
 import 'source.dart';
 
 /// AppImage files found in the configured directories.
-///
-/// Port of `omnilauncher/sources/appimage.py`.
 class AppImageSource extends GameSource {
   @override
   SourceKind get kind => SourceKind.appimage;

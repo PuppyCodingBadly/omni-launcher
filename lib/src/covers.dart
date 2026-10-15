@@ -83,8 +83,7 @@ class CoverStore {
   static const String _userAgent = 'OmniLauncher/1.0';
   static const int _minBytes = 4096;
 
-  /// How many capsules are fetched at once, the size of the Python
-  /// launcher's cover pool.
+  /// How many capsules are fetched at once.
   static const int _maxDownloads = 4;
 
   ArtSettings _settings;

@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'host.dart';
 
-/// XDG paths, mirroring `omnilauncher/paths.py` but under our own app name so
-/// the Python launcher's config is never clobbered.
+/// XDG paths for this launcher's own config, cache and state.
 class AppPaths {
   static const String appId = 'io.github.PuppyCodingBadly.OmniLauncher';
   static const String appName = 'Omni Launcher';

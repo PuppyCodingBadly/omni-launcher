@@ -28,7 +28,7 @@ wall first, details on demand.
   own API key: portrait posters on a 168x252 tile, whatever shape the window is.
 * **A sidebar that folds** down to an icon rail, for the source list you set up
   once and then never look at again.
-* **Games that are also Steam shortcuts** — RetroDECK, for instance — are
+* **Games that are also Steam shortcuts** (RetroDECK, for instance) are
   launched through Steam, which is what gives them Steam Input and the overlay.
 * **Playtime and last played**, per game. Only time that was actually observed
   is counted, so a launcher that dies mid-game cannot invent hours.
@@ -49,17 +49,20 @@ AppImage folders, hidden games and hand-added games.
 
 ### Flatpak
 
-```sh
-flatpak install --user --from \
-  https://github.com/PuppyCodingBadly/omni-launcher/releases/latest/download/io.github.PuppyCodingBadly.OmniLauncher.flatpakref
-```
-
-Or download `OmniLauncher-x86_64.flatpak` from the
+Download `OmniLauncher-x86_64.flatpak` from the
 [releases page](https://github.com/PuppyCodingBadly/omni-launcher/releases) and
 install the single file:
 
 ```sh
 flatpak install --user ./OmniLauncher-x86_64.flatpak
+```
+
+The release also carries a `.flatpakref` pointing at the project's flatpak
+repository, which is what lets `flatpak update` pick up later releases:
+
+```sh
+flatpak install --user --from \
+  https://github.com/PuppyCodingBadly/omni-launcher/releases/latest/download/io.github.PuppyCodingBadly.OmniLauncher.flatpakref
 ```
 
 ### From source
@@ -79,10 +82,12 @@ flutter build linux --release
 
 Launch "Omni Launcher" from your app grid. Click a tile to select it, double
 click (or the Play button on hover) to start the game. `Ctrl+F` search,
-`Ctrl+R` rescan, `Esc` close the details panel. The sidebar filters by source
-and folds to an icon rail with the chevron in its header — the same filters,
-each with its label and count in the tooltip — and it stays folded next time;
-hidden games live behind *Show hidden*, which the rail keeps too.
+`Ctrl+R` rescan, `Esc` close the details panel.
+
+The sidebar filters by source and folds to an icon rail with the chevron in its
+header: the same filters, each with its label and count in the tooltip. It
+stays folded next time, and hidden games live behind *Show hidden*, which the
+rail keeps too.
 
 The detail panel has *Launch*, *Open folder*, *Copy* (the exact argv), *Find
 art*, *Rename*, *Hide* and *Close the launcher with the game*.

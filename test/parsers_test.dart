@@ -21,7 +21,7 @@ void main() {
 {
   "0"
   {
-    "path"    "/home/jadefk/.local/share/Steam"
+    "path"    "/home/u/.local/share/Steam"
     "label"   ""
   }
   "1"
@@ -33,7 +33,7 @@ void main() {
       final parsed = parseKeyValues(text);
       final folders = parsed['libraryfolders'] as Map<String, Object?>;
       final first = folders['0'] as Map<String, Object?>;
-      expect(first['path'], '/home/jadefk/.local/share/Steam');
+      expect(first['path'], '/home/u/.local/share/Steam');
       expect(first['label'], '');
       final second = folders['1'] as Map<String, Object?>;
       expect(second['path'], '/games"two');

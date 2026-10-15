@@ -20,11 +20,10 @@ final List<String> _desktopDirs = [
 
 final RegExp _steamRunGame = RegExp(r'steam://rungameid/(\d+)');
 
-/// Launcher entries: this app and its GTK predecessor. Neither is a game.
-const Set<String> _launcherDesktop = {
-  '${AppPaths.appId}.desktop',
-  'dev.jadefk.OmniLauncher.desktop',
-};
+/// A launcher is not a game: this app's own desktop entry, and any entry left
+/// by an earlier build of it, are skipped by name.
+bool _isLauncherEntry(String name) =>
+    name.toLowerCase().contains('omnilauncher');
 
 bool _isTrue(Map<String, String> entry, String key) =>
     (entry[key] ?? '').trim().toLowerCase() == 'true';
@@ -61,7 +60,7 @@ class DesktopSource extends GameSource {
     final games = <Game>[];
     for (final file in iterDesktopFiles(_desktopDirs)) {
       final name = file.path.split('/').last;
-      if (_launcherDesktop.contains(name) || isFlatpakExport(file.path)) continue;
+      if (_isLauncherEntry(name) || isFlatpakExport(file.path)) continue;
       final entry = readDesktopFile(file.path);
       if (entry.isEmpty || !desktopCategories(entry).contains('Game')) continue;
       if (_isTrue(entry, 'NoDisplay') ||

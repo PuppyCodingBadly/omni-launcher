@@ -11,7 +11,8 @@ ICONS_DIR=${HOME}/.local/share/icons/hicolor/scalable/apps
 
 if [ ! -x "$BUNDLE/omni_launcher" ]; then
     echo "Build the release bundle first:" >&2
-    echo "  distrobox enter fedora -- bash -lc 'cd $SELF && PATH=\$HOME/.local/share/flutter/bin:\$PATH flutter build linux --release'" >&2
+    echo "  cd $SELF && flutter build linux --release" >&2
+    echo "(see README -> From source if the toolchain is missing)" >&2
     exit 1
 fi
 
