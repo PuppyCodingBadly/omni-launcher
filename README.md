@@ -104,6 +104,32 @@ the freedesktop SDK. The permissions it asks for, and why:
 | `--socket=wayland`, `--socket=fallback-x11`, `--share=ipc`, `--device=dri` | a GTK window with GPU rendering |
 | `--socket=pulseaudio` | games that make noise |
 
+## Sharing it
+
+1. **Send the file.** `OmniLauncher-x86_64.flatpak` is self-contained (7.4 MB).
+   The recipient needs `flatpak` and flathub (for the runtime):
+
+   ```sh
+   flatpak install --user ./OmniLauncher-x86_64.flatpak
+   ```
+
+2. **A repository on your network.** `flatpak/repo` is an OSTree repository.
+   Serve it and hand over a `.flatpakref` that points at your machine:
+
+   ```sh
+   cd flatpak && python3 -m http.server 8765      # serves ./repo
+   # omni.flatpakref: Url=http://<your-ip>:8765/repo
+   flatpak install --user --from http://<your-ip>:8765/omni.flatpakref
+   ```
+
+   (Add `--no-gpg-verify` to the install while the builds are unsigned, or sign
+   them in CI with a GPG key.)
+
+3. **GitHub.** Push, tag `v0.1.0`, and the workflow builds the bundle, publishes
+   the repository and the landing page to `gh-pages`, and attaches the bundle
+   plus the generated `.flatpakref` to the release — which is exactly what
+   `site/index.html` links to.
+
 ## Use
 
 Launch "Omni Launcher" from the app grid. Click a tile to select it, double
