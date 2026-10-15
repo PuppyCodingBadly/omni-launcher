@@ -49,20 +49,17 @@ AppImage folders, hidden games and hand-added games.
 
 ### Flatpak
 
-Download `OmniLauncher-x86_64.flatpak` from the
-[releases page](https://github.com/PuppyCodingBadly/omni-launcher/releases) and
-install the single file:
-
-```sh
-flatpak install --user ./OmniLauncher-x86_64.flatpak
-```
-
-The release also carries a `.flatpakref` pointing at the project's flatpak
-repository, which is what lets `flatpak update` pick up later releases:
-
 ```sh
 flatpak install --user --from \
   https://github.com/PuppyCodingBadly/omni-launcher/releases/latest/download/io.github.PuppyCodingBadly.OmniLauncher.flatpakref
+```
+
+That installs from the project's flatpak repository, so `flatpak update` picks
+up later releases. Each release also carries `OmniLauncher-x86_64.flatpak`, a
+standalone bundle of that release's build, for installing without a repository:
+
+```sh
+flatpak install --user ./OmniLauncher-x86_64.flatpak
 ```
 
 ### From source
