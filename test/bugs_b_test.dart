@@ -45,32 +45,26 @@ class ArtSpy extends LibraryController {
     super.config,
   });
 
-  /// Shapes the tiles asked to fetch covers in.
-  final List<GridShape> coverRequests = <GridShape>[];
+  /// Game ids the tiles asked to fetch covers for.
+  final List<String> coverRequests = <String>[];
 
-  /// Shapes the art picker asked SteamGridDB for.
-  final List<GridShape> searches = <GridShape>[];
+  /// Game ids the art picker asked SteamGridDB for.
+  final List<String> searches = <String>[];
 
   /// Candidates [searchArt] hands back; empty means "nothing found".
   List<SgdbGrid> candidates = const [];
 
   @override
-  Future<Artwork?> requestCoverArt(
-    Game game, {
-    GridShape shape = GridShape.portrait,
-  }) async {
-    coverRequests.add(shape);
+  Future<Artwork?> requestCoverArt(Game game) async {
+    coverRequests.add(game.id);
     // Never resolves to artwork: the tile stays as it is, like a game whose
     // cover the CDN does not have.
     return null;
   }
 
   @override
-  Future<List<SgdbGrid>> searchArt(
-    Game game, {
-    GridShape shape = GridShape.portrait,
-  }) async {
-    searches.add(shape);
+  Future<List<SgdbGrid>> searchArt(Game game) async {
+    searches.add(game.id);
     return candidates;
   }
 }
@@ -405,26 +399,8 @@ void main() {
     });
   });
 
-  group('poster shape', () {
-    test('only a square-ish cover asks for square posters', () {
-      expect(GridShape.forAspect(0.89), GridShape.portrait);
-      expect(GridShape.forAspect(0.9), GridShape.square);
-      expect(GridShape.forAspect(1.0), GridShape.square);
-      expect(GridShape.forAspect(1.1), GridShape.square);
-      expect(GridShape.forAspect(1.11), GridShape.portrait);
-      expect(GridShape.forAspect(1.9), GridShape.portrait);
-      // A cover wall twice as tall as it is wide stays portrait.
-      expect(GridShape.forAspect(0.5), GridShape.portrait);
-    });
-
-    test('each shape carries its own dimensions', () {
-      expect(SteamGridDb.defaultDimensions, '600x900,342x482,660x930,460x215');
-      expect(GridShape.portrait.dimensions, SteamGridDb.defaultDimensions);
-      expect(SteamGridDb.squareDimensions, '512x512,1024x1024');
-      expect(GridShape.square.dimensions, '512x512,1024x1024');
-    });
-
-    test('a lookup asks for the dimensions of the shape it is given', () async {
+  group('SteamGridDB grids', () {
+    test('a lookup asks for the portrait dimensions the wall shows', () async {
       final queries = <Uri>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((request) async {
@@ -439,7 +415,7 @@ void main() {
         baseUrl: 'http://127.0.0.1:${server.port}',
       );
 
-      await client.gridsForSteamApp(1234, shape: GridShape.square);
+      await client.gridsForSteamApp(1234);
       await client.gridsForGame(5678);
       client.close();
       await server.close(force: true);
@@ -448,14 +424,13 @@ void main() {
         '/grids/steam/1234',
         '/grids/game/5678',
       ]);
-      expect(queries.first.queryParameters['dimensions'], '512x512,1024x1024');
       expect(
-        queries.last.queryParameters['dimensions'],
-        SteamGridDb.defaultDimensions,
+        queries.map((uri) => uri.queryParameters['dimensions']).toSet(),
+        {SteamGridDb.defaultDimensions},
       );
     });
 
-    test('the shape reaches the wire through CoverStore.searchArt', () async {
+    test('searchArt looks a Steam game up by app id, anything else by name', () async {
       final queries = <Uri>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((request) async {
@@ -477,29 +452,18 @@ void main() {
         sgdbBase: 'http://127.0.0.1:${server.port}',
       );
 
-      // By app id, square.
-      await store.searchArt(steamGame('1234'), shape: GridShape.square);
+      await store.searchArt(steamGame('1234'));
       expect(queries.single.path, '/grids/steam/1234');
-      expect(queries.single.queryParameters['dimensions'], '512x512,1024x1024');
+      expect(queries.single.queryParameters['dimensions'], SteamGridDb.defaultDimensions);
 
-      // By name, square, and by default portrait.
+      // No app id: autocomplete first, then the grids of the best match.
       queries.clear();
-      await store.searchArt(
-        game('flatpak:x', 'Terraria', SourceKind.flatpak),
-        shape: GridShape.square,
-      );
+      await store.searchArt(game('flatpak:x', 'Terraria', SourceKind.flatpak));
       expect(queries.map((uri) => uri.path).toList(), [
         '/search/autocomplete/Terraria',
         '/grids/game/7',
       ]);
-      expect(queries.last.queryParameters['dimensions'], '512x512,1024x1024');
-
-      queries.clear();
-      await store.searchArt(game('flatpak:x', 'Terraria', SourceKind.flatpak));
-      expect(
-        queries.last.queryParameters['dimensions'],
-        SteamGridDb.defaultDimensions,
-      );
+      expect(queries.last.queryParameters['dimensions'], SteamGridDb.defaultDimensions);
       await server.close(force: true);
     });
   });
@@ -794,9 +758,9 @@ void main() {
     });
   });
 
-  // -------------------------------------------------------- poster shape
+  // ----------------------------------------------------- poster geometry
 
-  group('poster shape in the window', () {
+  group('poster geometry in the window', () {
     late ArtSpy spy;
 
     ArtSpy buildSpy({Map<String, String> art = const {}}) {
@@ -831,108 +795,134 @@ void main() {
       return delegate.childAspectRatio;
     }
 
-    testWidgets('a wide window keeps the portrait tiles it shipped with', (tester) async {
+    /// The first tile's cover box.
+    Size coverBox(WidgetTester tester) => tester.getSize(
+      find
+          .descendant(
+            of: find.byType(GameTile).first,
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+
+    testWidgets('the wall is portrait posters whatever the window shape', (tester) async {
       final controller = buildSpy();
       await pumpPage(tester, controller, const Size(1600, 900));
 
-      final shown = tiles(tester);
-      expect(shown, isNotEmpty);
-      expect(shown.map((tile) => tile.shape).toSet(), {GridShape.portrait});
-      // 16:9 is 1.78 wide, nowhere near square.
-      expect(GridShape.forAspect(1600 / 900), GridShape.portrait);
-      // The geometry and the request are exactly what they always were.
-      expect(GameTile.coverHeightFor(GridShape.portrait), GameTile.coverHeight);
+      expect(tiles(tester), isNotEmpty);
       expect(gridAspect(tester), GameTile.width / (GameTile.coverHeight + 68));
-      expect(controller.coverRequests, everyElement(GridShape.portrait));
-    });
+      expect(coverBox(tester), const Size(GameTile.width, GameTile.coverHeight));
+      expect(controller.coverRequests, isNotEmpty);
 
-    testWidgets('a square-ish window gets square, uncropped covers', (tester) async {
-      final controller = buildSpy();
-      await pumpPage(tester, controller, const Size(1000, 1000));
-
-      final shown = tiles(tester);
-      expect(shown, isNotEmpty);
-      expect(shown.map((tile) => tile.shape).toSet(), {GridShape.square});
-      expect(gridAspect(tester), GameTile.width / (GameTile.width + 68));
-      expect(controller.coverRequests, everyElement(GridShape.square));
-
-      // The cover box is square, so a square poster fills it without cropping.
-      final cover = find.descendant(
-        of: find.byType(GameTile).first,
-        matching: find.byType(AnimatedContainer),
-      );
-      expect(tester.getSize(cover.first), const Size(GameTile.width, GameTile.width));
+      // A square window used to turn the whole wall into square posters; that
+      // experiment is gone, so the geometry has to hold here too.
+      await resizeWindow(tester, const Size(1000, 1000));
+      expect(gridAspect(tester), GameTile.width / (GameTile.coverHeight + 68));
+      expect(coverBox(tester), const Size(GameTile.width, GameTile.coverHeight));
     });
 
     testWidgets('resizing does not re-ask for artwork tile by tile', (tester) async {
       final controller = buildSpy();
       await pumpPage(tester, controller, const Size(1600, 900));
       final asked = controller.coverRequests.length;
-      final tileCount = tiles(tester).length;
       expect(asked, greaterThan(0));
 
-      // Still a wide window: nothing about the posters changed.
+      // Every window is a portrait wall now, so nothing about the posters
+      // changes and no tile has a reason to ask again.
       await resizeWindow(tester, const Size(1500, 900));
       await resizeWindow(tester, const Size(1400, 880));
-      expect(controller.coverRequests.length, asked);
-
-      // Crossing into square changes the shape once, not once per pixel.
       await resizeWindow(tester, const Size(900, 900));
-      expect(tiles(tester).map((tile) => tile.shape).toSet(), {GridShape.square});
-      expect(controller.coverRequests.length, lessThanOrEqualTo(asked + tileCount));
+      expect(controller.coverRequests.length, asked);
     });
 
-    // The picker used to render every candidate in a fixed 2:3 cell, which
-    // cropped the square grids a square window asks for.
-    testWidgets('the picker shows square candidates in square cells', (tester) async {
-      final controller = buildSpy();
-      controller.candidates = [
-        const SgdbGrid(
-          id: 3,
-          url: 'http://127.0.0.1:1/grid.png',
-          thumb: 'http://127.0.0.1:1/thumb.png',
-        ),
+  });
+
+  // ------------------------------------------------------------- sidebar
+
+  group('sidebar', () {
+    ArtSpy buildSpy() {
+      final spy = ArtSpy(
+        configPath: '${dir.path}/config.json',
+        cachePath: '${dir.path}/games.json',
+        playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+        config: AppConfig(appimageDirs: const []),
+      );
+      addTearDown(spy.dispose);
+      spy.games = [
+        game('flatpak:a', 'Alpha', SourceKind.flatpak),
+        game('flatpak:b', 'Beta', SourceKind.flatpak),
+        steamGame('7'),
       ];
-      await pumpPage(tester, controller, const Size(1700, 1700));
-      controller.select(controller.games.first);
+      return spy;
+    }
+
+    /// Text inside the sidebar (the tiles carry the same source labels).
+    Finder sidebarText(String text) =>
+        find.descendant(of: find.byType(ListView), matching: find.text(text));
+
+    testWidgets('folds to an icon rail, gives the wall the width, and remembers', (
+      tester,
+    ) async {
+      final controller = buildSpy();
+      await pumpPage(tester, controller, const Size(1400, 900));
+
+      expect(sidebarText('All games'), findsOneWidget);
+      expect(sidebarText('Flatpak'), findsOneWidget);
+      final wide = tester.getSize(find.byType(GridView)).width;
+
+      await tester.tap(find.byTooltip('Collapse the sidebar'));
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Find art (SteamGridDB)'));
-      await tester.tap(find.text('Find art (SteamGridDB)'));
-      await tester.pumpAndSettle();
-      expect(controller.searches, [GridShape.square]);
-
-      // A 512x512 candidate in a 2:3 cell is cropped to about two thirds of its
-      // width, so the picker would show art other than what it pins.
-      final grid = tester.widget<GridView>(
-        find.descendant(of: find.byType(Dialog), matching: find.byType(GridView)),
+      // The labels go, the filters stay.
+      expect(find.byTooltip('Expand the sidebar'), findsOneWidget);
+      expect(sidebarText('All games'), findsNothing);
+      expect(sidebarText('Flatpak'), findsNothing);
+      expect(find.byIcon(Icons.apps), findsOneWidget);
+      expect(find.byTooltip('Flatpak · 2'), findsOneWidget);
+      expect(
+        tester.getSize(find.byType(GridView)).width - wide,
+        168,
+        reason: 'the 232px sidebar folds to a 64px rail',
       );
-      final delegate = grid.gridDelegate as SliverGridDelegateWithMaxCrossAxisExtent;
-      expect(delegate.childAspectRatio, 1.0);
+      expect(AppConfig.load('${dir.path}/config.json').sidebarCollapsed, isTrue);
+
+      await tester.tap(find.byTooltip('Expand the sidebar'));
+      await tester.pumpAndSettle();
+
+      expect(sidebarText('All games'), findsOneWidget);
+      expect(tester.getSize(find.byType(GridView)).width, wide);
+      expect(AppConfig.load('${dir.path}/config.json').sidebarCollapsed, isFalse);
     });
 
-    testWidgets('the art picker asks for the shape the window has', (tester) async {
+    testWidgets('a source is still pickable from the rail', (tester) async {
       final controller = buildSpy();
-      // Wide enough for the sidebar, the panel and the status bar at once.
-      await pumpPage(tester, controller, const Size(1700, 1700));
-      controller.select(controller.games.first);
+      await pumpPage(tester, controller, const Size(1400, 900));
+      await tester.tap(find.byTooltip('Collapse the sidebar'));
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Find art (SteamGridDB)'));
-      await tester.tap(find.text('Find art (SteamGridDB)'));
+      await tester.tap(find.byTooltip('Flatpak · 2'));
       await tester.pumpAndSettle();
-      expect(controller.searches, [GridShape.square]);
-      await tester.tap(
-        find.descendant(of: find.byType(Dialog), matching: find.byIcon(Icons.close)),
+
+      expect(controller.sourceFilter, {SourceKind.flatpak});
+      expect(
+        controller.visibleGames.map((game) => game.id).toSet(),
+        {'flatpak:a', 'flatpak:b'},
       );
+    });
+
+    testWidgets('Show hidden is reachable while folded', (tester) async {
+      final controller = buildSpy();
+      controller.setHidden(controller.games.first, hidden: true);
+      await pumpPage(tester, controller, const Size(1400, 900));
+      await tester.tap(find.byTooltip('Collapse the sidebar'));
       await tester.pumpAndSettle();
 
-      // And a wide window asks for the portrait grids it always asked for.
-      await resizeWindow(tester, const Size(1700, 1000));
-      await tester.ensureVisible(find.text('Find art (SteamGridDB)'));
-      await tester.tap(find.text('Find art (SteamGridDB)'));
+      expect(controller.visibleGames.length, 2);
+      await tester.tap(find.byTooltip('Show hidden games (1)'));
       await tester.pumpAndSettle();
-      expect(controller.searches, [GridShape.square, GridShape.portrait]);
+
+      expect(controller.config.showHidden, isTrue);
+      expect(controller.visibleGames.length, 3);
     });
   });
 

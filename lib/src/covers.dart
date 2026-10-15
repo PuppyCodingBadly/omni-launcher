@@ -32,7 +32,7 @@ class ArtSettings {
     this.sgdbKey = '',
     this.sgdbAuto = false,
     this.overrides = const <String, String>{},
-    this.autoArt = const <String, Map<String, String>>{},
+    this.autoArt = const <String, String>{},
   });
 
   final bool steamCovers;
@@ -42,8 +42,8 @@ class ArtSettings {
   /// Chosen artwork per game id (game id -> cached file path).
   final Map<String, String> overrides;
 
-  /// Artwork fetched per game and poster shape (game id -> shape -> path).
-  final Map<String, Map<String, String>> autoArt;
+  /// Artwork fetched per game (game id -> cached file path).
+  final Map<String, String> autoArt;
 
   bool get sgdbEnabled => sgdbKey.trim().isNotEmpty;
 
@@ -119,31 +119,29 @@ class CoverStore {
     return File(path).existsSync() ? path : null;
   }
 
-  /// Artwork fetched for [game] in [shape], when it is still on disk.
-  String? autoArtFor(Game game, GridShape shape) {
-    final path = _settings.autoArt[game.id]?[shape.name];
+  /// Artwork fetched for [game], when it is still on disk.
+  String? autoArtFor(Game game) {
+    final path = _settings.autoArt[game.id];
     if (path == null || path.isEmpty) return null;
     return File(path).existsSync() ? path : null;
   }
 
   /// Best artwork available right now (never blocks on the network).
-  Artwork resolve(Game game, {GridShape shape = GridShape.portrait}) {
+  Artwork resolve(Game game) {
     final override = overrideFor(game);
     if (override != null) return Artwork(ArtworkKind.cover, value: override);
-    final fetched = autoArtFor(game, shape);
+    final fetched = autoArtFor(game);
     if (fetched != null) return Artwork(ArtworkKind.cover, value: fetched);
-    if (shape == GridShape.portrait) {
-      final cover = game.cover;
-      if (cover != null && File(cover).existsSync()) {
-        return Artwork(ArtworkKind.cover, value: cover);
-      }
-      if (game.source == SourceKind.steam) {
-        final appid = '${game.extra['appid'] ?? ''}';
-        if (appid.isNotEmpty) {
-          final local = _steamLocal(appid) ?? _steamCached(appid);
-          if (local != null) return Artwork(ArtworkKind.cover, value: local);
-          return Artwork(ArtworkKind.letter, pending: _pendingFor(appid));
-        }
+    final cover = game.cover;
+    if (cover != null && File(cover).existsSync()) {
+      return Artwork(ArtworkKind.cover, value: cover);
+    }
+    if (game.source == SourceKind.steam) {
+      final appid = '${game.extra['appid'] ?? ''}';
+      if (appid.isNotEmpty) {
+        final local = _steamLocal(appid) ?? _steamCached(appid);
+        if (local != null) return Artwork(ArtworkKind.cover, value: local);
+        return Artwork(ArtworkKind.letter, pending: _pendingFor(appid));
       }
     }
     final icon = game.icon;
@@ -151,7 +149,7 @@ class CoverStore {
       if (game.iconIsName) return Artwork(ArtworkKind.icon, value: icon, isName: true);
       if (File(icon).existsSync()) return Artwork(ArtworkKind.icon, value: icon);
     }
-    return Artwork(ArtworkKind.letter, pending: _pendingFor(null, shape: shape));
+    return Artwork(ArtworkKind.letter, pending: _pendingFor(null));
   }
 
   /// Whether a fetch could still produce art for a game whose Steam app id is
@@ -160,12 +158,7 @@ class CoverStore {
   /// Reporting a fetch that cannot happen makes every tile ask for the same
   /// cover again (a request and a stat per tile), so a known missing Steam
   /// capsule and the games the CDN never covers are excluded here.
-  bool _pendingFor(String? appid, {GridShape shape = GridShape.portrait}) {
-    if (shape == GridShape.square) {
-      // A square tile cannot use the portrait capsule, so SteamGridDB is the
-      // only source that can fill it.
-      return _settings.sgdbEnabled;
-    }
+  bool _pendingFor(String? appid) {
     if (appid != null && _settings.steamCovers && !_missingMarker(appid).existsSync()) {
       return true;
     }
@@ -273,20 +266,15 @@ class CoverStore {
 
   /// Candidate artwork from SteamGridDB, best match first.
   ///
-  /// Steam games are looked up by app id; everything else by name. [shape]
-  /// picks the grid shapes to ask for; portrait is what a cover wall wants
-  /// unless it is laid out square.
-  Future<List<SgdbGrid>> searchArt(
-    Game game, {
-    GridShape shape = GridShape.portrait,
-  }) async {
+  /// Steam games are looked up by app id; everything else by name.
+  Future<List<SgdbGrid>> searchArt(Game game) async {
     if (!_settings.sgdbEnabled) return const [];
     final appid = int.tryParse('${game.extra['appid'] ?? ''}');
     if (appid != null) {
-      final byId = await sgdb.gridsForSteamApp(appid, shape: shape);
+      final byId = await sgdb.gridsForSteamApp(appid);
       if (byId.isNotEmpty) return byId;
     }
-    return sgdb.gridsForName(game.name, shape: shape);
+    return sgdb.gridsForName(game.name);
   }
 
   /// Where a SteamGridDB grid for [game] is cached.

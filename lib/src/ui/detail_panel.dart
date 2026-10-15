@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../art/steamgriddb.dart';
 import '../covers.dart';
 import '../launcher.dart';
 import '../model/game.dart';
@@ -19,7 +18,6 @@ class DetailPanel extends StatelessWidget {
     super.key,
     required this.controller,
     required this.game,
-    this.shape = GridShape.portrait,
   });
 
   static const double width = 360;
@@ -27,14 +25,10 @@ class DetailPanel extends StatelessWidget {
   final LibraryController controller;
   final Game game;
 
-  /// Poster shape of the window, so the preview matches the wall and the
-  /// artwork search asks for the same shape.
-  final GridShape shape;
-
   @override
   Widget build(BuildContext context) {
     final hidden = controller.config.isHidden(game.id);
-    final artwork = controller.covers.resolve(game, shape: shape);
+    final artwork = controller.covers.resolve(game);
     return Container(
       width: width,
       color: context.palette.sidebar,
@@ -103,7 +97,7 @@ class DetailPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
-                  onPressed: () => showArtPicker(context, controller, game, shape),
+                  onPressed: () => showArtPicker(context, controller, game),
                   icon: const Icon(Icons.image_search, size: 18),
                   label: const Text('Find art (SteamGridDB)'),
                 ),

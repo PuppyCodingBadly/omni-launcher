@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import '../art/steamgriddb.dart';
 import '../covers.dart';
 import '../model/game.dart';
 import '../state/library_controller.dart';
@@ -16,23 +15,14 @@ class GameTile extends StatefulWidget {
     required this.game,
     required this.controller,
     required this.selected,
-    this.shape = GridShape.portrait,
   });
 
   static const double width = 168;
   static const double coverHeight = 252;
 
-  /// Cover height for [shape]: square posters are square, and a portrait window
-  /// keeps the geometry the launcher shipped with.
-  static double coverHeightFor(GridShape shape) =>
-      shape == GridShape.square ? width : coverHeight;
-
   final Game game;
   final LibraryController controller;
   final bool selected;
-
-  /// Poster shape of the window, which is also what the fetch asks for.
-  final GridShape shape;
 
   @override
   State<GameTile> createState() => _GameTileState();
@@ -50,7 +40,7 @@ class _GameTileState extends State<GameTile> {
   @override
   void initState() {
     super.initState();
-    _artwork = widget.controller.covers.resolve(widget.game, shape: widget.shape);
+    _artwork = widget.controller.covers.resolve(widget.game);
     _pinned = widget.controller.covers.overrideFor(widget.game);
     _maybeFetch();
   }
@@ -59,12 +49,10 @@ class _GameTileState extends State<GameTile> {
   void didUpdateWidget(covariant GameTile oldWidget) {
     super.didUpdateWidget(oldWidget);
     final pinned = widget.controller.covers.overrideFor(widget.game);
-    // A different game, a new pick for this game, or a new poster shape: all of
-    // them change what the tile should draw.
-    if (oldWidget.game.id != widget.game.id ||
-        pinned != _pinned ||
-        oldWidget.shape != widget.shape) {
-      _artwork = widget.controller.covers.resolve(widget.game, shape: widget.shape);
+    // A different game, or a new pick for this game: both change what the tile
+    // should draw.
+    if (oldWidget.game.id != widget.game.id || pinned != _pinned) {
+      _artwork = widget.controller.covers.resolve(widget.game);
       _pinned = pinned;
       _requested = false;
       _maybeFetch();
@@ -74,7 +62,7 @@ class _GameTileState extends State<GameTile> {
   void _maybeFetch() {
     if (_requested || !_artwork.pending) return;
     _requested = true;
-    widget.controller.requestCoverArt(widget.game, shape: widget.shape).then((artwork) {
+    widget.controller.requestCoverArt(widget.game).then((artwork) {
       if (!mounted || artwork == null) return;
       setState(() => _artwork = artwork);
     });
@@ -100,14 +88,10 @@ class _GameTileState extends State<GameTile> {
             mainAxisSize: MainAxisSize.min,
             children: [
               _Cover(
-                // Keyed by shape so a resize swaps the cover instead of
-                // animating its height, which would overflow the tile.
-                key: ValueKey(widget.shape),
                 artwork: _artwork,
                 name: game.name,
                 hovered: _hovered,
                 selected: widget.selected,
-                height: GameTile.coverHeightFor(widget.shape),
                 themeIcon: widget.controller.covers.themeIconPath,
                 onPlay: () => widget.controller.launch(game),
                 menu: _menu(context, game, hidden),
@@ -179,12 +163,10 @@ class _GameTileState extends State<GameTile> {
 
 class _Cover extends StatelessWidget {
   const _Cover({
-    super.key,
     required this.artwork,
     required this.name,
     required this.hovered,
     required this.selected,
-    required this.height,
     required this.themeIcon,
     required this.onPlay,
     required this.menu,
@@ -194,9 +176,6 @@ class _Cover extends StatelessWidget {
   final String name;
   final bool hovered;
   final bool selected;
-
-  /// Cover height for the poster shape in use.
-  final double height;
 
   /// Resolves an icon-theme name to a raster file.
   final String? Function(String name) themeIcon;
@@ -209,7 +188,7 @@ class _Cover extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       width: GameTile.width,
-      height: height,
+      height: GameTile.coverHeight,
       decoration: BoxDecoration(
         color: palette.surface,
         borderRadius: BorderRadius.circular(14),

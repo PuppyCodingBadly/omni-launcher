@@ -3,26 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-/// Which grid shape to ask SteamGridDB for.
-///
-/// There is no wide shape: a wide window keeps the portrait posters.
-enum GridShape {
-  portrait(SteamGridDb.defaultDimensions),
-  square(SteamGridDb.squareDimensions);
-
-  const GridShape(this.dimensions);
-
-  /// The `dimensions=` value sent with a grid request.
-  final String dimensions;
-
-  /// The shape for a cover that is [widthOverHeight] times as wide as it is
-  /// tall: square-ish covers are square, everything else portrait.
-  static GridShape forAspect(double widthOverHeight) =>
-      widthOverHeight >= 0.9 && widthOverHeight <= 1.1
-      ? GridShape.square
-      : GridShape.portrait;
-}
-
 /// SteamGridDB API client (v2).
 ///
 /// Only the endpoints needed for cover art are used: game autocomplete,
@@ -44,9 +24,6 @@ class SteamGridDb {
 
   /// Portrait-first grid shapes, Cartridges style.
   static const String defaultDimensions = '600x900,342x482,660x930,460x215';
-
-  /// Grid shapes for a square cover wall.
-  static const String squareDimensions = '512x512,1024x1024';
 
   final String apiKey;
   final String userAgent;
@@ -72,25 +49,16 @@ class SteamGridDb {
   }
 
   /// Grids for a Steam app id (no name matching needed).
-  Future<List<SgdbGrid>> gridsForSteamApp(
-    int appId, {
-    GridShape shape = GridShape.portrait,
-  }) => _grids('/grids/steam/$appId', shape);
+  Future<List<SgdbGrid>> gridsForSteamApp(int appId) => _grids('/grids/steam/$appId');
 
   /// Grids for a SteamGridDB game id.
-  Future<List<SgdbGrid>> gridsForGame(
-    int gameId, {
-    GridShape shape = GridShape.portrait,
-  }) => _grids('/grids/game/$gameId', shape);
+  Future<List<SgdbGrid>> gridsForGame(int gameId) => _grids('/grids/game/$gameId');
 
   /// Grids for a game found by name; empty when nothing matches.
-  Future<List<SgdbGrid>> gridsForName(
-    String name, {
-    GridShape shape = GridShape.portrait,
-  }) async {
+  Future<List<SgdbGrid>> gridsForName(String name) async {
     final matches = await searchGames(name);
     if (matches.isEmpty) return const [];
-    return gridsForGame(matches.first.id, shape: shape);
+    return gridsForGame(matches.first.id);
   }
 
   /// Download [grid] to [targetPath]; returns the path on success.
@@ -116,9 +84,9 @@ class SteamGridDb {
     return games.length;
   }
 
-  Future<List<SgdbGrid>> _grids(String path, GridShape shape) async {
+  Future<List<SgdbGrid>> _grids(String path) async {
     final data = await _get(
-      '$path?dimensions=${shape.dimensions}&types=static&nsfw=false&humor=false',
+      '$path?dimensions=$defaultDimensions&types=static&nsfw=false&humor=false',
     );
     return data
         .whereType<Map>()

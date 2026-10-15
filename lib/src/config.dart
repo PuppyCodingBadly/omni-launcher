@@ -57,7 +57,7 @@ class AppConfig {
     List<String>? appimageDirs,
     List<ManualEntry>? manual,
     Map<String, String>? artOverrides,
-    Map<String, Map<String, String>>? autoArt,
+    Map<String, String>? autoArt,
     Map<String, String>? nameOverrides,
     this.steamgriddbKey = '',
     this.steamgriddbAuto = false,
@@ -66,11 +66,12 @@ class AppConfig {
     Set<String>? closeWithGame,
     this.coverFetch = true,
     this.showHidden = false,
+    this.sidebarCollapsed = false,
   }) : hidden = hidden ?? <String>{},
        appimageDirs = appimageDirs ?? List<String>.from(defaultAppimageDirs),
        manual = manual ?? <ManualEntry>[],
        artOverrides = artOverrides ?? <String, String>{},
-       autoArt = autoArt ?? <String, Map<String, String>>{},
+       autoArt = autoArt ?? <String, String>{},
        nameOverrides = nameOverrides ?? <String, String>{},
        closeWithGame = closeWithGame ?? <String>{};
 
@@ -91,9 +92,8 @@ class AppConfig {
   /// Chosen artwork per game id (game id -> cached file path).
   final Map<String, String> artOverrides;
 
-  /// Artwork the launcher fetched per game and poster shape
-  /// (game id -> shape name -> cached file path).
-  final Map<String, Map<String, String>> autoArt;
+  /// Artwork the launcher fetched per game (game id -> cached file path).
+  final Map<String, String> autoArt;
 
   /// Names the user picked, per game id (game id -> the name to show).
   ///
@@ -116,6 +116,9 @@ class AppConfig {
   final Set<String> closeWithGame;
   final bool coverFetch;
   final bool showHidden;
+
+  /// Whether the source sidebar is collapsed to its icon rail.
+  final bool sidebarCollapsed;
 
   static AppConfig load(String path) {
     final file = File(path);
@@ -145,6 +148,7 @@ class AppConfig {
       closeWithGame: _closeWithGame(data['close_with_game']),
       coverFetch: data['cover_fetch'] != false,
       showHidden: data['show_hidden'] == true,
+      sidebarCollapsed: data['sidebar_collapsed'] == true,
     );
   }
 
@@ -155,19 +159,20 @@ class AppConfig {
   static List<String>? _stringList(Object? value) =>
       value is List ? value.map((item) => '$item').toList() : null;
 
-  /// `{game: {shape: path}}`, ignoring anything that is not shaped like it.
-  static Map<String, Map<String, String>> _autoArt(Object? value) {
-    if (value is! Map) return <String, Map<String, String>>{};
-    final result = <String, Map<String, String>>{};
+  /// `{game: path}`, accepting the older `{game: {shape: path}}` files too: the
+  /// cover wall has one shape now, so only the portrait entry is worth keeping
+  /// (square grids were a square-tile experiment that is gone).
+  static Map<String, String> _autoArt(Object? value) {
+    if (value is! Map) return <String, String>{};
+    final result = <String, String>{};
     for (final entry in value.entries) {
-      final inner = entry.value;
-      if (inner is! Map) continue;
-      final paths = <String, String>{
-        for (final shape in inner.entries)
-          if (shape.value is String && (shape.value as String).isNotEmpty)
-            '${shape.key}': shape.value as String,
-      };
-      if (paths.isNotEmpty) result['${entry.key}'] = paths;
+      final raw = entry.value;
+      final path = raw is String
+          ? raw
+          : raw is Map
+          ? raw['portrait']
+          : null;
+      if (path is String && path.isNotEmpty) result['${entry.key}'] = path;
     }
     return result;
   }
@@ -223,6 +228,7 @@ class AppConfig {
       'close_with_game': closeWithGame.toList()..sort(),
       'cover_fetch': coverFetch,
       'show_hidden': showHidden,
+      'sidebar_collapsed': sidebarCollapsed,
     };
     final file = File(path);
     file.parent.createSync(recursive: true);
@@ -254,7 +260,7 @@ class AppConfig {
     List<String>? appimageDirs,
     List<ManualEntry>? manual,
     Map<String, String>? artOverrides,
-    Map<String, Map<String, String>>? autoArt,
+    Map<String, String>? autoArt,
     Map<String, String>? nameOverrides,
     String? steamgriddbKey,
     bool? steamgriddbAuto,
@@ -263,6 +269,7 @@ class AppConfig {
     Set<String>? closeWithGame,
     bool? coverFetch,
     bool? showHidden,
+    bool? sidebarCollapsed,
   }) => AppConfig(
     hidden: hidden ?? this.hidden,
     appimageDirs: appimageDirs ?? this.appimageDirs,
@@ -277,6 +284,7 @@ class AppConfig {
     closeWithGame: closeWithGame ?? this.closeWithGame,
     coverFetch: coverFetch ?? this.coverFetch,
     showHidden: showHidden ?? this.showHidden,
+    sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
   );
 }
 

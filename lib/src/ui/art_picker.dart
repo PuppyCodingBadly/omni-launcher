@@ -10,28 +10,18 @@ Future<void> showArtPicker(
   BuildContext context,
   LibraryController controller,
   Game game,
-  GridShape shape,
 ) {
   return showDialog<void>(
     context: context,
-    builder: (context) =>
-        _ArtPickerDialog(controller: controller, game: game, shape: shape),
+    builder: (context) => _ArtPickerDialog(controller: controller, game: game),
   );
 }
 
 class _ArtPickerDialog extends StatefulWidget {
-  const _ArtPickerDialog({
-    required this.controller,
-    required this.game,
-    required this.shape,
-  });
+  const _ArtPickerDialog({required this.controller, required this.game});
 
   final LibraryController controller;
   final Game game;
-
-  /// Poster shape of the window; the picker offers the same shape as the
-  /// automatic fetch would have used.
-  final GridShape shape;
 
   @override
   State<_ArtPickerDialog> createState() => _ArtPickerDialogState();
@@ -49,7 +39,7 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
   @override
   void initState() {
     super.initState();
-    _candidates = widget.controller.searchArt(widget.game, shape: widget.shape);
+    _candidates = widget.controller.searchArt(widget.game);
   }
 
   @override
@@ -177,13 +167,13 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
         );
       }
       return GridView.builder(
-        // Square grids get square cells: a portrait cell would crop a third of
-        // a 512x512 candidate, so the pick would not look like what is pinned.
+        // Portrait cells, the shape a cover wall shows: a square cell would
+        // crop a third off the side of the grids the wall wants.
         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: 190,
           mainAxisSpacing: 14,
           crossAxisSpacing: 14,
-          childAspectRatio: widget.shape == GridShape.square ? 1.0 : 2 / 3,
+          childAspectRatio: 2 / 3,
         ),
         itemCount: grids.length,
         itemBuilder: (context, index) => _candidate(grids[index]),

@@ -327,33 +327,18 @@ class LibraryController extends ChangeNotifier {
   /// Artwork for a tile: Steam CDN first, then SteamGridDB when enabled.
   ///
   /// A SteamGridDB pick is remembered in the config so it survives rescans.
-  Future<Artwork?> requestCoverArt(Game game, {GridShape shape = GridShape.portrait}) async {
+  Future<Artwork?> requestCoverArt(Game game) async {
     if (covers.overrideFor(game) != null) return null;
-    if (covers.autoArtFor(game, shape) != null) return null;
-    if (shape == GridShape.portrait) {
-      final steam = await covers.fetchSteamCover(game);
-      if (steam != null) return steam;
-    }
-    // A square tile cannot use the portrait capsule, so a square window asks
-    // SteamGridDB for square grids even when the automatic portrait fetch is
-    // switched off.
-    final mayFetch =
-        covers.settings.sgdbEnabled &&
-        (shape == GridShape.square || covers.settings.sgdbAuto);
-    if (!mayFetch) return null;
+    if (covers.autoArtFor(game) != null) return null;
+    final steam = await covers.fetchSteamCover(game);
+    if (steam != null) return steam;
+    if (!(covers.settings.sgdbEnabled && covers.settings.sgdbAuto)) return null;
     try {
-      final grids = await covers.searchArt(game, shape: shape);
+      final grids = await covers.searchArt(game);
       if (grids.isEmpty) return null;
       final path = await covers.downloadArt(game, grids.first);
       if (path == null) return null;
-      _apply(
-        config.copyWith(
-          autoArt: {
-            ...config.autoArt,
-            game.id: {...?config.autoArt[game.id], shape.name: path},
-          },
-        ),
-      );
+      _apply(config.copyWith(autoArt: {...config.autoArt, game.id: path}));
       return Artwork(ArtworkKind.cover, value: path);
     } on SteamGridDbException catch (error) {
       failure = '${game.name}: $error';
@@ -362,9 +347,9 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// Candidates for the art picker; sets [failure] when the lookup fails.
-  Future<List<SgdbGrid>> searchArt(Game game, {GridShape shape = GridShape.portrait}) async {
+  Future<List<SgdbGrid>> searchArt(Game game) async {
     try {
-      return await covers.searchArt(game, shape: shape);
+      return await covers.searchArt(game);
     } on SteamGridDbException catch (error) {
       failure = '${game.name}: $error';
       notifyListeners();
@@ -441,6 +426,12 @@ class LibraryController extends ChangeNotifier {
 
   void toggleShowHidden() {
     _apply(config.copyWith(showHidden: !config.showHidden));
+    notifyListeners();
+  }
+
+  /// Fold the source sidebar down to its icon rail, or open it again.
+  void toggleSidebar() {
+    _apply(config.copyWith(sidebarCollapsed: !config.sidebarCollapsed));
     notifyListeners();
   }
 

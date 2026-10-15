@@ -25,8 +25,9 @@ wall first, details on demand.
 ![Game details](docs/screenshots/details.jpg)
 
 * **Cover art** from Steam's own library cache, or from SteamGridDB with your
-  own API key. On a square-ish window it asks for square grids and uses square
-  tiles, so posters are never cropped.
+  own API key: portrait posters on a 168x252 tile, whatever shape the window is.
+* **A sidebar that folds** down to an icon rail, for the source list you set up
+  once and then never look at again.
 * **Games that are also Steam shortcuts** — RetroDECK, for instance — are
   launched through Steam, which is what gives them Steam Input and the overlay.
 * **Playtime and last played**, per game. Only time that was actually observed
@@ -78,8 +79,10 @@ flutter build linux --release
 
 Launch "Omni Launcher" from your app grid. Click a tile to select it, double
 click (or the Play button on hover) to start the game. `Ctrl+F` search,
-`Ctrl+R` rescan, `Esc` close the details panel. The sidebar filters by source;
-hidden games live behind *Show hidden*.
+`Ctrl+R` rescan, `Esc` close the details panel. The sidebar filters by source
+and folds to an icon rail with the chevron in its header — the same filters,
+each with its label and count in the tooltip — and it stays folded next time;
+hidden games live behind *Show hidden*, which the rail keeps too.
 
 The detail panel has *Launch*, *Open folder*, *Copy* (the exact argv), *Find
 art*, *Rename*, *Hide* and *Close the launcher with the game*.
@@ -88,7 +91,7 @@ art*, *Rename*, *Hide* and *Close the launcher with the game*.
 
 | Path | Contents |
 | --- | --- |
-| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, SteamGridDB key, pinned artwork, renames |
+| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames |
 | `~/.cache/omnilauncher-flutter/games.json` | last scan, for an instant start |
 | `~/.cache/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |

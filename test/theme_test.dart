@@ -81,7 +81,7 @@ class _AppHarness extends StatelessWidget {
   );
 }
 
-/// A controller that records which poster shape the UI asked for.
+/// A controller that records what the UI asked the artwork layer for.
 class _RecordingController extends LibraryController {
   _RecordingController({
     super.configPath,
@@ -89,24 +89,21 @@ class _RecordingController extends LibraryController {
     super.config,
   });
 
-  final List<GridShape> fetched = <GridShape>[];
-  final List<GridShape> searched = <GridShape>[];
+  /// Game ids the tiles asked for a cover.
+  final List<String> fetched = <String>[];
+
+  /// Game ids the art picker asked SteamGridDB for.
+  final List<String> searched = <String>[];
 
   @override
-  Future<Artwork?> requestCoverArt(
-    Game game, {
-    GridShape shape = GridShape.portrait,
-  }) async {
-    fetched.add(shape);
+  Future<Artwork?> requestCoverArt(Game game) async {
+    fetched.add(game.id);
     return null;
   }
 
   @override
-  Future<List<SgdbGrid>> searchArt(
-    Game game, {
-    GridShape shape = GridShape.portrait,
-  }) async {
-    searched.add(shape);
+  Future<List<SgdbGrid>> searchArt(Game game) async {
+    searched.add(game.id);
     return const [];
   }
 }
@@ -132,10 +129,7 @@ class _FailingArtController extends LibraryController {
   int attempts = 0;
 
   @override
-  Future<List<SgdbGrid>> searchArt(
-    Game game, {
-    GridShape shape = GridShape.portrait,
-  }) async => const [
+  Future<List<SgdbGrid>> searchArt(Game game) async => const [
     SgdbGrid(id: 7, url: 'https://cdn.example/grid/7.png', thumb: 'https://cdn.example/thumb/7.png'),
   ];
 
@@ -358,7 +352,7 @@ void main() {
     });
   });
 
-  group('poster shape', () {
+  group('poster geometry', () {
     late Directory dir;
     late String configPath;
     late String cachePath;
@@ -386,57 +380,7 @@ void main() {
       dir.deleteSync(recursive: true);
     });
 
-    test('forAspect is square only around a square window', () {
-      for (final aspect in <double>[1.0, 0.9, 1.1]) {
-        expect(GridShape.forAspect(aspect), GridShape.square, reason: '$aspect');
-      }
-      for (final aspect in <double>[1.11, 0.89, 16 / 9, 9 / 16, 0]) {
-        expect(GridShape.forAspect(aspect), GridShape.portrait, reason: '$aspect');
-      }
-      expect(GridShape.forAspect(double.nan), GridShape.portrait);
-    });
-
-    testWidgets('a square window gets square posters and square tiles', (tester) async {
-      // Square, and wide enough for the status bar in the test font.
-      tester.view.physicalSize = const Size(1500, 1500);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(_AppHarness(controller: controller));
-      await tester.pumpAndSettle();
-
-      expect(tester.widget<GameTile>(find.byType(GameTile)).shape, GridShape.square);
-      expect(controller.fetched, [GridShape.square]);
-      expect(coverHeight(tester), GameTile.width);
-      // The grid cell follows the cover: square posters are not cropped.
-      final cell = tester.getSize(find.byType(GameTile));
-      expect(
-        cell.height / cell.width,
-        closeTo((GameTile.coverHeightFor(GridShape.square) + 68) / GameTile.width, 0.001),
-      );
-
-      // The picker asks for the same shape as the automatic fetch.
-      await tester.tap(find.byType(GameTile));
-      // A tile waits out the double-click window before it selects.
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pumpAndSettle();
-      expect(find.byType(DetailPanel), findsOneWidget);
-      final findArt = find.widgetWithText(OutlinedButton, 'Find art (SteamGridDB)');
-      await tester.scrollUntilVisible(
-        findArt,
-        200,
-        scrollable: find.byType(Scrollable).last,
-      );
-      await tester.ensureVisible(findArt);
-      await tester.pumpAndSettle();
-      await tester.tap(findArt);
-      await tester.pumpAndSettle();
-      expect(controller.searched, [GridShape.square]);
-    });
-
-    testWidgets('a wide window keeps the portrait posters and 168x252 tiles', (
-      tester,
-    ) async {
+    testWidgets('the wall stays portrait, whatever the window shape', (tester) async {
       tester.view.physicalSize = const Size(1600, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -444,30 +388,26 @@ void main() {
       await tester.pumpWidget(_AppHarness(controller: controller));
       await tester.pumpAndSettle();
 
-      expect(tester.widget<GameTile>(find.byType(GameTile)).shape, GridShape.portrait);
-      expect(controller.fetched, [GridShape.portrait]);
+      expect(controller.fetched, ['flatpak:alpha']);
       expect(coverHeight(tester), 252);
       final cell = tester.getSize(find.byType(GameTile));
       expect(
         cell.height / cell.width,
-        closeTo((GameTile.coverHeightFor(GridShape.portrait) + 68) / GameTile.width, 0.001),
+        closeTo((GameTile.coverHeight + 68) / GameTile.width, 0.001),
       );
-    });
 
-    testWidgets('the shape follows a resize', (tester) async {
-      tester.view.physicalSize = const Size(1600, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(_AppHarness(controller: controller));
-      await tester.pumpAndSettle();
-      expect(coverHeight(tester), 252);
-
+      // A square window used to switch the wall to square posters and square
+      // tiles; both are gone, so a resize must not change the geometry.
       tester.view.physicalSize = const Size(900, 900);
       await tester.pumpAndSettle();
 
-      expect(tester.widget<GameTile>(find.byType(GameTile)).shape, GridShape.square);
-      expect(coverHeight(tester), GameTile.width);
+      expect(coverHeight(tester), 252);
+      final square = tester.getSize(find.byType(GameTile));
+      expect(
+        square.height / square.width,
+        closeTo((GameTile.coverHeight + 68) / GameTile.width, 0.001),
+      );
+      expect(controller.fetched, ['flatpak:alpha']);
     });
   });
 
@@ -531,8 +471,7 @@ void main() {
             builder: (context) => Scaffold(
               body: Center(
                 child: TextButton(
-                  onPressed: () =>
-                      showArtPicker(context, controller, alphaGame, GridShape.portrait),
+                  onPressed: () => showArtPicker(context, controller, alphaGame),
                   child: const Text('open'),
                 ),
               ),
@@ -560,7 +499,7 @@ void main() {
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
 
-    testWidgets('the picker shows square candidates in square cells', (tester) async {
+    testWidgets('the picker shows candidates in the portrait cells it pins', (tester) async {
       final controller = _FailingArtController(
         configPath: configPath,
         cachePath: cachePath,
@@ -569,37 +508,30 @@ void main() {
       );
       addTearDown(controller.dispose);
 
-      Future<Size> cellFor(GridShape shape) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: AppTheme.dark,
-            home: Builder(
-              builder: (context) => Scaffold(
-                body: Center(
-                  child: TextButton(
-                    onPressed: () => showArtPicker(context, controller, alphaGame, shape),
-                    child: const Text('open'),
-                  ),
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.dark,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => showArtPicker(context, controller, alphaGame),
+                  child: const Text('open'),
                 ),
               ),
             ),
           ),
-        );
-        await tester.tap(find.text('open'));
-        await tester.pumpAndSettle();
-        return tester.getSize(
-          find.descendant(of: find.byType(GridView), matching: find.byType(InkWell)).first,
-        );
-      }
-
-      final square = await cellFor(GridShape.square);
-      expect(square.width / square.height, closeTo(1, 0.01));
-
-      await tester.tap(find.byTooltip('Close'));
+        ),
+      );
+      await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      final portrait = await cellFor(GridShape.portrait);
-      expect(portrait.width / portrait.height, closeTo(2 / 3, 0.01));
+      // The cell has the shape the wall draws, so a pick looks like the tile
+      // it lands on.
+      final cell = tester.getSize(
+        find.descendant(of: find.byType(GridView), matching: find.byType(InkWell)).first,
+      );
+      expect(cell.width / cell.height, closeTo(2 / 3, 0.01));
     });
 
     test('a download that blows up is reported instead of thrown', () async {

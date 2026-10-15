@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:omni_launcher/src/art/steamgriddb.dart';
 import 'package:omni_launcher/src/config.dart';
 import 'package:omni_launcher/src/covers.dart';
 import 'package:omni_launcher/src/model/game.dart';
@@ -120,99 +119,60 @@ void main() {
     expect(await off.searchArt(game('flatpak:x', 'X', SourceKind.flatpak)), isEmpty);
   });
 
-  group('square posters', () => _squareArtTests(() => dir));
+  group('fetched artwork', () => _fetchedArtTests(() => dir));
 
   test('source counts follow the library', () {
     expect(controller.countsBySource, {SourceKind.steam: 2, SourceKind.flatpak: 1});
   });
 }
 
-/// Square windows must show square posters, not cropped portrait capsules.
-void _squareArtTests(Directory Function() dir) {
+/// Artwork the launcher fetched itself: one cached path per game.
+void _fetchedArtTests(Directory Function() dir) {
   Game steamGame(String cover) => Game(
     id: 'steam:424242',
     key: '424242',
-    name: 'Square Test',
+    name: 'Fetched Test',
     source: SourceKind.steam,
     command: const ['steam', '-applaunch', '424242'],
     cover: cover,
     extra: const {'appid': '424242'},
   );
 
-  test('a square window ignores the portrait capsule and asks for square art', () {
-    final portrait = File('${dir().path}/portrait.png')..writeAsBytesSync([1, 2, 3]);
+  test('fetched art is what the tile shows, until the file is gone', () {
+    final fetched = File('${dir().path}/fetched.png')..writeAsBytesSync([1, 2, 3]);
+    final capsule = File('${dir().path}/capsule.png')..writeAsBytesSync([1, 2, 3]);
     final store = CoverStore(
-      settings: const ArtSettings(steamCovers: false, sgdbKey: 'key'),
+      settings: ArtSettings(autoArt: {'steam:424242': fetched.path}),
       coverDir: '${dir().path}/covers',
     );
-    final game = steamGame(portrait.path);
+    final game = steamGame(capsule.path);
 
-    // Portrait keeps using the capsule.
-    expect(store.resolve(game).kind, ArtworkKind.cover);
-    expect(store.resolve(game).value, portrait.path);
+    expect(store.autoArtFor(game), fetched.path);
+    expect(store.resolve(game).value, fetched.path);
 
-    // Square refuses it and reports that a fetch could still fill the tile.
-    final square = store.resolve(game, shape: GridShape.square);
-    expect(square.kind, ArtworkKind.letter);
-    expect(square.pending, isTrue);
+    fetched.deleteSync();
+    expect(store.autoArtFor(game), isNull);
+    expect(store.resolve(game).value, capsule.path);
   });
 
-  test('without a key a square window cannot fetch, so nothing is pending', () {
-    final store = CoverStore(
-      settings: const ArtSettings(steamCovers: false),
-      coverDir: '${dir().path}/covers',
-    );
-    final game = steamGame('${dir().path}/missing.png');
-    expect(store.resolve(game, shape: GridShape.square).pending, isFalse);
-  });
-
-  test('fetched art is used for the shape it was fetched for', () {
-    final square = File('${dir().path}/square.png')..writeAsBytesSync([1, 2, 3]);
-    final portrait = File('${dir().path}/portrait.png')..writeAsBytesSync([1, 2, 3]);
-    final store = CoverStore(
-      settings: ArtSettings(
-        autoArt: {
-          'steam:424242': {'square': square.path},
-        },
-      ),
-      coverDir: '${dir().path}/covers',
-    );
-    final game = steamGame(portrait.path);
-
-    expect(store.autoArtFor(game, GridShape.square), square.path);
-    expect(store.autoArtFor(game, GridShape.portrait), isNull);
-    expect(store.resolve(game, shape: GridShape.square).value, square.path);
-    expect(store.resolve(game).value, portrait.path);
-  });
-
-  test('fetched art that disappeared falls back', () {
-    final store = CoverStore(
-      settings: ArtSettings(
-        autoArt: {
-          'steam:424242': {'square': '${dir().path}/gone.png'},
-        },
-      ),
-      coverDir: '${dir().path}/covers',
-    );
-    expect(store.autoArtFor(steamGame('${dir().path}/x.png'), GridShape.square), isNull);
-  });
-
-  test('auto_art round trips and tolerates junk', () {
+  test('auto_art round trips, and reads the old shape-keyed files', () {
     final path = '${dir().path}/a.png';
     final configPath = '${dir().path}/config.json';
-    AppConfig(autoArt: {
-      'steam:1': {'square': path},
-    }).save(configPath);
-    expect(AppConfig.load(configPath).autoArt, {
-      'steam:1': {'square': path},
-    });
+    AppConfig(
+      autoArt: {'steam:1': path},
+    ).save(configPath);
+    expect(AppConfig.load(configPath).autoArt, {'steam:1': path});
 
+    // Files written back when a fetch was keyed by poster shape: the portrait
+    // entry is what the wall still shows, a square one has nowhere to go.
     File(configPath).writeAsStringSync(
-      '{"auto_art": {"a": "not a map", "b": {"square": 5, "portrait": "p.png"}, "c": {}}}',
+      '{"auto_art": {"a": 5, "b": {"square": 5, "portrait": "p.png"}, '
+      '"c": {"square": "s.png"}, "d": ""}}',
     );
     final loaded = AppConfig.load(configPath).autoArt;
     expect(loaded.containsKey('a'), isFalse);
-    expect(loaded['b'], {'portrait': 'p.png'});
+    expect(loaded['b'], 'p.png');
     expect(loaded.containsKey('c'), isFalse);
+    expect(loaded.containsKey('d'), isFalse);
   });
 }

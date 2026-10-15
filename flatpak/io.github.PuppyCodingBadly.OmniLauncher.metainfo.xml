@@ -19,8 +19,8 @@
       the new Epic Games Launcher and plain desktop entries; it launches them
       through their own launcher, so a game that is also a Steam shortcut goes
       through Steam. Cover art comes from Steam's own cache or from SteamGridDB
-      with your own API key, and it can follow the shape of the window: square
-      displays get square posters.
+      with your own API key, and the source sidebar folds down to an icon rail
+      when you would rather give the covers the space.
     </p>
     <p>
       Playtime, last played, hidden games, renames and per-game launch options

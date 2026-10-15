@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../art/steamgriddb.dart';
 import '../model/game.dart';
 import '../state/library_controller.dart';
 import 'detail_panel.dart';
@@ -34,10 +33,6 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final games = controller.visibleGames;
-    // The poster shape follows the window: a square-ish window gets square
-    // posters, a wide one keeps the portrait covers it always had.
-    final window = MediaQuery.sizeOf(context);
-    final shape = GridShape.forAspect(window.width / window.height);
     return Shortcuts(
       shortcuts: {
         const SingleActivator(LogicalKeyboardKey.keyF, control: true):
@@ -78,17 +73,13 @@ class _LibraryPageState extends State<LibraryPage> {
                   child: Column(
                     children: [
                       _header(controller),
-                      Expanded(child: _grid(controller, games, shape)),
+                      Expanded(child: _grid(controller, games)),
                       _statusBar(controller, games.length),
                     ],
                   ),
                 ),
                 if (controller.selected != null)
-                  DetailPanel(
-                    controller: controller,
-                    game: controller.selected!,
-                    shape: shape,
-                  ),
+                  DetailPanel(controller: controller, game: controller.selected!),
               ],
             ),
           ),
@@ -155,7 +146,7 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  Widget _grid(LibraryController controller, List<Game> games, GridShape shape) {
+  Widget _grid(LibraryController controller, List<Game> games) {
     if (controller.status == LibraryStatus.loading && games.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -190,7 +181,7 @@ class _LibraryPageState extends State<LibraryPage> {
             crossAxisCount: columns,
             mainAxisSpacing: 22,
             crossAxisSpacing: spacing,
-            childAspectRatio: GameTile.width / (GameTile.coverHeightFor(shape) + 68),
+            childAspectRatio: GameTile.width / (GameTile.coverHeight + 68),
           ),
           itemCount: games.length,
           itemBuilder: (context, index) {
@@ -200,7 +191,6 @@ class _LibraryPageState extends State<LibraryPage> {
               game: game,
               controller: controller,
               selected: controller.selected?.id == game.id,
-              shape: shape,
             );
           },
         );
@@ -250,87 +240,200 @@ class _LibraryPageState extends State<LibraryPage> {
 class _Sidebar extends StatelessWidget {
   const _Sidebar({required this.controller});
 
+  static const double width = 232;
+
+  /// Width of the collapsed rail: one icon column plus its padding.
+  static const double railWidth = 64;
+
   final LibraryController controller;
 
   @override
   Widget build(BuildContext context) {
+    final collapsed = controller.config.sidebarCollapsed;
+    return Container(
+      width: collapsed ? railWidth : width,
+      color: context.palette.sidebar,
+      child: collapsed ? _rail(context) : _list(context),
+    );
+  }
+
+  Widget _list(BuildContext context) {
     final counts = controller.countsBySource;
     final palette = context.palette;
-    return Container(
-      width: 232,
-      color: palette.sidebar,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 26, 22, 20),
-            child: Row(
-              children: [
-                Icon(Icons.sports_esports, color: palette.accent),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Omni Launcher',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 26, 12, 20),
+          child: Row(
+            children: [
+              Icon(Icons.sports_esports, color: palette.accent),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Omni Launcher',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+              ),
+              _toggle(context, collapsed: false),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            children: [
+              _row(
+                context,
+                icon: Icons.apps,
+                label: 'All games',
+                count: controller.games.length,
+                selected: controller.sourceFilter.isEmpty,
+                onTap: controller.clearSources,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 16, 10, 8),
+                child: Text(
+                  'SOURCES',
+                  style: TextStyle(
+                    fontSize: 10,
+                    letterSpacing: 1.2,
+                    color: palette.textDim,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                _row(
-                  context,
-                  icon: Icons.apps,
-                  label: 'All games',
-                  count: controller.games.length,
-                  selected: controller.sourceFilter.isEmpty,
-                  onTap: controller.clearSources,
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 16, 10, 8),
-                  child: Text(
-                    'SOURCES',
-                    style: TextStyle(
-                      fontSize: 10,
-                      letterSpacing: 1.2,
-                      color: palette.textDim,
-                      fontWeight: FontWeight.w700,
-                    ),
+              ),
+              for (final kind in SourceKind.values)
+                if ((counts[kind] ?? 0) > 0)
+                  _row(
+                    context,
+                    icon: _iconFor(kind),
+                    label: kind.label,
+                    count: counts[kind]!,
+                    selected: controller.sourceFilter.contains(kind),
+                    onTap: () => controller.toggleSource(kind),
                   ),
-                ),
-                for (final kind in SourceKind.values)
-                  if ((counts[kind] ?? 0) > 0)
-                    _row(
-                      context,
-                      icon: _iconFor(kind),
-                      label: kind.label,
-                      count: counts[kind]!,
-                      selected: controller.sourceFilter.contains(kind),
-                      onTap: () => controller.toggleSource(kind),
-                    ),
-              ],
+            ],
+          ),
+        ),
+        Divider(height: 1, color: palette.surfaceHigh),
+        // The rail paints its own colour, so the switch needs a Material of
+        // its own for its ink and thumb to show up.
+        Material(
+          color: Colors.transparent,
+          child: SwitchListTile(
+            dense: true,
+            value: controller.config.showHidden,
+            onChanged: (_) => controller.toggleShowHidden(),
+            title: const Text('Show hidden', style: TextStyle(fontSize: 13)),
+            subtitle: Text(
+              '${controller.hiddenCount} hidden',
+              style: TextStyle(fontSize: 11, color: palette.textDim),
             ),
           ),
-          Divider(height: 1, color: palette.surfaceHigh),
-          // The rail paints its own colour, so the switch needs a Material of
-          // its own for its ink and thumb to show up.
-          Material(
-            color: Colors.transparent,
-            child: SwitchListTile(
-              dense: true,
-              value: controller.config.showHidden,
-              onChanged: (_) => controller.toggleShowHidden(),
-              title: const Text('Show hidden', style: TextStyle(fontSize: 13)),
-              subtitle: Text(
-                '${controller.hiddenCount} hidden',
-                style: TextStyle(fontSize: 11, color: palette.textDim),
+        ),
+      ],
+    );
+  }
+
+  /// Collapsed: the same filters as icons, with the label and the count in the
+  /// tooltip, so the cover wall gets the width back.
+  Widget _rail(BuildContext context) {
+    final counts = controller.countsBySource;
+    final palette = context.palette;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 26, bottom: 10),
+          child: _toggle(context, collapsed: true),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            children: [
+              _railRow(
+                context,
+                icon: Icons.apps,
+                tooltip: 'All games · ${controller.games.length}',
+                selected: controller.sourceFilter.isEmpty,
+                onTap: controller.clearSources,
+              ),
+              const SizedBox(height: 8),
+              for (final kind in SourceKind.values)
+                if ((counts[kind] ?? 0) > 0)
+                  _railRow(
+                    context,
+                    icon: _iconFor(kind),
+                    tooltip: '${kind.label} · ${counts[kind]}',
+                    selected: controller.sourceFilter.contains(kind),
+                    onTap: () => controller.toggleSource(kind),
+                  ),
+            ],
+          ),
+        ),
+        Divider(height: 1, color: palette.surfaceHigh),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: IconButton(
+            tooltip: controller.config.showHidden
+                ? 'Hide the hidden games'
+                : 'Show hidden games (${controller.hiddenCount})',
+            isSelected: controller.config.showHidden,
+            icon: Icon(
+              controller.config.showHidden
+                  ? Icons.visibility
+                  : Icons.visibility_off_outlined,
+            ),
+            onPressed: controller.toggleShowHidden,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The control that folds the sidebar, drawn on whichever side it is now.
+  Widget _toggle(BuildContext context, {required bool collapsed}) {
+    return IconButton(
+      tooltip: collapsed ? 'Expand the sidebar' : 'Collapse the sidebar',
+      iconSize: 18,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+      visualDensity: VisualDensity.compact,
+      icon: Icon(collapsed ? Icons.chevron_right : Icons.chevron_left),
+      onPressed: controller.toggleSidebar,
+    );
+  }
+
+  Widget _railRow(
+    BuildContext context, {
+    required IconData icon,
+    required String tooltip,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final palette = context.palette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: selected ? palette.surfaceHigh : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: SizedBox(
+              height: 40,
+              child: Center(
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: selected ? palette.accentSoft : palette.textDim,
+                ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
