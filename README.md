@@ -39,6 +39,11 @@ wall first, details on demand.
 * **Appearance**: System / Dark / Light, plus an accent colour from the GNOME
   basic palette. The window's title bar follows the palette too.
 
+![Settings](docs/screenshots/settings.jpg)
+
+Settings holds the theme mode, the accent colour, the SteamGridDB key, the
+AppImage folders, hidden games and hand-added games.
+
 ## Install
 
 ### Flatpak
@@ -99,6 +104,8 @@ SteamGridDB has no anonymous tier, so it needs your own API key
 press *Test*, then either turn on **Fetch SteamGridDB art automatically** or use
 **Find art** on a single game to browse the candidates (thumb, style, size,
 author) and pin one. Picked art is stored per game, so it survives rescans.
+
+![Picking cover art from SteamGridDB](docs/screenshots/steamgriddb.jpg)
 
 ## Packaging it yourself
 
