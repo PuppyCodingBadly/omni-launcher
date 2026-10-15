@@ -1,8 +1,0 @@
-[Flatpak Ref]
-Title=Omni Launcher
-Name=io.github.CoderPuppy.OmniLauncher
-Branch=master
-Url=https://PuppyCodingBadly.github.io/omni-launcher/repo
-RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
-IsRuntime=false
-Comment=One window for every game on this machine
