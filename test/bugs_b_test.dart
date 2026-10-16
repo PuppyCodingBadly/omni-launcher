@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:omni_launcher/src/art/steamgriddb.dart';
 import 'package:omni_launcher/src/config.dart';
 import 'package:omni_launcher/src/covers.dart';
+import 'package:omni_launcher/src/host.dart';
 import 'package:omni_launcher/src/launcher.dart';
 import 'package:omni_launcher/src/model/game.dart';
 import 'package:omni_launcher/src/sources/epic.dart';
@@ -262,6 +263,47 @@ void main() {
       // `~` and `$VAR` are the shell's to expand: never refuse those.
       expect(Launcher.resolveProgram(const ['~/nowhere-at-all']), '~/nowhere-at-all');
       expect(Launcher.resolveProgram(const [r'$HOME/nowhere']), r'$HOME/nowhere');
+    });
+
+    test('a sandboxed launch finds the host\'s own programs', () {
+      // Inside the flatpak the host's /usr is only there through the host
+      // mount, and the host's own binaries are links into it: `/usr/bin/steam`
+      // points at `/usr/lib/steam/bin_steam.sh`, a path the sandbox does not
+      // carry at all. The stand-in below has that shape.
+      final bin = Directory('${dir.path}/mount/usr/local/bin')
+        ..createSync(recursive: true);
+      final real = File('${dir.path}/mount/usr/lib/omni-test/runner')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('#!/bin/sh\n');
+      Process.runSync('chmod', ['+x', real.path]);
+      Link('${bin.path}/omni-test-runner').createSync('/usr/lib/omni-test/runner');
+
+      Host.setInFlatpakForTest(true);
+      Host.setMountForTest('${dir.path}/mount');
+      addTearDown(() {
+        Host.setInFlatpakForTest(null);
+        Host.setMountForTest(null);
+      });
+
+      // Named the way the host names it: that is the path the host is asked to
+      // run, and `/run/host/...` means nothing there.
+      expect(which('omni-test-runner'), '/usr/local/bin/omni-test-runner');
+      expect(
+        Launcher.resolveProgram(const ['/usr/local/bin/omni-test-runner']),
+        '/usr/local/bin/omni-test-runner',
+      );
+
+      // Only the link's re-rooted target makes it a program.
+      real.deleteSync();
+      expect(which('omni-test-runner'), isNull);
+      expect(
+        Launcher.resolveProgram(const ['/usr/local/bin/omni-test-runner']),
+        isNull,
+      );
+
+      // A link pointing at something that was never there is not one either.
+      Link('${bin.path}/omni-test-gone').createSync('/usr/lib/omni-test/gone');
+      expect(which('omni-test-gone'), isNull);
     });
 
     test('a missing binary fails the launch instead of reporting success', () async {

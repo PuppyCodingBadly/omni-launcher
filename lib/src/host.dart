@@ -1,5 +1,14 @@
 import 'dart:io';
 
+/// Where the host's own filesystem is mounted inside the sandbox.
+const String _hostMount = '/run/host';
+
+/// Any of the three POSIX execute bits (`0111`).
+const int _execBits = 0x49;
+
+/// How many links to follow before calling a path unreachable.
+const int _linkHops = 8;
+
 /// The host machine, as seen from inside a flatpak sandbox.
 ///
 /// A sandboxed app gets its own `$HOME` (`<real home>/.var/app/<app id>`), its
@@ -11,6 +20,7 @@ import 'dart:io';
 /// as it was.
 class Host {
   static bool? _inFlatpakForTest;
+  static String? _mountForTest;
 
   /// True inside a flatpak sandbox.
   static bool get inFlatpak =>
@@ -18,6 +28,12 @@ class Host {
 
   /// Test seam for [inFlatpak].
   static void setInFlatpakForTest(bool? value) => _inFlatpakForTest = value;
+
+  /// Test seam for the host mount, so a test can point at a stand-in tree.
+  static void setMountForTest(String? value) => _mountForTest = value;
+
+  /// The host mount, as this side knows it.
+  static String get _mount => _mountForTest ?? _hostMount;
 
   /// The user's real home directory.
   ///
@@ -44,7 +60,79 @@ class Host {
 
   /// A host system path, as seen from inside the sandbox.
   static String path(String hostPath) =>
-      inFlatpak && hostPath.startsWith('/') ? '/run/host$hostPath' : hostPath;
+      inFlatpak && hostPath.startsWith('/') ? '$_mount$hostPath' : hostPath;
+
+  /// Where [hostPath] is on this side: at its own path when the sandbox carries
+  /// it — a granted folder such as `~/Games`, a mounted drive — and through the
+  /// host mount otherwise.
+  ///
+  /// The mount holds the host's own `/usr`, `/etc` and the like. Both places
+  /// have to be tried: a granted folder is mounted where it lives on the host,
+  /// not under the mount.
+  static String reachable(String hostPath) {
+    if (!inFlatpak) return hostPath;
+    if (present(hostPath)) return hostPath;
+    return path(hostPath);
+  }
+
+  /// Whether [path] is there at all.
+  ///
+  /// A link counts, even one whose target the sandbox cannot follow: the host's
+  /// own binaries are links into its `/usr`, and that target is only there
+  /// through the host mount.
+  static bool present(String path) =>
+      FileSystemEntity.typeSync(path, followLinks: false) !=
+      FileSystemEntityType.notFound;
+
+  /// Whether the host can run [hostPath]: a regular file with an execute bit.
+  ///
+  /// Not a plain `stat`: `/usr/bin/steam` is a link to
+  /// `/usr/lib/steam/bin_steam.sh`, and from inside the sandbox that target is
+  /// only there through the host mount, so a link is followed by re-rooting an
+  /// absolute target at the mount. A link whose target the sandbox cannot see
+  /// reports itself as `notFound` rather than failing, which is why the link is
+  /// asked where it points before the answer is believed.
+  static bool runnable(String hostPath) {
+    var current = reachable(hostPath);
+    for (var hop = 0; hop < _linkHops; hop++) {
+      FileStat? stat;
+      try {
+        stat = File(current).statSync();
+      } on FileSystemException {
+        stat = null;
+      }
+      if (stat != null && stat.type == FileSystemEntityType.file) {
+        return stat.mode & _execBits != 0;
+      }
+      final next = _linkTarget(current);
+      if (next == null) return false;
+      current = next;
+    }
+    return false;
+  }
+
+  /// Where the link at [path] points, as this side can reach it; null when
+  /// [path] is not a link.
+  static String? _linkTarget(String path) {
+    final String target;
+    try {
+      target = Link(path).targetSync();
+    } on FileSystemException {
+      return null;
+    }
+    if (target.isEmpty) return null;
+    if (!target.startsWith('/')) {
+      final slash = path.lastIndexOf('/');
+      return slash < 0 ? target : '${path.substring(0, slash)}/$target';
+    }
+    // A link inside the mount points at a host path, wherever the sandbox would
+    // look for that path itself.
+    return _inMount(path) ? Host.path(target) : target;
+  }
+
+  /// Whether [path] is inside the host mount.
+  static bool _inMount(String path) =>
+      inFlatpak && (path == _mount || path.startsWith('$_mount/'));
 
   /// [argv] ready to run: on the host when sandboxed.
   ///
@@ -61,14 +149,10 @@ class Host {
         ]
       : argv;
 
-  /// Directories that hold host binaries, nearest first.
-  static List<String> get binaryDirs => [
-    if (inFlatpak) ...[
-      '/run/host/usr/local/bin',
-      '/run/host/usr/bin',
-      '/run/host/bin',
-      '$home/.local/bin',
-    ] else
-      ...(Platform.environment['PATH'] ?? '').split(':'),
-  ];
+  /// Directories that hold host binaries, nearest first, named the way the host
+  /// names them: a search through the mount has to answer with a path the host
+  /// can run, since that is where a launch ends up.
+  static List<String> get binaryDirs => inFlatpak
+      ? ['/usr/local/bin', '/usr/bin', '/bin', '$home/.local/bin']
+      : (Platform.environment['PATH'] ?? '').split(':');
 }

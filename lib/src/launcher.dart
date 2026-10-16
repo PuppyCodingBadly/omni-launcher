@@ -63,6 +63,10 @@ class Launcher {
   /// The launch is detached, so a binary that is missing only shows up as an
   /// error line in the log while the caller is told the game started; checking
   /// up front is the only way to report it.
+  ///
+  /// The command runs on the host, so a path is looked for where the host keeps
+  /// it: from inside the sandbox that is the host mount for a system path such
+  /// as `/usr/bin/steam`, and its own path for a granted folder.
   static String? resolveProgram(List<String> command, {String? cwd}) {
     if (command.isEmpty) return null;
     final program = command.first;
@@ -70,9 +74,7 @@ class Launcher {
     if (program.contains('/')) {
       final path = _programPath(program, cwd);
       if (path == null) return program; // the shell expands this one itself
-      final file = File(path);
-      if (!file.existsSync()) return null;
-      return file.statSync().mode & 0x49 != 0 ? path : null;
+      return Host.runnable(path) ? path : null;
     }
     // Without a PATH the shell falls back to its own default, which we cannot
     // reproduce here; let it try rather than refusing a launch that may work.

@@ -23,9 +23,6 @@ class TimeoutException implements Exception {
   const TimeoutException();
 }
 
-/// Any of the three POSIX execute bits (`0111`).
-const int _execBits = 0x49;
-
 /// Fields of `/proc/<pid>/stat` from the state field onwards, or null when the
 /// process is gone.
 ///
@@ -121,6 +118,11 @@ String _entryName(FileSystemEntity entry) {
 /// [searchPath] overrides the `PATH` that is searched. A candidate has to be a
 /// regular file carrying an execute bit, so a non-executable file that shadows
 /// the real binary is skipped instead of being returned.
+///
+/// The answer is a host path. Inside the sandbox a program is only there
+/// through the host mount (`/run/host/usr/bin/steam`) and is named the way the
+/// host names it (`/usr/bin/steam`), because that is the path a launch hands to
+/// the host.
 String? which(String name, {String? searchPath}) {
   if (searchPath != null) return _whichIn(name, searchPath.split(':'));
   return _whichIn(name, Host.binaryDirs);
@@ -129,16 +131,8 @@ String? which(String name, {String? searchPath}) {
 String? _whichIn(String name, Iterable<String> dirs) {
   for (final dir in dirs) {
     if (dir.isEmpty) continue;
-    final candidate = File('$dir/$name');
-    FileStat stat;
-    try {
-      stat = candidate.statSync();
-    } on FileSystemException {
-      continue;
-    }
-    if (stat.type != FileSystemEntityType.file) continue;
-    if (stat.mode & _execBits == 0) continue;
-    return candidate.path;
+    final candidate = '$dir/$name';
+    if (Host.runnable(candidate)) return candidate;
   }
   return null;
 }
