@@ -116,6 +116,10 @@ Nothing is uploaded anywhere. The launcher's own network use is cover art:
 Steam's CDN, and SteamGridDB when you set a key. A plugin does whatever its
 author wrote, which is why you get to see what you are running.
 
+The flatpak keeps its files in those same places: it uses the host's XDG
+folders rather than the sandbox's own, so a native build and the flatpak share
+one set of hidden games, renames and playtime.
+
 ## SteamGridDB
 
 SteamGridDB has no anonymous tier, so it needs your own API key

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'src/paths.dart';
 import 'src/state/library_controller.dart';
 import 'src/ui/accent_colors.dart';
 import 'src/ui/library_page.dart';
@@ -7,6 +8,9 @@ import 'src/ui/theme.dart';
 import 'src/ui/window_theme.dart';
 
 void main() {
+  // A sandboxed launcher used to keep its files inside the sandbox: take over
+  // what is there before anything reads the host's own folders.
+  AppPaths.adoptSandboxFiles();
   runApp(const OmniLauncherApp());
 }
 

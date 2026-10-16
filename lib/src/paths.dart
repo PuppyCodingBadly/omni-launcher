@@ -9,9 +9,18 @@ class AppPaths {
 
   static String get home => Host.home;
 
+  /// One of the XDG folders this launcher keeps its own files in.
+  ///
+  /// Inside a flatpak the XDG variables point at the sandbox's own folders.
+  /// This launcher's config, cache and state belong with the rest of the
+  /// host's — a native build and the flatpak have to see the same hidden games,
+  /// the same renames and the same playtime — so the sandbox's answer is
+  /// ignored and the host's own layout is used.
   static String _xdg(String variable, String fallback) {
-    final value = Platform.environment[variable];
-    if (value != null && value.isNotEmpty) return value;
+    if (!Host.inFlatpak) {
+      final value = Platform.environment[variable];
+      if (value != null && value.isNotEmpty) return value;
+    }
     return '$home/$fallback';
   }
 
@@ -41,6 +50,58 @@ class AppPaths {
     for (final dir in [configDir, cacheDir, coverDir, stateDir]) {
       Directory(dir).createSync(recursive: true);
     }
+  }
+
+  /// Take over what a sandboxed launcher stored inside the sandbox.
+  ///
+  /// A flatpak used to keep the config and the playtime history in
+  /// `~/.var/app/<id>/`, because that is where its XDG variables pointed; a
+  /// file the host does not have yet is copied to where it belongs now, so
+  /// nothing an earlier version collected is lost. A file that is already on
+  /// the host is left alone: that is the newer one.
+  ///
+  /// Returns the paths it wrote.
+  static List<String> adoptSandboxFiles() {
+    if (!Host.inFlatpak) return const [];
+    final adopted = <String>[];
+    for (final (variable, target) in [
+      ('XDG_CONFIG_HOME', configDir),
+      ('XDG_STATE_HOME', stateDir),
+    ]) {
+      final sandbox = Platform.environment[variable];
+      if (sandbox == null || sandbox.isEmpty) continue;
+      adopted.addAll(adoptFiles('$sandbox/omnilauncher-flutter', target));
+    }
+    return adopted;
+  }
+
+  /// Copy the files directly in [from] that [to] does not have yet; returns
+  /// what it wrote. Subfolders, such as the cover cache, are left out: they
+  /// come back on their own.
+  static List<String> adoptFiles(String from, String to) {
+    final source = Directory(from);
+    if (!source.existsSync()) return const [];
+    List<FileSystemEntity> entries;
+    try {
+      entries = source.listSync();
+    } on FileSystemException {
+      return const [];
+    }
+    final written = <String>[];
+    for (final entry in entries) {
+      if (entry is! File) continue;
+      final name = entry.uri.pathSegments.last;
+      final target = File('$to/$name');
+      if (target.existsSync()) continue;
+      try {
+        target.parent.createSync(recursive: true);
+        target.writeAsBytesSync(entry.readAsBytesSync());
+      } on FileSystemException {
+        continue;
+      }
+      written.add(target.path);
+    }
+    return written;
   }
 
   /// Expands `~` and environment variables in a user supplied path.
