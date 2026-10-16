@@ -121,45 +121,51 @@ class _GameTileState extends State<GameTile> {
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 150),
           opacity: hidden ? 0.45 : 1,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _Cover(
-                artwork: _artwork,
-                name: game.name,
-                hovered: _hovered,
-                selected: widget.selected,
-                themeIcon: widget.controller.covers.themeIconPath,
-                onPlay: () => widget.controller.launch(game),
-                menu: _menu(context, game, hidden),
-                width: widget.tileWidth,
-                height: widget.tileHeight,
-                compact: widget.compact,
-              ),
-              SizedBox(height: widget.compact ? 8 : 10),
-              Text(
-                game.name,
-                maxLines: widget.compact ? 1 : 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: widget.compact ? 12.5 : 14,
-                  height: 1.2,
+          // The strip is a horizontal list, which hands a tile as much width as
+          // it asks for: without this the labels decide the tile's width, and a
+          // long name widens it past its cover instead of trailing off.
+          child: SizedBox(
+            width: widget.tileWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _Cover(
+                  artwork: _artwork,
+                  name: game.name,
+                  hovered: _hovered,
+                  selected: widget.selected,
+                  themeIcon: widget.controller.covers.themeIconPath,
+                  onPlay: () => widget.controller.launch(game),
+                  menu: _menu(context, game, hidden),
+                  width: widget.tileWidth,
+                  height: widget.tileHeight,
+                  compact: widget.compact,
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                _subtitle(game),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: palette.textDim,
-                  fontSize: widget.compact ? 11 : 12,
-                  height: widget.compact ? 1.2 : null,
+                SizedBox(height: widget.compact ? 8 : 10),
+                Text(
+                  game.name,
+                  maxLines: widget.compact ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: widget.compact ? 12.5 : 14,
+                    height: 1.2,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  _subtitle(game),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textDim,
+                    fontSize: widget.compact ? 11 : 12,
+                    height: widget.compact ? 1.2 : null,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -147,6 +147,7 @@ void main() {
     Future<LibraryController> pumpPage(
       WidgetTester tester, {
       Size size = const Size(1700, 1000),
+      String newestName = 'Alpha',
     }) async {
       seed({
         'steam:1': (3600, DateTime.now()),
@@ -155,7 +156,7 @@ void main() {
       final controller = build();
       addTearDown(controller.dispose);
       controller.games = [
-        game('steam:1', 'Alpha', SourceKind.steam),
+        game('steam:1', newestName, SourceKind.steam),
         game('steam:2', 'Beta', SourceKind.steam),
         game('flatpak:gamma', 'Gamma', SourceKind.flatpak),
       ];
@@ -224,6 +225,46 @@ void main() {
 
       expect(find.text('RECENTLY PLAYED'), findsNothing);
       expect(find.byType(GameTile), findsNWidgets(3));
+    });
+
+    testWidgets('a long name trails off instead of widening the tile', (tester) async {
+      // The strip is a horizontal list, so a tile is handed as much width as it
+      // asks for: a name that did not trail off made its tile wider than its
+      // cover and pushed the next tile along, which is what made the row's
+      // spacing uneven.
+      const long = 'The Longest Game Title In The Whole Wide World';
+      await pumpPage(tester, newestName: long);
+
+      final shelf = tester
+          .widgetList<GameTile>(
+            find.descendant(
+              of: find.byType(ListView),
+              matching: find.byType(GameTile),
+            ),
+          )
+          .toList();
+      expect(shelf, hasLength(2));
+
+      final lefts = <double>[];
+      for (final tile in shelf) {
+        final finder = find.byWidget(tile);
+        expect(
+          tester.getSize(finder).width,
+          GameTile.compactWidth,
+          reason: 'a shelf tile is no wider than its cover',
+        );
+        lefts.add(tester.getTopLeft(finder).dx);
+      }
+      // One gap between tiles, whatever the names are.
+      expect(lefts[1] - lefts[0], GameTile.compactWidth + 16);
+
+      // The name is ellipsized, not clipped: it takes the tile's width.
+      expect(
+        tester
+            .getSize(find.descendant(of: find.byType(ListView), matching: find.text(long)))
+            .width,
+        GameTile.compactWidth,
+      );
     });
   });
 }
