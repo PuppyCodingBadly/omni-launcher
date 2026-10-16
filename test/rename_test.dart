@@ -311,8 +311,8 @@ void main() {
       dir.deleteSync(recursive: true);
     });
 
-    testWidgets('the Rename button renames the game', (tester) async {
-      // The panel scrolls; give it room so the buttons are laid out.
+    testWidgets('the cog in the panel renames the game', (tester) async {
+      // The panel scrolls; give it room so the fields are laid out.
       tester.view.physicalSize = const Size(420, 2200);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -327,7 +327,9 @@ void main() {
         ),
       );
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Rename'));
+      await tester.tap(find.byTooltip('Game actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
       await tester.pumpAndSettle();
 
       expect(find.text('Rename game'), findsOneWidget);

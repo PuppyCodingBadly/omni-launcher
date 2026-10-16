@@ -5,6 +5,7 @@ import 'package:omni_launcher/src/config.dart';
 import 'package:omni_launcher/src/covers.dart';
 import 'package:omni_launcher/src/model/game.dart';
 import 'package:omni_launcher/src/state/library_controller.dart';
+import 'package:omni_launcher/src/state/playtime_store.dart';
 
 Game game(String id, String name, SourceKind source) => Game(
   id: id,
@@ -175,4 +176,47 @@ void _fetchedArtTests(Directory Function() dir) {
     expect(loaded.containsKey('c'), isFalse);
     expect(loaded.containsKey('d'), isFalse);
   });
+
+  test('one fetch per game, however many tiles are showing it', () async {
+    final covers = _CountingCovers();
+    final controller = LibraryController(
+      configPath: '${dir().path}/config.json',
+      cachePath: '${dir().path}/games.json',
+      playtime: PlaytimeStore(path: '${dir().path}/playtime.json'),
+      covers: covers,
+    );
+    addTearDown(controller.dispose);
+    final game = Game(
+      id: 'steam:424242',
+      key: '424242',
+      name: 'Fetched Test',
+      source: SourceKind.steam,
+      command: const ['steam', '-applaunch', '424242'],
+      extra: const {'appid': '424242'},
+    );
+
+    // The wall tile and the recently played shelf tile ask in the same frame.
+    final results = await Future.wait([
+      controller.requestCoverArt(game),
+      controller.requestCoverArt(game),
+    ]);
+
+    expect(covers.fetches, 1);
+    expect(results, everyElement(isNull));
+
+    // The guard lasts for the flight, not forever: a later tile may try again.
+    await controller.requestCoverArt(game);
+    expect(covers.fetches, 2);
+  });
+}
+
+/// A cover store that counts what the controller asks it to fetch.
+class _CountingCovers extends CoverStore {
+  int fetches = 0;
+
+  @override
+  Future<Artwork?> fetchSteamCover(Game game) async {
+    fetches++;
+    return null;
+  }
 }

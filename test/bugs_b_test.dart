@@ -951,7 +951,8 @@ void main() {
       spy.select(spy.games.first);
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Find art (SteamGridDB)'));
+      await tester.tap(find.byTooltip('Game actions'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Find art (SteamGridDB)'));
       await tester.pumpAndSettle();
 

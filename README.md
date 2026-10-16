@@ -32,6 +32,9 @@ wall first, details on demand.
   launched through Steam, which is what gives them Steam Input and the overlay.
 * **Playtime and last played**, per game. Only time that was actually observed
   is counted, so a launcher that dies mid-game cannot invent hours.
+* **Recently played**, on a shelf above the wall: the last ten games you
+  started, newest first, each with how much and how recently you played it.
+  The shelf follows the wall's filters and steps aside while you search.
 * **Rename** any entry. The new name is what the wall, the search and the
   SteamGridDB lookup use, so an awkward name can be turned into the title
   SteamGridDB knows. The discovered name is kept, so it can be reset.
@@ -86,8 +89,10 @@ header: the same filters, each with its label and count in the tooltip. It
 stays folded next time, and hidden games live behind *Show hidden*, which the
 rail keeps too.
 
-The detail panel has *Launch*, *Open folder*, *Copy* (the exact argv), *Find
-art*, *Rename*, *Hide* and *Close the launcher with the game*.
+The detail panel keeps *Launch* and the game's facts to itself; *Open folder*,
+*Copy* (the exact argv), *Find art*, *Rename*, *Hide* and *Remove* live behind
+the cog in its header. *Close the launcher with the game* stays on the panel,
+since it is a setting rather than an action.
 
 ## Configuration and files
 

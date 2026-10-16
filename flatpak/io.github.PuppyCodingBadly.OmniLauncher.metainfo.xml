@@ -24,7 +24,8 @@
     </p>
     <p>
       Playtime, last played, hidden games, renames and per-game launch options
-      are stored under your XDG directories; nothing is uploaded anywhere.
+      are stored under your XDG directories; nothing is uploaded anywhere. The
+      games you played last wait on a shelf above the wall.
     </p>
   </description>
 
@@ -46,6 +47,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.1.3" date="2026-10-15">
+      <description>
+        <p>A recently played shelf above the cover wall: the last ten games started, newest first, with the time played and when. The detail panel keeps Launch and the game's facts, and moves Open folder, Copy, Find art, Rename, Hide and Remove into a cog in its header.</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-10-15">
       <description>
         <p>Posters are portrait in every window: the window-shape detection that switched the wall to square grids is gone, and the detail panel preview uses the poster's own shape. The source sidebar folds down to an icon rail.</p>

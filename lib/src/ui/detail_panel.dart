@@ -35,13 +35,19 @@ class DetailPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              tooltip: 'Close',
-              icon: const Icon(Icons.close),
-              onPressed: () => controller.select(null),
-            ),
+          Row(
+            children: [
+              const Spacer(),
+              _actionsMenu(context, hidden),
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: IconButton(
+                  tooltip: 'Close',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => controller.select(null),
+                ),
+              ),
+            ],
           ),
           Expanded(
             child: ListView(
@@ -70,58 +76,9 @@ class DetailPanel extends StatelessWidget {
                     label: const Text('Launch'),
                   ),
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => controller.openFolder(game),
-                        icon: const Icon(Icons.folder_open, size: 18),
-                        label: const Text('Open folder'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          await Clipboard.setData(
-                            ClipboardData(text: Launcher.formatCommand(game)),
-                          );
-                          controller.notice = 'Command copied';
-                        },
-                        icon: const Icon(Icons.copy_all, size: 18),
-                        label: const Text('Copy'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => showArtPicker(context, controller, game),
-                  icon: const Icon(Icons.image_search, size: 18),
-                  label: const Text('Find art (SteamGridDB)'),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => _rename(context),
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Rename'),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => controller.setHidden(game, hidden: !hidden),
-                  icon: Icon(hidden ? Icons.visibility : Icons.visibility_off, size: 18),
-                  label: Text(hidden ? 'Unhide' : 'Hide from library'),
-                ),
-                if (game.source == SourceKind.manual) ...[
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: () => controller.removeManual(game.key),
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    label: const Text('Remove'),
-                  ),
-                ],
-                // The panel paints its own colour, so the switch needs a
+                // Everything that is not launching or reading lives in the cog
+                // above, so the panel stays a poster, a Launch button and the
+                // facts. The panel paints its own colour, so the switch needs a
                 // Material of its own for its ink to show up.
                 Material(
                   color: Colors.transparent,
@@ -158,6 +115,68 @@ class DetailPanel extends StatelessWidget {
       ),
     );
   }
+
+  /// The panel's cog: every action that is not worth a permanent button.
+  ///
+  /// The menu keeps the panel's own context, so the dialogs it opens (rename,
+  /// the art picker) still have the panel under them once the menu has closed.
+  Widget _actionsMenu(BuildContext context, bool hidden) {
+    return PopupMenuButton<String>(
+      tooltip: 'Game actions',
+      icon: Icon(Icons.settings, size: 20, color: context.palette.textDim),
+      onSelected: (value) async {
+        switch (value) {
+          case 'folder':
+            await controller.openFolder(game);
+          case 'copy':
+            await Clipboard.setData(
+              ClipboardData(text: Launcher.formatCommand(game)),
+            );
+            controller.notice = 'Command copied';
+          case 'art':
+            await showArtPicker(context, controller, game);
+          case 'rename':
+            await _rename(context);
+          case 'hide':
+            controller.setHidden(game, hidden: !hidden);
+          case 'remove':
+            await controller.removeManual(game.key);
+        }
+      },
+      itemBuilder: (context) => [
+        _action(context, 'folder', Icons.folder_open, 'Open folder'),
+        _action(context, 'copy', Icons.copy_all, 'Copy command'),
+        _action(context, 'art', Icons.image_search, 'Find art (SteamGridDB)'),
+        _action(context, 'rename', Icons.edit_outlined, 'Rename'),
+        _action(
+          context,
+          'hide',
+          hidden ? Icons.visibility : Icons.visibility_off,
+          hidden ? 'Unhide' : 'Hide from library',
+        ),
+        if (game.source == SourceKind.manual)
+          _action(context, 'remove', Icons.delete_outline, 'Remove'),
+      ],
+    );
+  }
+
+  PopupMenuItem<String> _action(
+    BuildContext context,
+    String value,
+    IconData icon,
+    String label,
+  ) => PopupMenuItem<String>(
+    value: value,
+    // A popup menu is at most 280 wide whatever the window is, so a long label
+    // has to give way rather than overflow the row.
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: context.palette.textDim),
+        const SizedBox(width: 12),
+        Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+      ],
+    ),
+  );
 
   Future<void> _rename(BuildContext context) async {
     final choice = await showRenameGameDialog(

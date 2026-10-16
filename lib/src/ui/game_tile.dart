@@ -5,24 +5,45 @@ import 'package:flutter/material.dart';
 import '../covers.dart';
 import '../model/game.dart';
 import '../state/library_controller.dart';
+import 'playtime.dart';
 import 'rename_dialog.dart';
 import 'theme.dart';
 
-/// One cover tile in the game grid.
+/// One cover tile: the wall's, or the recently played shelf's small one.
 class GameTile extends StatefulWidget {
   const GameTile({
     super.key,
     required this.game,
     required this.controller,
     required this.selected,
+    this.compact = false,
   });
 
+  /// The wall's tile: the 2:3 poster shape the covers are.
   static const double width = 168;
   static const double coverHeight = 252;
+
+  /// The shelf's tile: small enough that a row of them fits above the wall
+  /// without taking the wall's room.
+  static const double compactWidth = 116;
+  static const double compactCoverHeight = 174;
+
+  /// How tall a tile draws, cover and label included. The grid sizes its rows
+  /// with this, the shelf its strip.
+  static double heightFor({required bool compact}) =>
+      (compact ? compactCoverHeight : coverHeight) + (compact ? 44 : 68);
 
   final Game game;
   final LibraryController controller;
   final bool selected;
+
+  /// The shelf's size: one line of name, and how much and how recently the game
+  /// was played in place of its source.
+  final bool compact;
+
+  double get tileWidth => compact ? compactWidth : width;
+
+  double get tileHeight => compact ? compactCoverHeight : coverHeight;
 
   @override
   State<GameTile> createState() => _GameTileState();
@@ -95,30 +116,49 @@ class _GameTileState extends State<GameTile> {
                 themeIcon: widget.controller.covers.themeIconPath,
                 onPlay: () => widget.controller.launch(game),
                 menu: _menu(context, game, hidden),
+                width: widget.tileWidth,
+                height: widget.tileHeight,
+                compact: widget.compact,
               ),
-              const SizedBox(height: 10),
+              SizedBox(height: widget.compact ? 8 : 10),
               Text(
                 game.name,
-                maxLines: 2,
+                maxLines: widget.compact ? 1 : 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: 14,
+                  fontSize: widget.compact ? 12.5 : 14,
                   height: 1.2,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
-                game.displaySubtitle,
+                _subtitle(game),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: palette.textDim, fontSize: 12),
+                style: TextStyle(
+                  color: palette.textDim,
+                  fontSize: widget.compact ? 11 : 12,
+                  height: widget.compact ? 1.2 : null,
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// The line under the name: the game's source on the wall, and on the shelf
+  /// how much it was played and how recently.
+  String _subtitle(Game game) {
+    if (!widget.compact) return game.displaySubtitle;
+    final played = formatPlaytime(widget.controller.playtimeOf(game.id));
+    final last = widget.controller.lastPlayedFor(game.id);
+    // A shelf entry is always a played game, but the tile itself does not have
+    // to be: without a stamp the time played is all there is to say.
+    if (last == null) return played;
+    return '$played · ${formatLastPlayed(last, DateTime.now())}';
   }
 
   Widget _menu(BuildContext context, Game game, bool hidden) {
@@ -170,6 +210,9 @@ class _Cover extends StatelessWidget {
     required this.themeIcon,
     required this.onPlay,
     required this.menu,
+    required this.width,
+    required this.height,
+    required this.compact,
   });
 
   final Artwork artwork;
@@ -181,14 +224,17 @@ class _Cover extends StatelessWidget {
   final String? Function(String name) themeIcon;
   final VoidCallback onPlay;
   final Widget menu;
+  final double width;
+  final double height;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
-      width: GameTile.width,
-      height: GameTile.coverHeight,
+      width: width,
+      height: height,
       decoration: BoxDecoration(
         color: palette.surface,
         borderRadius: BorderRadius.circular(14),
@@ -231,18 +277,26 @@ class _Cover extends StatelessWidget {
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: onPlay,
-                          icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                          label: const Text('Play'),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                          ),
-                        ),
-                      ),
+                      padding: EdgeInsets.all(compact ? 10 : 12),
+                      // A labelled button has no room on a shelf tile: the cover
+                      // itself is the target there.
+                      child: compact
+                          ? IconButton.filled(
+                              tooltip: 'Play',
+                              onPressed: onPlay,
+                              icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                            )
+                          : SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: onPlay,
+                                icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                                label: const Text('Play'),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                ),
+                              ),
+                            ),
                     ),
                   ),
                 ],
@@ -268,7 +322,7 @@ class _Cover extends StatelessWidget {
         if (path == null) return _letter(palette);
         return Center(
           child: Padding(
-            padding: const EdgeInsets.all(28),
+            padding: EdgeInsets.all(compact ? 18 : 28),
             child: Image.file(
               File(path),
               fit: BoxFit.contain,
@@ -286,7 +340,7 @@ class _Cover extends StatelessWidget {
     child: Text(
       name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
       style: TextStyle(
-        fontSize: 54,
+        fontSize: compact ? 40 : 54,
         fontWeight: FontWeight.w800,
         color: palette.tileLetter,
       ),

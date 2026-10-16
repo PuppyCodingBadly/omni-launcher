@@ -33,6 +33,12 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final games = controller.visibleGames;
+    // The shelf is a shortcut to what was just played. While a search is
+    // running the wall already shows the matches, so it steps aside rather
+    // than repeating a few of them.
+    final recent = controller.query.isEmpty
+        ? controller.recentlyPlayed()
+        : const <Game>[];
     return Shortcuts(
       shortcuts: {
         const SingleActivator(LogicalKeyboardKey.keyF, control: true):
@@ -73,6 +79,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   child: Column(
                     children: [
                       _header(controller),
+                      if (recent.isNotEmpty) _shelf(controller, recent),
                       Expanded(child: _grid(controller, games)),
                       _statusBar(controller, games.length),
                     ],
@@ -146,6 +153,47 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
+  /// The recently played shelf: the last few games, newest first, as one
+  /// scrolling row of small covers above the wall.
+  Widget _shelf(LibraryController controller, List<Game> games) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(28, 4, 28, 10),
+          child: Text(
+            'RECENTLY PLAYED',
+            style: TextStyle(
+              fontSize: 10,
+              letterSpacing: 1.2,
+              color: context.palette.textDim,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: GameTile.heightFor(compact: true),
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            itemCount: games.length,
+            separatorBuilder: (context, index) => const SizedBox(width: 16),
+            itemBuilder: (context, index) {
+              final game = games[index];
+              return GameTile(
+                key: ValueKey('recent:${game.id}'),
+                game: game,
+                controller: controller,
+                selected: controller.selected?.id == game.id,
+                compact: true,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _grid(LibraryController controller, List<Game> games) {
     if (controller.status == LibraryStatus.loading && games.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -181,7 +229,7 @@ class _LibraryPageState extends State<LibraryPage> {
             crossAxisCount: columns,
             mainAxisSpacing: 22,
             crossAxisSpacing: spacing,
-            childAspectRatio: GameTile.width / (GameTile.coverHeight + 68),
+            childAspectRatio: GameTile.width / GameTile.heightFor(compact: false),
           ),
           itemCount: games.length,
           itemBuilder: (context, index) {

@@ -5,7 +5,7 @@ import 'host.dart';
 class AppPaths {
   static const String appId = 'io.github.PuppyCodingBadly.OmniLauncher';
   static const String appName = 'Omni Launcher';
-  static const String version = '0.1.2';
+  static const String version = '0.1.3';
 
   static String get home => Host.home;
 

@@ -23,13 +23,15 @@ class LibraryController extends ChangeNotifier {
     String? configPath,
     String? cachePath,
     PlaytimeStore? playtime,
+    CoverStore? covers,
     Duration? pollInterval,
   }) : _configPath = configPath ?? AppPaths.configFile,
        _cachePath = cachePath ?? AppPaths.cacheFile,
        _pollInterval = pollInterval ?? const Duration(seconds: 5),
        playtime = playtime ?? PlaytimeStore(),
+       covers = covers ?? CoverStore(),
        config = config ?? AppConfig.load(configPath ?? AppPaths.configFile) {
-    covers.settings = ArtSettings.from(this.config);
+    this.covers.settings = ArtSettings.from(this.config);
   }
 
   final String _configPath;
@@ -56,7 +58,12 @@ class LibraryController extends ChangeNotifier {
   static const int closeAfterQuietTicks = 2;
 
   AppConfig config;
-  final CoverStore covers = CoverStore();
+
+  /// Artwork resolution. Tests inject a store pointed at a local server.
+  final CoverStore covers;
+
+  /// Games whose artwork is being fetched right now, by game id.
+  final Set<String> _artFetches = <String>{};
 
   LibraryStatus status = LibraryStatus.loading;
 
@@ -93,6 +100,24 @@ class LibraryController extends ChangeNotifier {
       counts[game.source] = (counts[game.source] ?? 0) + 1;
     }
     return counts;
+  }
+
+  /// How many games the recently played shelf offers.
+  static const int recentLimit = 10;
+
+  /// The games that were played most recently, newest first, at most [limit].
+  ///
+  /// Only games still in the library can appear: playtime outlives a game that
+  /// was uninstalled or a source that went away, and the history keeps those
+  /// ids. The wall's own rules ([visibleGames]) apply on top, so the shelf
+  /// never offers a cover the wall itself would hide.
+  List<Game> recentlyPlayed({int limit = recentLimit}) {
+    final played = <(DateTime, Game)>[
+      for (final game in visibleGames)
+        if (playtime.lastPlayedFor(game.id) case final at?) (at, game),
+    ];
+    played.sort((a, b) => b.$1.compareTo(a.$1));
+    return [for (final (_, game) in played.take(limit)) game];
   }
 
   /// Load the cached library first, then rescan when asked to.
@@ -330,19 +355,28 @@ class LibraryController extends ChangeNotifier {
   Future<Artwork?> requestCoverArt(Game game) async {
     if (covers.overrideFor(game) != null) return null;
     if (covers.autoArtFor(game) != null) return null;
-    final steam = await covers.fetchSteamCover(game);
-    if (steam != null) return steam;
-    if (!(covers.settings.sgdbEnabled && covers.settings.sgdbAuto)) return null;
+    // The wall and the recently played shelf can show one game at the same
+    // moment, and both tiles ask: the second must not fetch what the first one
+    // is already fetching. The guard lasts only for the flight, so a fetch that
+    // came back empty can be tried again later.
+    if (!_artFetches.add(game.id)) return null;
     try {
-      final grids = await covers.searchArt(game);
-      if (grids.isEmpty) return null;
-      final path = await covers.downloadArt(game, grids.first);
-      if (path == null) return null;
-      _apply(config.copyWith(autoArt: {...config.autoArt, game.id: path}));
-      return Artwork(ArtworkKind.cover, value: path);
-    } on SteamGridDbException catch (error) {
-      failure = '${game.name}: $error';
-      return null;
+      final steam = await covers.fetchSteamCover(game);
+      if (steam != null) return steam;
+      if (!(covers.settings.sgdbEnabled && covers.settings.sgdbAuto)) return null;
+      try {
+        final grids = await covers.searchArt(game);
+        if (grids.isEmpty) return null;
+        final path = await covers.downloadArt(game, grids.first);
+        if (path == null) return null;
+        _apply(config.copyWith(autoArt: {...config.autoArt, game.id: path}));
+        return Artwork(ArtworkKind.cover, value: path);
+      } on SteamGridDbException catch (error) {
+        failure = '${game.name}: $error';
+        return null;
+      }
+    } finally {
+      _artFetches.remove(game.id);
     }
   }
 
