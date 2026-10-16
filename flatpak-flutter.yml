@@ -1,0 +1,98 @@
+# The manifest that is written by hand, for flatpak-flutter:
+#
+#   git clone https://github.com/TheAppgineer/flatpak-flutter
+#   ./flatpak-flutter/flatpak-flutter.py flatpak-flutter.yml
+#
+# It writes io.github.PuppyCodingBadly.OmniLauncher.yml, the manifest Flathub
+# builds, plus the generated/ folder that manifest reads: the Flutter SDK, its
+# engine artifacts and every pub package as sources, so the build itself needs
+# no network. Run it again when the dependencies or the Flutter version change.
+app-id: io.github.PuppyCodingBadly.OmniLauncher
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+separate-locales: false
+command: omni_launcher
+# Flutter's Linux build hard-codes CC=clang/CXX=clang++, and the base SDK only
+# ships gcc, so the LLVM extension provides the compiler.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm22
+finish-args:
+  # Cover art from the Steam CDN and SteamGridDB.
+  - --share=network
+  # A GTK window that renders with the GPU.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # The launcher keeps its own files in the host's XDG folders rather than the
+  # sandbox's, so a native build and the flatpak see the same library.
+  - --filesystem=~/.config/omnilauncher-flutter
+  - --filesystem=~/.cache/omnilauncher-flutter
+  - --filesystem=~/.local/state/omnilauncher-flutter
+  - --filesystem=~/.local/share/omnilauncher-flutter
+  # The launchers whose libraries it reads, native and flatpak.
+  - --filesystem=~/.steam
+  - --filesystem=~/.local/share/Steam
+  - --filesystem=~/.config/lutris
+  - --filesystem=~/.local/share/lutris
+  - --filesystem=~/.config/heroic
+  - --filesystem=~/.config/legendary
+  - --filesystem=~/.config/nile
+  - --filesystem=~/.local/share/faugus-launcher
+  - --filesystem=~/.local/share/com.epicgames.eglv2
+  - --filesystem=~/.var/app/com.valvesoftware.Steam
+  - --filesystem=~/.var/app/net.lutris.Lutris
+  - --filesystem=~/.var/app/com.heroicgameslauncher.hgl
+  - --filesystem=~/.var/app/io.github.Faugus.faugus-launcher
+  # The desktop entries that advertise games, and the folders AppImages are
+  # looked for in by default.
+  - --filesystem=~/.local/share/applications
+  - --filesystem=~/AppImages
+  - --filesystem=~/Applications
+  - --filesystem=~/AppImage
+  - --filesystem=~/Games
+  - --filesystem=~/Downloads
+  - --filesystem=~/.local/bin
+  # Steam libraries and AppImages on other drives, and one of the default
+  # AppImage folders.
+  - --filesystem=/mnt
+  - --filesystem=/run/media
+  - --filesystem=/opt:ro
+  # The host's own desktop entries and icons, which is where the games that
+  # are not flatpaks advertise themselves.
+  - --filesystem=host-os:ro
+  # A game is started by running the host's own steam/flatpak/lutris/xdg-open,
+  # so the sandbox needs the portal that can start host processes.
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: OmniLauncher
+    buildsystem: simple
+    build-options:
+      # flatpak-flutter parks the Flutter SDK in /var/lib/flutter, outside the
+      # app, and rewrites the path below to match.
+      append-path: /usr/lib/sdk/llvm22/bin:/run/build/OmniLauncher/flutter/bin
+      prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
+      env:
+        FLUTTER_SUPPRESS_ANALYTICS: 'true'
+    build-commands:
+      # flatpak-flutter inserts `setup-flutter.sh` (`flutter pub get --offline`)
+      # above the first flutter command.
+      - flutter build linux --release --no-pub
+      - install -d /app/omni-launcher
+      - cp -r build/linux/x64/release/bundle/. /app/omni-launcher/
+      - install -d /app/bin
+      - ln -sf /app/omni-launcher/omni_launcher /app/bin/omni_launcher
+      - install -Dm644 data/io.github.PuppyCodingBadly.OmniLauncher.desktop.in /app/share/applications/io.github.PuppyCodingBadly.OmniLauncher.desktop
+      - sed -i 's|@EXEC@|omni_launcher|' /app/share/applications/io.github.PuppyCodingBadly.OmniLauncher.desktop
+      - install -Dm644 data/icons/io.github.PuppyCodingBadly.OmniLauncher.svg /app/share/icons/hicolor/scalable/apps/io.github.PuppyCodingBadly.OmniLauncher.svg
+      - install -Dm644 flatpak/io.github.PuppyCodingBadly.OmniLauncher.metainfo.xml /app/share/metainfo/io.github.PuppyCodingBadly.OmniLauncher.metainfo.xml
+      - install -Dm644 LICENSE -t /app/share/licenses/io.github.PuppyCodingBadly.OmniLauncher/
+    sources:
+      - type: git
+        url: https://github.com/PuppyCodingBadly/OmniLauncher.git
+        tag: v0.2.1
+      - type: git
+        url: https://github.com/flutter/flutter.git
+        tag: 3.47.7
+        dest: flutter

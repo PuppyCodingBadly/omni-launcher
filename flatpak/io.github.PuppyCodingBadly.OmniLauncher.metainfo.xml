@@ -33,6 +33,10 @@
 
   <launchable type="desktop-id">io.github.PuppyCodingBadly.OmniLauncher.desktop</launchable>
 
+  <url type="homepage">https://github.com/PuppyCodingBadly/OmniLauncher</url>
+  <url type="bugtracker">https://github.com/PuppyCodingBadly/OmniLauncher/issues</url>
+  <url type="vcs-browser">https://github.com/PuppyCodingBadly/OmniLauncher</url>
+
   <categories>
     <category>Game</category>
     <category>Utility</category>
@@ -46,9 +50,33 @@
     <keyword>flatpak</keyword>
   </keywords>
 
+  <screenshots>
+    <screenshot type="default">
+      <caption>The library</caption>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/library.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Game details</caption>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/details.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings</caption>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/settings.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Picking cover art from SteamGridDB</caption>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/steamgriddb.jpg</image>
+    </screenshot>
+  </screenshots>
+
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.2.1" date="2026-10-15">
+      <description>
+        <p>AppStream metadata: the homepage, screenshots and a brand colour, so the launcher is presented properly by software centres and by Flathub.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-15">
       <description>
         <p>Plugins: a folder with a plugin.json in it and a program the launcher runs, JSON in and JSON out, in any language. Settings holds a plugin store that reads a catalogue from the launcher's own repository, installs a plugin into your plugin folder and removes it again, and each installed plugin gets its section in the detail panel — HowLongToBeat, which ships with the launcher, answers with the main story, main + extra and completionist times.</p>
@@ -70,4 +98,9 @@
       </description>
     </release>
   </releases>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#1a5fb4</color>
+    <color type="primary" scheme_preference="dark">#62a0ea</color>
+  </branding>
 </component>

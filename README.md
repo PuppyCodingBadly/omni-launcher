@@ -59,7 +59,7 @@ AppImage folders, hidden games and hand-added games.
 
 ```sh
 flatpak install --user --from \
-  https://github.com/PuppyCodingBadly/omni-launcher/releases/latest/download/io.github.PuppyCodingBadly.OmniLauncher.flatpakref
+  https://github.com/PuppyCodingBadly/OmniLauncher/releases/latest/download/io.github.PuppyCodingBadly.OmniLauncher.flatpakref
 ```
 
 That installs from the project's flatpak repository, so `flatpak update` picks
@@ -77,7 +77,7 @@ pkg-config, libgtk-3-dev). On an immutable distribution, build inside a
 container that has those:
 
 ```sh
-git clone https://github.com/PuppyCodingBadly/omni-launcher.git
+git clone https://github.com/PuppyCodingBadly/OmniLauncher.git
 cd omni-launcher
 flutter build linux --release
 ./dev.sh              # runs the build from this checkout, nothing installed
@@ -214,7 +214,7 @@ detail panel, with the button that asks it about the game you have selected.
 and the bin beside it removes the plugin's folder. The catalogue is read from
 
 ```
-https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/plugins/index.json
+https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/main/plugins/index.json
 ```
 
 and each entry names a `.zip` beside it, so the list and the archives it points
@@ -240,11 +240,25 @@ higher.
 
 ## Packaging it yourself
 
-`flatpak/` contains the manifest, the AppStream metadata and a build script:
+`flatpak-flutter.yml` is the manifest that is written by hand. `flatpak-flutter`
+turns it into `io.github.PuppyCodingBadly.OmniLauncher.yml` — the manifest that
+is actually built — and into the `generated/` folder that manifest reads: the
+Flutter SDK, its engine artifacts and every pub package as sources, so the build
+itself needs no network.
+
+```sh
+git clone https://github.com/TheAppgineer/flatpak-flutter
+./flatpak-flutter/flatpak-flutter.py flatpak-flutter.yml
+```
+
+Run that again whenever the dependencies or the Flutter version change, and
+commit what it writes. `flatpak/` holds the AppStream metadata and a build
+script, and `flathub.json` keeps the Flathub build on x86_64, the architecture
+the engine artifacts are verified on.
 
 ```sh
 flatpak install --user flathub org.flatpak.Builder \
-    org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
+    org.freedesktop.Sdk//26.08 org.freedesktop.Sdk.Extension.llvm22//26.08
 flatpak/build.sh
 ```
 
@@ -255,11 +269,21 @@ The permissions it asks for, and why:
 
 | Permission | Why |
 | --- | --- |
-| `--filesystem=host` | the library *is* the host's games: Steam libraries, Heroic/Lutris/Faugus data, the Epic launcher's data root, other apps' flatpak data, the desktop entries |
+| `~/.config`, `~/.cache`, `~/.local/state`, `~/.local/share` + `/omnilauncher-flutter` | the launcher's own config, cache, cover art and plugins, kept on the host so a native build and the flatpak share one library |
+| `~/.steam`, `~/.local/share/Steam`, `~/.config/lutris`, `~/.local/share/lutris`, `~/.config/heroic`, `~/.config/legendary`, `~/.config/nile`, `~/.local/share/faugus-launcher`, `~/.local/share/com.epicgames.eglv2` | the launchers whose libraries it reads |
+| `~/.var/app/{com.valvesoftware.Steam,net.lutris.Lutris,com.heroicgameslauncher.hgl,io.github.Faugus.faugus-launcher}` | the same launchers, installed as flatpaks |
+| `~/.local/share/applications` | the desktop entries that advertise games |
+| `~/AppImages`, `~/Applications`, `~/AppImage`, `~/Games`, `~/Downloads`, `~/.local/bin` | the folders AppImages are looked for in by default |
+| `/mnt`, `/run/media` | Steam libraries and AppImage folders on other drives |
+| `/opt:ro` | the last of the default AppImage folders |
+| `host-os:ro` | the host's own desktop entries and icons, where the games that are not flatpaks advertise themselves |
 | `--talk-name=org.freedesktop.Flatpak` | launching a game means running the host's `steam`/`flatpak`/`xdg-open`/`lutris` through `flatpak-spawn --host` |
 | `--share=network` | cover art |
 | `--socket=wayland`, `--socket=fallback-x11`, `--share=ipc`, `--device=dri` | a GTK window with GPU rendering |
-| `--socket=pulseaudio` | games that make noise |
+
+Not `--filesystem=home`: an AppImage folder outside the list above is not
+reachable from inside the flatpak, which is the price of asking for the
+narrowest set of paths that still finds everything a default install has.
 
 Sharing it with someone else: send them the `.flatpak` file, serve
 `flatpak/repo` over the network and hand over a `.flatpakref` whose `Url=`

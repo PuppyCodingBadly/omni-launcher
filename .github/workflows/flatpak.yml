@@ -29,8 +29,8 @@ jobs:
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: OmniLauncher-x86_64.flatpak
-          manifest-path: flatpak/io.github.PuppyCodingBadly.OmniLauncher.yml
-          runtime-version: '25.08'
+          manifest-path: io.github.PuppyCodingBadly.OmniLauncher.yml
+          runtime-version: '26.08'
           cache-key: flatpak-builder-${{ github.sha }}
 
       # The bundle above is the standalone file people can download. A
@@ -39,7 +39,7 @@ jobs:
       - name: Build the repository
         run: |
           flatpak-builder --repo=repo --force-clean --disable-rofiles-fuse \
-            build-dir flatpak/io.github.PuppyCodingBadly.OmniLauncher.yml
+            build-dir io.github.PuppyCodingBadly.OmniLauncher.yml
           flatpak build-update-repo repo
 
       - name: Write the .flatpakref
