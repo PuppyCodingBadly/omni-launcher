@@ -80,8 +80,14 @@ container that has those:
 git clone https://github.com/PuppyCodingBadly/omni-launcher.git
 cd omni-launcher
 flutter build linux --release
-./install.sh          # ~/.local/opt + desktop entry + icon
+./dev.sh              # runs the build from this checkout, nothing installed
 ```
+
+`./install.sh` is for a real install instead: it copies the bundle to
+`~/.local/opt/omni-launcher`, links it as `~/.local/bin/omni-launcher` and
+writes a desktop entry and an icon, which is what puts it in the app grid.
+`./dev.sh` runs a build you are working on where it is, so nothing outside the
+checkout is touched.
 
 ## Use
 
