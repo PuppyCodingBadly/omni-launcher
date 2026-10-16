@@ -62,8 +62,17 @@ class LibraryController extends ChangeNotifier {
   /// Artwork resolution. Tests inject a store pointed at a local server.
   final CoverStore covers;
 
-  /// Games whose artwork is being fetched right now, by game id.
-  final Set<String> _artFetches = <String>{};
+  /// Artwork fetches in flight, by game id.
+  final Map<String, Future<Artwork?>> _artFetches = <String, Future<Artwork?>>{};
+
+  /// Say something in the status bar, and show it now.
+  ///
+  /// For callers that are not the controller, such as the panel's cog: setting
+  /// [notice] alone would wait for the next unrelated change to appear.
+  void announce(String message) {
+    notice = message;
+    notifyListeners();
+  }
 
   LibraryStatus status = LibraryStatus.loading;
 
@@ -352,31 +361,37 @@ class LibraryController extends ChangeNotifier {
   /// Artwork for a tile: Steam CDN first, then SteamGridDB when enabled.
   ///
   /// A SteamGridDB pick is remembered in the config so it survives rescans.
-  Future<Artwork?> requestCoverArt(Game game) async {
+  ///
+  /// The wall and the recently played shelf can show one game at the same
+  /// moment, and both tiles ask: they get the same answer from one fetch. A
+  /// caller told "nothing came back" keeps its letter tile until it is rebuilt,
+  /// so the second one waits for the first fetch rather than being refused.
+  Future<Artwork?> requestCoverArt(Game game) {
+    final pending = _artFetches[game.id];
+    if (pending != null) return pending;
+    final fetch = _fetchCoverArt(game);
+    _artFetches[game.id] = fetch;
+    // The entry goes when the fetch settles, whatever it settled with.
+    fetch.whenComplete(() => _artFetches.remove(game.id)).ignore();
+    return fetch;
+  }
+
+  Future<Artwork?> _fetchCoverArt(Game game) async {
     if (covers.overrideFor(game) != null) return null;
     if (covers.autoArtFor(game) != null) return null;
-    // The wall and the recently played shelf can show one game at the same
-    // moment, and both tiles ask: the second must not fetch what the first one
-    // is already fetching. The guard lasts only for the flight, so a fetch that
-    // came back empty can be tried again later.
-    if (!_artFetches.add(game.id)) return null;
+    final steam = await covers.fetchSteamCover(game);
+    if (steam != null) return steam;
+    if (!(covers.settings.sgdbEnabled && covers.settings.sgdbAuto)) return null;
     try {
-      final steam = await covers.fetchSteamCover(game);
-      if (steam != null) return steam;
-      if (!(covers.settings.sgdbEnabled && covers.settings.sgdbAuto)) return null;
-      try {
-        final grids = await covers.searchArt(game);
-        if (grids.isEmpty) return null;
-        final path = await covers.downloadArt(game, grids.first);
-        if (path == null) return null;
-        _apply(config.copyWith(autoArt: {...config.autoArt, game.id: path}));
-        return Artwork(ArtworkKind.cover, value: path);
-      } on SteamGridDbException catch (error) {
-        failure = '${game.name}: $error';
-        return null;
-      }
-    } finally {
-      _artFetches.remove(game.id);
+      final grids = await covers.searchArt(game);
+      if (grids.isEmpty) return null;
+      final path = await covers.downloadArt(game, grids.first);
+      if (path == null) return null;
+      _apply(config.copyWith(autoArt: {...config.autoArt, game.id: path}));
+      return Artwork(ArtworkKind.cover, value: path);
+    } on SteamGridDbException catch (error) {
+      failure = '${game.name}: $error';
+      return null;
     }
   }
 

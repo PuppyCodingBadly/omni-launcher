@@ -132,7 +132,7 @@ class DetailPanel extends StatelessWidget {
             await Clipboard.setData(
               ClipboardData(text: Launcher.formatCommand(game)),
             );
-            controller.notice = 'Command copied';
+            controller.announce('Command copied');
           case 'art':
             await showArtPicker(context, controller, game);
           case 'rename':

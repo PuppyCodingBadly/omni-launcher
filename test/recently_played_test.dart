@@ -142,9 +142,12 @@ void main() {
   });
 
   group('the shelf in the window', () {
-    testWidgets('shows the played games small, and steps aside for a search', (
-      tester,
-    ) async {
+    /// The page with two played games on the shelf and an unplayed one on the
+    /// wall, in a window of [size].
+    Future<LibraryController> pumpPage(
+      WidgetTester tester, {
+      Size size = const Size(1700, 1000),
+    }) async {
       seed({
         'steam:1': (3600, DateTime.now()),
         'steam:2': (600, DateTime.now().subtract(const Duration(days: 2))),
@@ -158,7 +161,7 @@ void main() {
       ];
 
       tester.view.devicePixelRatio = 1.0;
-      tester.view.physicalSize = const Size(1700, 1000);
+      tester.view.physicalSize = size;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
         MaterialApp(
@@ -170,6 +173,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      return controller;
+    }
+
+    testWidgets('shows the played games small, and steps aside for a search', (
+      tester,
+    ) async {
+      final controller = await pumpPage(tester);
 
       expect(find.text('RECENTLY PLAYED'), findsOneWidget);
       // The two played games twice (shelf and wall), the unplayed one once.
@@ -192,6 +202,28 @@ void main() {
       controller.setQuery('gamma');
       await tester.pumpAndSettle();
       expect(find.text('RECENTLY PLAYED'), findsNothing);
+    });
+
+    testWidgets('grows with the platform text scale rather than clipping', (
+      tester,
+    ) async {
+      // A large-text desktop: the labels grow, so the strip has to as well. An
+      // overflow fails this test on its own.
+      tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      await pumpPage(tester);
+
+      expect(find.text('RECENTLY PLAYED'), findsOneWidget);
+      expect(find.byType(GameTile), findsNWidgets(5));
+    });
+
+    testWidgets('steps aside in a window too short for it', (tester) async {
+      // The strip and the wall cannot both have room here.
+      await pumpPage(tester, size: const Size(1000, 380));
+
+      expect(find.text('RECENTLY PLAYED'), findsNothing);
+      expect(find.byType(GameTile), findsNWidgets(3));
     });
   });
 }

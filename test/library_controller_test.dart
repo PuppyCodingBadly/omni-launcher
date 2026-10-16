@@ -178,7 +178,8 @@ void _fetchedArtTests(Directory Function() dir) {
   });
 
   test('one fetch per game, however many tiles are showing it', () async {
-    final covers = _CountingCovers();
+    final cover = File('${dir().path}/cover.png')..writeAsBytesSync([1, 2, 3]);
+    final covers = _CountingCovers(Artwork(ArtworkKind.cover, value: cover.path));
     final controller = LibraryController(
       configPath: '${dir().path}/config.json',
       cachePath: '${dir().path}/games.json',
@@ -202,9 +203,14 @@ void _fetchedArtTests(Directory Function() dir) {
     ]);
 
     expect(covers.fetches, 1);
-    expect(results, everyElement(isNull));
+    // Both tiles get what the one fetch found: a tile told "nothing came back"
+    // would keep its letter until it happened to be rebuilt.
+    expect(results.map((artwork) => artwork?.value).toList(), [
+      cover.path,
+      cover.path,
+    ]);
 
-    // The guard lasts for the flight, not forever: a later tile may try again.
+    // The entry lasts for the flight, not forever: a later tile may ask again.
     await controller.requestCoverArt(game);
     expect(covers.fetches, 2);
   });
@@ -212,11 +218,16 @@ void _fetchedArtTests(Directory Function() dir) {
 
 /// A cover store that counts what the controller asks it to fetch.
 class _CountingCovers extends CoverStore {
+  _CountingCovers(this.answer);
+
+  /// What a fetch comes back with; `null` means "no artwork anywhere".
+  final Artwork? answer;
+
   int fetches = 0;
 
   @override
   Future<Artwork?> fetchSteamCover(Game game) async {
     fetches++;
-    return null;
+    return answer;
   }
 }

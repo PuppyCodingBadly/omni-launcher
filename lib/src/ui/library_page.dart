@@ -19,6 +19,10 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
+  /// Below this much height the shelf is left out: the header, the strip and
+  /// the status bar would leave the wall too little to show.
+  static const double _shelfMinBody = 420;
+
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
@@ -76,13 +80,19 @@ class _LibraryPageState extends State<LibraryPage> {
               children: [
                 _Sidebar(controller: controller),
                 Expanded(
-                  child: Column(
-                    children: [
-                      _header(controller),
-                      if (recent.isNotEmpty) _shelf(controller, recent),
-                      Expanded(child: _grid(controller, games)),
-                      _statusBar(controller, games.length),
-                    ],
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => Column(
+                      children: [
+                        _header(controller),
+                        // A window this short has no room for a strip above the
+                        // wall: the shelf steps aside rather than pushing the
+                        // wall off the bottom of the page.
+                        if (recent.isNotEmpty && constraints.maxHeight >= _shelfMinBody)
+                          _shelf(controller, recent),
+                        Expanded(child: _grid(controller, games)),
+                        _statusBar(controller, games.length),
+                      ],
+                    ),
                   ),
                 ),
                 if (controller.selected != null)
@@ -172,7 +182,10 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
         SizedBox(
-          height: GameTile.heightFor(compact: true),
+          height: GameTile.heightFor(
+            compact: true,
+            textScaler: MediaQuery.textScalerOf(context),
+          ),
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -229,7 +242,12 @@ class _LibraryPageState extends State<LibraryPage> {
             crossAxisCount: columns,
             mainAxisSpacing: 22,
             crossAxisSpacing: spacing,
-            childAspectRatio: GameTile.width / GameTile.heightFor(compact: false),
+            childAspectRatio:
+                GameTile.width /
+                GameTile.heightFor(
+                  compact: false,
+                  textScaler: MediaQuery.textScalerOf(context),
+                ),
           ),
           itemCount: games.length,
           itemBuilder: (context, index) {

@@ -28,10 +28,27 @@ class GameTile extends StatefulWidget {
   static const double compactWidth = 116;
   static const double compactCoverHeight = 174;
 
-  /// How tall a tile draws, cover and label included. The grid sizes its rows
-  /// with this, the shelf its strip.
-  static double heightFor({required bool compact}) =>
-      (compact ? compactCoverHeight : coverHeight) + (compact ? 44 : 68);
+  /// How tall a tile draws: the cover, then the name and the subtitle under it.
+  ///
+  /// The lines follow the platform's text scale, so [textScaler] has to as
+  /// well: the shelf's strip is this number, and a strip that ignored a
+  /// large-text desktop would clip its own labels. The wall follows it through
+  /// the grid's aspect ratio.
+  static double heightFor({
+    required bool compact,
+    TextScaler textScaler = TextScaler.noScaling,
+  }) {
+    final cover = compact ? compactCoverHeight : coverHeight;
+    final name = (compact ? 12.5 : 14.0) * 1.2 * (compact ? 1 : 2);
+    final subtitle = (compact ? 11.0 : 12.0) * 1.2;
+    // The cover, the air above the label, the two lines, the air below them.
+    return cover +
+        (compact ? 8 : 10) +
+        textScaler.scale(name) +
+        textScaler.scale(subtitle) +
+        2 +
+        8;
+  }
 
   final Game game;
   final LibraryController controller;
