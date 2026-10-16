@@ -31,23 +31,25 @@ finish-args:
   - --filesystem=~/.cache/omnilauncher-flutter
   - --filesystem=~/.local/state/omnilauncher-flutter
   - --filesystem=~/.local/share/omnilauncher-flutter
-  # The launchers whose libraries it reads, native and flatpak.
-  - --filesystem=~/.steam
-  - --filesystem=~/.local/share/Steam
-  - --filesystem=~/.config/lutris
-  - --filesystem=~/.local/share/lutris
-  - --filesystem=~/.config/heroic
-  - --filesystem=~/.config/legendary
-  - --filesystem=~/.config/nile
-  - --filesystem=~/.local/share/faugus-launcher
-  - --filesystem=~/.local/share/com.epicgames.eglv2
-  - --filesystem=~/.var/app/com.valvesoftware.Steam
-  - --filesystem=~/.var/app/net.lutris.Lutris
-  - --filesystem=~/.var/app/com.heroicgameslauncher.hgl
-  - --filesystem=~/.var/app/io.github.Faugus.faugus-launcher
+  # The launchers whose libraries it reads, native and flatpak: read-only,
+  # since a game is started on the host, not from in here.
+  - --filesystem=~/.steam:ro
+  - --filesystem=~/.local/share/Steam:ro
+  - --filesystem=~/.config/lutris:ro
+  - --filesystem=~/.local/share/lutris:ro
+  - --filesystem=~/.config/heroic:ro
+  - --filesystem=~/.config/legendary:ro
+  - --filesystem=~/.config/nile:ro
+  - --filesystem=~/.local/share/faugus-launcher:ro
+  - --filesystem=~/.local/share/com.epicgames.eglv2:ro
+  - --filesystem=~/.var/app/com.valvesoftware.Steam:ro
+  - --filesystem=~/.var/app/net.lutris.Lutris:ro
+  - --filesystem=~/.var/app/com.heroicgameslauncher.hgl:ro
+  - --filesystem=~/.var/app/io.github.Faugus.faugus-launcher:ro
   # The desktop entries that advertise games, and the folders AppImages are
-  # looked for in by default.
-  - --filesystem=~/.local/share/applications
+  # looked for in by default (those need write access: an AppImage that is not
+  # executable yet is made so).
+  - --filesystem=~/.local/share/applications:ro
   - --filesystem=~/AppImages
   - --filesystem=~/Applications
   - --filesystem=~/AppImage
@@ -91,7 +93,6 @@ modules:
     sources:
       - type: git
         url: https://github.com/PuppyCodingBadly/OmniLauncher.git
-        tag: v0.2.1
       - type: git
         url: https://github.com/flutter/flutter.git
         tag: 3.47.7

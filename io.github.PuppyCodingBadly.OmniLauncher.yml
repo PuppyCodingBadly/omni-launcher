@@ -20,7 +20,30 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
-  - --filesystem=home
+  - --filesystem=~/.config/omnilauncher-flutter
+  - --filesystem=~/.cache/omnilauncher-flutter
+  - --filesystem=~/.local/state/omnilauncher-flutter
+  - --filesystem=~/.local/share/omnilauncher-flutter
+  - --filesystem=~/.steam:ro
+  - --filesystem=~/.local/share/Steam:ro
+  - --filesystem=~/.config/lutris:ro
+  - --filesystem=~/.local/share/lutris:ro
+  - --filesystem=~/.config/heroic:ro
+  - --filesystem=~/.config/legendary:ro
+  - --filesystem=~/.config/nile:ro
+  - --filesystem=~/.local/share/faugus-launcher:ro
+  - --filesystem=~/.local/share/com.epicgames.eglv2:ro
+  - --filesystem=~/.var/app/com.valvesoftware.Steam:ro
+  - --filesystem=~/.var/app/net.lutris.Lutris:ro
+  - --filesystem=~/.var/app/com.heroicgameslauncher.hgl:ro
+  - --filesystem=~/.var/app/io.github.Faugus.faugus-launcher:ro
+  - --filesystem=~/.local/share/applications:ro
+  - --filesystem=~/AppImages
+  - --filesystem=~/Applications
+  - --filesystem=~/AppImage
+  - --filesystem=~/Games
+  - --filesystem=~/Downloads
+  - --filesystem=~/.local/bin
   - --filesystem=/mnt
   - --filesystem=/run/media
   - --filesystem=/opt:ro
@@ -50,9 +73,8 @@ modules:
       - install -Dm644 LICENSE -t /app/share/licenses/io.github.PuppyCodingBadly.OmniLauncher/
     sources:
       - type: git
-        url: https://github.com/PuppyCodingBadly/omni-launcher.git
-        tag: v0.2.1
-        commit: 378e3f342452d4e6a0edf6e8004884c88b6851b2
+        url: https://github.com/PuppyCodingBadly/OmniLauncher.git
+        commit: 08a00158c306b5ce11b630fead2fdb05c3b4cde4
       - generated/sources/pubspec.json
     modules:
       - generated/modules/flutter-sdk-3.47.7.json

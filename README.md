@@ -270,10 +270,10 @@ The permissions it asks for, and why:
 | Permission | Why |
 | --- | --- |
 | `~/.config`, `~/.cache`, `~/.local/state`, `~/.local/share` + `/omnilauncher-flutter` | the launcher's own config, cache, cover art and plugins, kept on the host so a native build and the flatpak share one library |
-| `~/.steam`, `~/.local/share/Steam`, `~/.config/lutris`, `~/.local/share/lutris`, `~/.config/heroic`, `~/.config/legendary`, `~/.config/nile`, `~/.local/share/faugus-launcher`, `~/.local/share/com.epicgames.eglv2` | the launchers whose libraries it reads |
-| `~/.var/app/{com.valvesoftware.Steam,net.lutris.Lutris,com.heroicgameslauncher.hgl,io.github.Faugus.faugus-launcher}` | the same launchers, installed as flatpaks |
-| `~/.local/share/applications` | the desktop entries that advertise games |
-| `~/AppImages`, `~/Applications`, `~/AppImage`, `~/Games`, `~/Downloads`, `~/.local/bin` | the folders AppImages are looked for in by default |
+| `~/.steam:ro`, `~/.local/share/Steam:ro`, `~/.config/lutris:ro`, `~/.local/share/lutris:ro`, `~/.config/heroic:ro`, `~/.config/legendary:ro`, `~/.config/nile:ro`, `~/.local/share/faugus-launcher:ro`, `~/.local/share/com.epicgames.eglv2:ro` | the launchers whose libraries it reads — read-only, because a game is started on the host, not from in here |
+| `~/.var/app/{com.valvesoftware.Steam,net.lutris.Lutris,com.heroicgameslauncher.hgl,io.github.Faugus.faugus-launcher}:ro` | the same launchers, installed as flatpaks |
+| `~/.local/share/applications:ro` | the desktop entries that advertise games |
+| `~/AppImages`, `~/Applications`, `~/AppImage`, `~/Games`, `~/Downloads`, `~/.local/bin` | the folders AppImages are looked for in by default, writable because an AppImage that is not executable yet is made so |
 | `/mnt`, `/run/media` | Steam libraries and AppImage folders on other drives |
 | `/opt:ro` | the last of the default AppImage folders |
 | `host-os:ro` | the host's own desktop entries and icons, where the games that are not flatpaks advertise themselves |
