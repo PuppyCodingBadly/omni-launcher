@@ -53,19 +53,19 @@
   <screenshots>
     <screenshot type="default">
       <caption>The library</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/library.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/library.jpg</image>
     </screenshot>
     <screenshot>
       <caption>Game details</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/details.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/details.jpg</image>
     </screenshot>
     <screenshot>
       <caption>Settings</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/settings.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/settings.jpg</image>
     </screenshot>
     <screenshot>
       <caption>Picking cover art from SteamGridDB</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/v0.2.1/docs/screenshots/steamgriddb.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/steamgriddb.jpg</image>
     </screenshot>
   </screenshots>
 

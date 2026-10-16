@@ -92,7 +92,7 @@ modules:
       - install -Dm644 LICENSE -t /app/share/licenses/io.github.PuppyCodingBadly.OmniLauncher/
     sources:
       - type: git
-        url: https://github.com/PuppyCodingBadly/OmniLauncher.git
+        url: https://github.com/PuppyCodingBadly/omni-launcher.git
       - type: git
         url: https://github.com/flutter/flutter.git
         tag: 3.47.7
