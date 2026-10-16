@@ -106,12 +106,24 @@ flatpak run io.github.PuppyCodingBadly.OmniLauncher</pre>
   <h2>What it does beyond launching</h2>
   <p>
     Cover art from Steam's own cache or from SteamGridDB with your own API key,
-    on portrait posters whatever the window shape. Playtime and last played,
-    renames that also steer the SteamGridDB lookup, hidden games, per-game
-    "close the launcher with the game", a sidebar that folds to an icon rail,
-    System/Dark/Light appearance with the GNOME accent palette, and games that
-    are also Steam shortcuts (RetroDECK) launched through Steam so Steam Input
-    works.
+    on portrait posters whatever the window shape. A recently played shelf above
+    the wall, playtime and last played, renames that also steer the SteamGridDB
+    lookup, hidden games, per-game "close the launcher with the game", the
+    per-game actions tucked into the detail panel's cog, a sidebar that folds to
+    an icon rail, System/Dark/Light appearance with the GNOME accent palette,
+    and games that are also Steam shortcuts (RetroDECK) launched through Steam
+    so Steam Input works.
+  </p>
+
+  <h2>Plugins</h2>
+  <p>
+    A plugin is a folder with a <code>plugin.json</code> in it and a program the
+    launcher runs, JSON in and JSON out, in any language you like. Settings
+    holds a store: it reads a catalogue from the launcher's own repository,
+    installs a plugin with one button and removes it again, and what is
+    installed shows up in the launcher itself. One ships with it — a
+    HowLongToBeat lookup that puts the main story and completionist times next
+    to the game's facts.
   </p>
 
   <h2>Packaging notes</h2>
@@ -119,7 +131,8 @@ flatpak run io.github.PuppyCodingBadly.OmniLauncher</pre>
     The flatpak asks for host filesystem access and the Flatpak portal: the
     library <em>is</em> the host's games, and launching them means running the
     host's Steam, flatpak and <code>xdg-open</code>. Nothing is uploaded
-    anywhere; the only network use is cover art.
+    anywhere: the launcher's own network use is cover art, and a plugin does
+    whatever its author wrote it to do.
   </p>
 
   <footer>
