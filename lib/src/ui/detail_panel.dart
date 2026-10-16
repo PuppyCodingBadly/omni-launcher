@@ -8,7 +8,9 @@ import '../launcher.dart';
 import '../model/game.dart';
 import '../state/library_controller.dart';
 import 'art_picker.dart';
+import 'field.dart';
 import 'playtime.dart';
+import 'plugin_answer.dart';
 import 'rename_dialog.dart';
 import 'theme.dart';
 
@@ -98,16 +100,39 @@ class DetailPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                _field(context, 'Played', formatPlaytime(controller.playtimeOf(game.id))),
+                for (final plugin in controller.plugins) ...[
+                  PluginSection(
+                    controller: controller,
+                    game: game,
+                    plugin: plugin,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                LabelledValue(
+                  label: 'Played',
+                  value: formatPlaytime(controller.playtimeOf(game.id)),
+                ),
                 if (controller.lastPlayedFor(game.id) case final last?)
-                  _field(context, 'Last played', formatLastPlayed(last, DateTime.now())),
-                _field(context, 'Source', game.source.label),
-                _field(context, 'Id', game.id),
-                if (game.path != null) _field(context, 'Folder', game.path!),
+                  LabelledValue(
+                    label: 'Last played',
+                    value: formatLastPlayed(last, DateTime.now()),
+                  ),
+                LabelledValue(label: 'Source', value: game.source.label),
+                LabelledValue(label: 'Id', value: game.id),
+                if (game.path != null)
+                  LabelledValue(label: 'Folder', value: game.path!),
                 if (game.extra['size'] != null && game.extra['size'] != 0)
-                  _field(context, 'Size on disk', _size(game.extra['size'])),
-                if (game.extra['store'] != null) _field(context, 'Store', '${game.extra['store']}'),
-                _field(context, 'Command', Launcher.formatCommand(game), mono: true),
+                  LabelledValue(
+                    label: 'Size on disk',
+                    value: _size(game.extra['size']),
+                  ),
+                if (game.extra['store'] != null)
+                  LabelledValue(label: 'Store', value: '${game.extra['store']}'),
+                LabelledValue(
+                  label: 'Command',
+                  value: Launcher.formatCommand(game),
+                  mono: true,
+                ),
               ],
             ),
           ),
@@ -234,38 +259,6 @@ class DetailPanel extends StatelessWidget {
     child: Text(
       label,
       style: TextStyle(fontSize: 12, color: context.palette.textDim),
-    ),
-  );
-
-  Widget _field(
-    BuildContext context,
-    String label,
-    String value, {
-    bool mono = false,
-  }) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label.toUpperCase(),
-          style: TextStyle(
-            fontSize: 10,
-            letterSpacing: 1.1,
-            color: context.palette.textDim,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        SelectableText(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            height: 1.35,
-            fontFamily: mono ? 'monospace' : null,
-          ),
-        ),
-      ],
     ),
   );
 

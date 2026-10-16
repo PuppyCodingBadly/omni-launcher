@@ -1,0 +1,209 @@
+/// Reading the zip archives the plugin store hands out.
+///
+/// Only what a plugin archive needs: stored and deflated entries, no
+/// encryption, no zip64. Everything else is refused, and no entry may leave the
+/// folder it is unpacked into — an archive from a catalogue is still an archive
+/// from somewhere else.
+library;
+
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+/// The largest archive the store will take.
+const int maxArchiveBytes = 8 * 1024 * 1024;
+
+/// The most an archive may unpack to, in total.
+const int maxPluginBytes = 4 * 1024 * 1024;
+
+/// The most files an archive may hold.
+const int maxPluginEntries = 64;
+
+const int _endOfCentralDirectory = 0x06054b50;
+const int _centralFileHeader = 0x02014b50;
+const int _localFileHeader = 0x04034b50;
+
+/// Unpack the zip in [bytes] into [target], creating the folder if it is not
+/// there yet.
+///
+/// Throws [FormatException] with a reason when the archive is not one this
+/// launcher will unpack.
+void unpackZip(List<int> bytes, String target) {
+  if (bytes.length > maxArchiveBytes) {
+    throw FormatException(
+      'the archive is larger than ${maxArchiveBytes ~/ (1024 * 1024)} MiB',
+    );
+  }
+  final data = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+  final entries = _centralDirectory(data);
+  final root = Directory(target)..createSync(recursive: true);
+  var total = 0;
+  for (final entry in entries) {
+    final path = _inside(root.path, entry.name);
+    if (entry.isDirectory) {
+      Directory(path).createSync(recursive: true);
+      continue;
+    }
+    if (entry.isSpecial) {
+      throw FormatException('the archive holds something that is not a file: ${entry.name}');
+    }
+    total += entry.size;
+    if (total > maxPluginBytes) {
+      throw FormatException(
+        'the archive unpacks to more than ${maxPluginBytes ~/ (1024 * 1024)} MiB',
+      );
+    }
+    final file = File(path);
+    file.parent.createSync(recursive: true);
+    file.writeAsBytesSync(_content(data, entry));
+  }
+}
+
+/// The entries the archive's central directory lists.
+///
+/// The central directory is what an unpacker has to believe: a local header can
+/// leave its sizes out, and a second copy of it can say anything.
+List<_Entry> _centralDirectory(Uint8List data) {
+  final end = _findEndOfCentralDirectory(data);
+  final count = _u16(data, end + 10);
+  final size = _u32(data, end + 12);
+  final offset = _u32(data, end + 16);
+  // Zip64 hides the real numbers behind a record this does not read.
+  if (count == 0xffff || size == 0xffffffff || offset == 0xffffffff) {
+    throw const FormatException('the archive is zip64, which is not supported');
+  }
+  if (count > maxPluginEntries) {
+    throw FormatException('the archive holds more than $maxPluginEntries files');
+  }
+  if (offset + size > data.length) {
+    throw const FormatException('the archive is truncated');
+  }
+
+  final entries = <_Entry>[];
+  var cursor = offset;
+  for (var index = 0; index < count; index++) {
+    if (cursor + 46 > data.length || _u32(data, cursor) != _centralFileHeader) {
+      throw const FormatException('the archive\'s index of files is damaged');
+    }
+    final flags = _u16(data, cursor + 8);
+    final method = _u16(data, cursor + 10);
+    final compressed = _u32(data, cursor + 20);
+    final unpacked = _u32(data, cursor + 24);
+    final nameLength = _u16(data, cursor + 28);
+    final extraLength = _u16(data, cursor + 30);
+    final commentLength = _u16(data, cursor + 32);
+    final mode = _u32(data, cursor + 38) >> 16;
+    final local = _u32(data, cursor + 42);
+    if (flags & 0x1 != 0) {
+      throw const FormatException('the archive is encrypted');
+    }
+    if (method != 0 && method != 8) {
+      throw FormatException('the archive is compressed in a way this cannot read (method $method)');
+    }
+    final raw = data.sublist(cursor + 46, cursor + 46 + nameLength);
+    final name = flags & 0x800 != 0 ? utf8.decode(raw) : latin1.decode(raw);
+    if (name.isEmpty) {
+      throw const FormatException('the archive holds an entry with no name');
+    }
+    entries.add(
+      _Entry(
+        name: name,
+        method: method,
+        compressed: compressed,
+        size: unpacked,
+        offset: local,
+        // A symlink or a device node is not a plugin file.
+        mode: mode,
+      ),
+    );
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+/// Where the end of central directory record starts.
+int _findEndOfCentralDirectory(Uint8List data) {
+  final earliest = data.length - 22 - 0xffff < 0 ? 0 : data.length - 22 - 0xffff;
+  for (var cursor = data.length - 22; cursor >= earliest; cursor--) {
+    if (_u32(data, cursor) == _endOfCentralDirectory) return cursor;
+  }
+  throw const FormatException('this is not a zip archive');
+}
+
+/// The bytes of [entry], inflated where it has to be.
+Uint8List _content(Uint8List data, _Entry entry) {
+  if (entry.offset + 30 > data.length || _u32(data, entry.offset) != _localFileHeader) {
+    throw const FormatException('the archive\'s index points at nothing');
+  }
+  final start = entry.offset + 30 + _u16(data, entry.offset + 26) + _u16(data, entry.offset + 28);
+  if (start + entry.compressed > data.length) {
+    throw const FormatException('the archive is truncated');
+  }
+  final raw = data.sublist(start, start + entry.compressed);
+  if (entry.method == 0) return raw;
+  final List<int> unpacked;
+  try {
+    unpacked = ZLibCodec(raw: true).decode(raw);
+  } on Exception {
+    // zlib reports bad data as a FormatException; anything else it throws is
+    // no better a reason to trust the archive.
+    throw const FormatException('a file in the archive is not deflated data');
+  }
+  if (unpacked.length != entry.size) {
+    throw const FormatException('a file in the archive is not the size it claims');
+  }
+  return unpacked is Uint8List ? unpacked : Uint8List.fromList(unpacked);
+}
+
+/// [name] as a path inside [root], or a complaint.
+String _inside(String root, String name) {
+  final cleaned = name.replaceAll('\\', '/');
+  if (cleaned.startsWith('/') || cleaned.contains(':')) {
+    throw FormatException('the archive holds an absolute path: $name');
+  }
+  final parts = <String>[];
+  for (final part in cleaned.split('/')) {
+    if (part.isEmpty || part == '.') continue;
+    if (part == '..') {
+      throw FormatException('the archive reaches outside its folder: $name');
+    }
+    if (part.contains('\u0000')) {
+      throw FormatException('the archive holds a strange name: $name');
+    }
+    parts.add(part);
+  }
+  if (parts.isEmpty) {
+    throw FormatException('the archive holds an entry with no name: $name');
+  }
+  return '$root/${parts.join('/')}';
+}
+
+int _u16(Uint8List data, int at) => data[at] | data[at + 1] << 8;
+
+int _u32(Uint8List data, int at) =>
+    data[at] | data[at + 1] << 8 | data[at + 2] << 16 | data[at + 3] << 24;
+
+class _Entry {
+  const _Entry({
+    required this.name,
+    required this.method,
+    required this.compressed,
+    required this.size,
+    required this.offset,
+    required this.mode,
+  });
+
+  final String name;
+  final int method;
+  final int compressed;
+  final int size;
+  final int offset;
+
+  /// The file's unix mode, which says whether it is a plain file.
+  final int mode;
+
+  bool get isDirectory => name.endsWith('/') || mode & 0xf000 == 0x4000;
+
+  /// True for a symlink, a device or a fifo: none of which a plugin needs.
+  bool get isSpecial => mode & 0xf000 != 0 && mode & 0xf000 != 0x8000 && !isDirectory;
+}

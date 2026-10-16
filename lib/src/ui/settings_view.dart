@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../config.dart';
 import '../paths.dart';
+import '../plugins/bundled.dart';
+import '../plugins/catalog.dart' as catalogue;
+import '../plugins/plugin.dart';
 import '../state/library_controller.dart';
 import 'accent_colors.dart';
 import 'theme.dart';
@@ -223,6 +226,9 @@ class SettingsView extends StatelessWidget {
                   ),
                 ),
               const SizedBox(height: 24),
+              _section(context, 'Plugins'),
+              _PluginStore(controller: controller),
+              const SizedBox(height: 24),
               _section(context, 'Files'),
               _pathTile('Config', AppPaths.configFile),
               _pathTile('Cache', AppPaths.cacheFile),
@@ -246,12 +252,237 @@ class SettingsView extends StatelessWidget {
       ),
     ),
   );
+}
 
-  Widget _pathTile(String label, String path) => ListTile(
-    contentPadding: EdgeInsets.zero,
-    title: Text(label),
-    subtitle: SelectableText(path, style: const TextStyle(fontSize: 12)),
-  );
+/// A read-only path with its label.
+Widget _pathTile(String label, String path) => ListTile(
+  contentPadding: EdgeInsets.zero,
+  title: Text(label),
+  subtitle: SelectableText(path, style: const TextStyle(fontSize: 12)),
+);
+
+/// The plugin store: what the catalogue offers, what is installed, and the
+/// buttons for both.
+class _PluginStore extends StatefulWidget {
+  const _PluginStore({required this.controller});
+
+  final LibraryController controller;
+
+  @override
+  State<_PluginStore> createState() => _PluginStoreState();
+}
+
+class _PluginStoreState extends State<_PluginStore> {
+  @override
+  void initState() {
+    super.initState();
+    // The store is the point of the section, so the list is read the first time
+    // it is shown rather than waiting to be asked. The folder is also read
+    // again here, since a plugin may have been dropped in from outside.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final controller = widget.controller;
+      if (controller.catalog.isEmpty &&
+          !controller.catalogLoading &&
+          controller.catalogFailure == null) {
+        controller.refreshCatalog();
+      }
+      controller.reloadPlugins();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final palette = context.palette;
+    final installed = {
+      for (final plugin in controller.plugins) plugin.id: plugin,
+    };
+    final listed = {for (final entry in controller.catalog) entry.id};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: controller.catalogLoading
+                ? null
+                : () => controller.refreshCatalog(),
+            icon: controller.catalogLoading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_download_outlined, size: 18),
+            label: const Text('Refresh the list'),
+          ),
+        ),
+        if (controller.catalogFailure case final failure?)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.error_outline, size: 16, color: palette.warning),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    failure,
+                    style: TextStyle(fontSize: 12.5, color: palette.warning),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (controller.catalog.isEmpty && !controller.catalogLoading)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(
+              'Nothing listed yet. Plugins are read from the launcher\'s own '
+              'repository; you can also drop a folder with a plugin.json in it '
+              'into the folder below.',
+              style: TextStyle(fontSize: 12.5, color: palette.textDim),
+            ),
+          ),
+        for (final entry in controller.catalog)
+          _CatalogRow(
+            controller: controller,
+            entry: entry,
+            installed: installed[entry.id],
+          ),
+        for (final plugin in controller.plugins)
+          if (!listed.contains(plugin.id))
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.extension_outlined, color: palette.textDim),
+              title: Text(plugin.name),
+              subtitle: Text(
+                isBundledPlugin(plugin.id)
+                    ? 'Ships with the launcher'
+                    : 'Installed here, and not in the list',
+                style: TextStyle(fontSize: 12.5, color: palette.textDim),
+              ),
+              trailing: isBundledPlugin(plugin.id)
+                  ? null
+                  : _RemoveButton(controller: controller, plugin: plugin),
+            ),
+        _pathTile('Plugins folder', controller.pluginDir),
+      ],
+    );
+  }
+}
+
+/// One plugin the catalogue offers, with the one button it needs.
+class _CatalogRow extends StatelessWidget {
+  const _CatalogRow({
+    required this.controller,
+    required this.entry,
+    this.installed,
+  });
+
+  final LibraryController controller;
+  final catalogue.PluginEntry entry;
+
+  /// The same plugin in the plugin folder, when it is there.
+  final Plugin? installed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final busy = controller.isPluginBusy(entry.id);
+    final current = installed;
+    final newer = current != null && entry.version > current.version;
+    final subtitle = [
+      if (entry.description.isNotEmpty) entry.description,
+      [
+        if (entry.author.isNotEmpty) 'by ${entry.author}',
+        if (entry.version > 0) 'version ${entry.version}',
+      ].join(' · '),
+      if (isBundledPlugin(entry.id)) 'Ships with the launcher',
+    ].where((line) => line.isNotEmpty).join('\n');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(Icons.extension, color: palette.textDim),
+      title: Text(entry.name),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(fontSize: 12.5, color: palette.textDim),
+      ),
+      trailing: busy
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (current == null)
+                  FilledButton(
+                    onPressed: () => controller.installPlugin(entry),
+                    child: const Text('Install'),
+                  )
+                else ...[
+                  if (newer)
+                    FilledButton(
+                      onPressed: () => controller.installPlugin(entry),
+                      child: const Text('Update'),
+                    ),
+                  // A plugin that ships with the launcher would only come back,
+                  // so there is nothing to remove.
+                  if (!isBundledPlugin(entry.id))
+                    _RemoveButton(controller: controller, plugin: current),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+/// The button that takes an installed plugin away, after asking.
+class _RemoveButton extends StatelessWidget {
+  const _RemoveButton({required this.controller, required this.plugin});
+
+  final LibraryController controller;
+  final Plugin plugin;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.isPluginBusy(plugin.id)) {
+      return const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    return IconButton(
+      tooltip: 'Remove ${plugin.name}',
+      icon: const Icon(Icons.delete_outline, size: 18),
+      onPressed: () => _confirm(context),
+    );
+  }
+
+  Future<void> _confirm(BuildContext context) async {
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: context.palette.surface,
+        title: Text('Remove ${plugin.name}?'),
+        content: Text('Its folder is deleted from ${controller.pluginDir}.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (remove ?? false) await controller.removePlugin(plugin);
+  }
 }
 
 /// The accent choices, as a row of circles; the active one is ringed and ticked.

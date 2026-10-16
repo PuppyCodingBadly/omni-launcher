@@ -27,6 +27,9 @@ class _OmniLauncherAppState extends State<OmniLauncherApp> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_syncWindowTheme);
     _controller.load();
+    // The shipped plugins are installed (or refreshed) before the folder is
+    // read, so a new build's plugin arrives without anyone copying files.
+    _controller.reloadPlugins();
     _syncWindowTheme();
   }
 

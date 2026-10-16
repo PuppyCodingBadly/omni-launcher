@@ -47,8 +47,19 @@ class Host {
       inFlatpak && hostPath.startsWith('/') ? '/run/host$hostPath' : hostPath;
 
   /// [argv] ready to run: on the host when sandboxed.
-  static List<String> command(List<String> argv) =>
-      inFlatpak ? ['flatpak-spawn', '--host', ...argv] : argv;
+  ///
+  /// [directory] is the folder to run in. It has to be passed to the host
+  /// helper as well, since the sandbox's own working directory means nothing
+  /// there.
+  static List<String> command(List<String> argv, {String? directory}) =>
+      inFlatpak
+      ? [
+          'flatpak-spawn',
+          '--host',
+          if (directory != null) '--directory=$directory',
+          ...argv,
+        ]
+      : argv;
 
   /// Directories that hold host binaries, nearest first.
   static List<String> get binaryDirs => [

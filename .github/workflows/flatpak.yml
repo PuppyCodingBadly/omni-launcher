@@ -20,6 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The store hands out the zips and the index in plugins/, so they have to
+      # match the plugin sources they were built from.
+      - name: Check the plugin catalogue
+        run: plugins/build.sh --check
+
       - name: Build the flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:

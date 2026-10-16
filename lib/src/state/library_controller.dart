@@ -10,9 +10,14 @@ import '../covers.dart';
 import '../launcher.dart';
 import '../model/game.dart';
 import '../paths.dart';
+import '../plugins/bundled.dart';
+import '../plugins/catalog.dart' as catalogue;
+import '../plugins/plugin.dart';
+import '../plugins/plugin_runner.dart';
 import '../sources/registry.dart';
 import '../util/proc.dart';
 import 'playtime_store.dart';
+import 'plugin_store.dart';
 
 enum LibraryStatus { loading, ready, failed }
 
@@ -24,12 +29,20 @@ class LibraryController extends ChangeNotifier {
     String? cachePath,
     PlaytimeStore? playtime,
     CoverStore? covers,
+    PluginStore? pluginAnswers,
+    String? pluginDir,
+    AssetReader? pluginAssets,
+    catalogue.UrlReader? pluginReader,
     Duration? pollInterval,
   }) : _configPath = configPath ?? AppPaths.configFile,
        _cachePath = cachePath ?? AppPaths.cacheFile,
+       _pluginDir = pluginDir ?? AppPaths.pluginDir,
+       _pluginAssets = pluginAssets ?? bundledAsset,
+       _pluginReader = pluginReader ?? catalogue.readUrl,
        _pollInterval = pollInterval ?? const Duration(seconds: 5),
        playtime = playtime ?? PlaytimeStore(),
        covers = covers ?? CoverStore(),
+       pluginAnswers = pluginAnswers ?? PluginStore(),
        config = config ?? AppConfig.load(configPath ?? AppPaths.configFile) {
     this.covers.settings = ArtSettings.from(this.config);
   }
@@ -64,6 +77,40 @@ class LibraryController extends ChangeNotifier {
 
   /// Artwork fetches in flight, by game id.
   final Map<String, Future<Artwork?>> _artFetches = <String, Future<Artwork?>>{};
+
+  /// What the plugins said, per plugin and game.
+  final PluginStore pluginAnswers;
+
+  /// Plugins found in the plugin folder, in name order.
+  List<Plugin> plugins = const [];
+
+  /// What the plugin store offers, once its catalogue has been read.
+  List<catalogue.PluginEntry> catalog = const [];
+
+  /// Why the catalogue could not be read, if it could not.
+  String? catalogFailure;
+
+  /// Whether the catalogue is being read right now.
+  bool catalogLoading = false;
+
+  /// Plugin lookups that are running right now, by plugin and query.
+  final Set<String> _lookingUp = <String>{};
+
+  /// Plugins being installed or removed right now, by plugin id.
+  final Set<String> _pluginBusy = <String>{};
+
+  /// Where plugins are installed. The app's own folder, unless a caller said
+  /// otherwise.
+  final String _pluginDir;
+
+  /// Reads the plugins that ship with the launcher, out of the app bundle.
+  final AssetReader _pluginAssets;
+
+  /// Reads a URL. The app's own reader goes to the network; a test can hand in
+  /// one that answers from memory.
+  final catalogue.UrlReader _pluginReader;
+
+  String get pluginDir => _pluginDir;
 
   /// Say something in the status bar, and show it now.
   ///
@@ -450,6 +497,128 @@ class LibraryController extends ChangeNotifier {
       return '$error';
     } finally {
       client.close();
+    }
+  }
+
+  // ------------------------------------------------------------- plugins
+
+  /// Install the plugins that ship with the launcher, then read the plugin
+  /// folder again.
+  ///
+  /// Called at start up, and whenever the folder may have changed.
+  Future<void> reloadPlugins() async {
+    try {
+      await installBundledPlugins(dir: _pluginDir, read: _pluginAssets);
+    } catch (error) {
+      failure = 'Plugins: $error';
+    }
+    plugins = discoverPlugins(
+      _pluginDir,
+      onError: (_, error) => failure = 'Plugins: $error',
+    );
+    notifyListeners();
+  }
+
+  /// Read the plugin store's catalogue.
+  Future<void> refreshCatalog({Uri? index}) async {
+    catalogLoading = true;
+    catalogFailure = null;
+    notifyListeners();
+    try {
+      catalog = await catalogue.fetchCatalog(index: index, read: _pluginReader);
+    } on catalogue.PluginStoreException catch (error) {
+      catalogFailure = error.message;
+    }
+    catalogLoading = false;
+    notifyListeners();
+  }
+
+  /// Whether [pluginId] is being installed or removed right now.
+  bool isPluginBusy(String pluginId) => _pluginBusy.contains(pluginId);
+
+  /// Install what the store offers for [entry], and pick it up.
+  ///
+  /// A plugin applies to the launcher as soon as it is unpacked: the folder is
+  /// read again, which is what puts its section in the detail panel.
+  Future<void> installPlugin(catalogue.PluginEntry entry) async {
+    if (!_pluginBusy.add(entry.id)) return;
+    notice = 'Installing ${entry.name}…';
+    notifyListeners();
+    try {
+      await catalogue.installPlugin(entry, dir: _pluginDir, read: _pluginReader);
+      notice = 'Installed ${entry.name}';
+    } on catalogue.PluginStoreException catch (error) {
+      failure = '${entry.name}: ${error.message}';
+    } catch (error) {
+      failure = '${entry.name}: $error';
+    }
+    _pluginBusy.remove(entry.id);
+    await reloadPlugins();
+    notifyListeners();
+  }
+
+  /// Remove the installed [plugin].
+  Future<void> removePlugin(Plugin plugin) async {
+    if (!_pluginBusy.add(plugin.id)) return;
+    notice = 'Removing ${plugin.name}…';
+    notifyListeners();
+    try {
+      await catalogue.removePlugin(plugin.id, dir: _pluginDir);
+      notice = 'Removed ${plugin.name}';
+    } on catalogue.PluginStoreException catch (error) {
+      failure = '${plugin.name}: ${error.message}';
+    } catch (error) {
+      failure = '${plugin.name}: $error';
+    }
+    _pluginBusy.remove(plugin.id);
+    await reloadPlugins();
+    notifyListeners();
+  }
+
+  /// The loaded plugin with [id], if there is one.
+  Plugin? plugin(String id) {
+    for (final plugin in plugins) {
+      if (plugin.id == id) return plugin;
+    }
+    return null;
+  }
+
+  /// What [pluginId] said about the game (or the name) [queryId], if it was
+  /// ever asked.
+  PluginAnswer? pluginAnswer(String pluginId, String queryId) =>
+      pluginAnswers.answer(pluginId, queryId);
+
+  /// Whether [pluginId] is answering [queryId] right now.
+  bool isLookingUp(String pluginId, String queryId) =>
+      _lookingUp.contains(PluginStore.keyFor(pluginId, queryId));
+
+  /// Ask [plugin] about [query], and remember what it says.
+  ///
+  /// A lookup is a round trip to somebody else's site, so the answer is cached
+  /// and the same query is never asked twice at once.
+  Future<void> lookUp(Plugin plugin, PluginQuery query) async {
+    final key = PluginStore.keyFor(plugin.id, query.id);
+    if (!_lookingUp.add(key)) return;
+    notice = '${plugin.name}: looking up ${query.name}…';
+    notifyListeners();
+    final answer = await runPlugin(plugin, query);
+    _lookingUp.remove(key);
+    pluginAnswers.put(plugin.id, query.id, answer);
+    if (answer.ok) {
+      notice = '${plugin.name} answered for ${query.name}';
+    } else {
+      failure = answer.error;
+    }
+    notifyListeners();
+  }
+
+  /// Open a URL in whatever the desktop uses for links.
+  Future<void> openUrl(String url) async {
+    try {
+      await Launcher.openUrl(url);
+    } catch (error) {
+      failure = 'Could not open $url: $error';
+      notifyListeners();
     }
   }
 

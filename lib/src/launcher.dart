@@ -109,4 +109,10 @@ class Launcher {
     final host = Host.command(['xdg-open', path]);
     await Process.start(host.first, host.sublist(1), mode: ProcessStartMode.detached);
   }
+
+  /// Open a URL in whatever the desktop uses for links.
+  static Future<void> openUrl(String url) async {
+    final host = Host.command(['xdg-open', url]);
+    await Process.start(host.first, host.sublist(1), mode: ProcessStartMode.detached);
+  }
 }

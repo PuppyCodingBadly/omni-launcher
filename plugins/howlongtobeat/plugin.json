@@ -1,0 +1,9 @@
+{
+  "id": "howlongtobeat",
+  "name": "HowLongToBeat",
+  "description": "How long the game is: main story, main + extra and completionist, from howlongtobeat.com.",
+  "author": "PuppyCodingBadly",
+  "action": "Look up on HowLongToBeat",
+  "command": ["python3", "hltb.py"],
+  "version": 1
+}

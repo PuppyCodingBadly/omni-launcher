@@ -35,6 +35,11 @@ wall first, details on demand.
 * **Recently played**, on a shelf above the wall: the last ten games you
   started, newest first, each with how much and how recently you played it.
   The shelf follows the wall's filters and steps aside while you search.
+* **Plugins**: a folder with a `plugin.json` in it and a program the launcher
+  runs, JSON in and JSON out, in any language. **Settings → Plugins** is a
+  store: it lists what the launcher's repository offers, installs one into your
+  plugin folder and removes it again. HowLongToBeat is in the list, and ships
+  with the launcher too.
 * **Rename** any entry. The new name is what the wall, the search and the
   SteamGridDB lookup use, so an awkward name can be turned into the title
   SteamGridDB knows. The discovered name is kept, so it can be reset.
@@ -92,7 +97,8 @@ rail keeps too.
 The detail panel keeps *Launch* and the game's facts to itself; *Open folder*,
 *Copy* (the exact argv), *Find art*, *Rename*, *Hide* and *Remove* live behind
 the cog in its header. *Close the launcher with the game* stays on the panel,
-since it is a setting rather than an action.
+since it is a setting rather than an action. Under those, each plugin gets a
+section with the button that asks it about this game, and what it answered.
 
 ## Configuration and files
 
@@ -103,9 +109,12 @@ since it is a setting rather than an action.
 | `~/.cache/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |
 | `~/.local/state/omnilauncher-flutter/playtime.json` | played time and last played per game |
+| `~/.cache/omnilauncher-flutter/plugin_answers.json` | what the plugins answered, per plugin and game |
+| `~/.local/share/omnilauncher-flutter/plugins/` | the plugins themselves, one folder each |
 
-Nothing is uploaded anywhere. The only network use is cover art: Steam's CDN
-and, when you set a key, SteamGridDB.
+Nothing is uploaded anywhere. The launcher's own network use is cover art:
+Steam's CDN, and SteamGridDB when you set a key. A plugin does whatever its
+author wrote, which is why you get to see what you are running.
 
 ## SteamGridDB
 
@@ -116,6 +125,108 @@ press *Test*, then either turn on **Fetch SteamGridDB art automatically** or use
 author) and pin one. Picked art is stored per game, so it survives rescans.
 
 ![Picking cover art from SteamGridDB](docs/screenshots/steamgriddb.jpg)
+
+## Plugins
+
+A plugin teaches the launcher one more thing about your games. The one that
+ships with it is a HowLongToBeat lookup: how long the game takes, main story
+through completionist, next to the game's own facts in the detail panel.
+
+A plugin is a folder with a `plugin.json` in it and a program it names:
+
+```
+~/.local/share/omnilauncher-flutter/plugins/
+  howlongtobeat/
+    plugin.json
+    hltb.py
+```
+
+```json
+{
+  "id": "howlongtobeat",
+  "name": "HowLongToBeat",
+  "description": "How long the game is.",
+  "author": "PuppyCodingBadly",
+  "action": "Look up on HowLongToBeat",
+  "command": ["python3", "hltb.py"],
+  "version": 1
+}
+```
+
+The launcher runs `command` in the plugin's own folder and writes one JSON
+object to its stdin:
+
+```json
+{
+  "action": "lookup",
+  "game": {
+    "id": "steam:427410",
+    "key": "427410",
+    "name": "Abiotic Factor",
+    "source": "steam",
+    "path": "/games/abiotic",
+    "cwd": null,
+    "command": ["steam", "-applaunch", "427410"],
+    "extra": {"appid": "427410"}
+  }
+}
+```
+
+`source` is `search` when the lookup came from the settings page instead of
+from a game. The plugin answers with one JSON object on its stdout:
+
+```json
+{
+  "fields": [
+    {"label": "Main story", "value": "54h 32m"},
+    {"label": "Main + extra", "value": "75h 28m"}
+  ],
+  "url": "https://howlongtobeat.com/game/149774"
+}
+```
+
+`fields` are shown in that order, `url` (optional) becomes a link to the page
+the answer came from, and `{"error": "…"}` says why there is no answer. Every
+other way a plugin can go wrong — a crash, a non-zero exit, silence for 30
+seconds, more than 256 KiB of output, a reply that is not JSON — is reported in
+the panel as that plugin's answer, so a broken plugin is visible rather than
+silent. Answers are cached per plugin and game
+(`~/.cache/omnilauncher-flutter/plugin_answers.json`), so selecting a game
+again does not ask the site again.
+
+### The store
+
+**Settings → Plugins** reads a catalogue from the launcher's own repository and
+offers what it lists: *Install* unpacks a plugin into your plugin folder and
+the launcher starts using it straight away — the plugin gets its section in the
+detail panel, with the button that asks it about the game you have selected.
+*Update* appears when the catalogue has a higher version than the one you have,
+and the bin beside it removes the plugin's folder. The catalogue is read from
+
+```
+https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/plugins/index.json
+```
+
+and each entry names a `.zip` beside it, so the list and the archives it points
+at always come from the same commit. A plugin that is only on your machine —
+one you wrote, or one you dropped in by hand — is listed under the catalogue as
+*installed here, and not in the list*.
+
+A plugin runs as you, on the host, outside the flatpak sandbox: treat one you
+did not write as a program you are running, because that is exactly what it is.
+
+### Writing one
+
+A plugin lives in `plugins/<id>/` in this repository: its files, and a
+`plugin.json` naming the program to run. `plugins/build.sh` turns every folder
+there into the archive the store hands out and rewrites `plugins/index.json`
+from the manifests, so publishing a plugin is a pull request that adds the
+folder and the output of that script.
+
+The shipped HowLongToBeat plugin is installed into your plugin folder at start
+up as well, so it works before anything has been downloaded; a copy you have
+edited stays as it is until the shipped copy's `version` in its manifest is
+higher.
 
 ## Packaging it yourself
 

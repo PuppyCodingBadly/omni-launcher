@@ -25,7 +25,9 @@
     <p>
       Playtime, last played, hidden games, renames and per-game launch options
       are stored under your XDG directories; nothing is uploaded anywhere. The
-      games you played last wait on a shelf above the wall.
+      games you played last wait on a shelf above the wall, and plugins can
+      answer more about a game: the HowLongToBeat lookup that ships with the
+      launcher is one.
     </p>
   </description>
 
@@ -47,6 +49,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.2.0" date="2026-10-15">
+      <description>
+        <p>Plugins: a folder with a plugin.json in it and a program the launcher runs, JSON in and JSON out, in any language. Settings holds a plugin store that reads a catalogue from the launcher's own repository, installs a plugin into your plugin folder and removes it again, and each installed plugin gets its section in the detail panel — HowLongToBeat, which ships with the launcher, answers with the main story, main + extra and completionist times.</p>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-10-15">
       <description>
         <p>A recently played shelf above the cover wall: the last ten games started, newest first, with the time played and when. The detail panel keeps Launch and the game's facts, and moves Open folder, Copy, Find art, Rename, Hide and Remove into a cog in its header.</p>

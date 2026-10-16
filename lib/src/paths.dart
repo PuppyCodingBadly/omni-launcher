@@ -5,7 +5,7 @@ import 'host.dart';
 class AppPaths {
   static const String appId = 'io.github.PuppyCodingBadly.OmniLauncher';
   static const String appName = 'Omni Launcher';
-  static const String version = '0.1.3';
+  static const String version = '0.2.0';
 
   static String get home => Host.home;
 
@@ -24,6 +24,11 @@ class AppPaths {
   static String get coverDir => '$cacheDir/covers';
   static String get launchLog => '$stateDir/launch.log';
   static String get playtimeFile => '$stateDir/playtime.json';
+  static String get pluginAnswerFile => '$cacheDir/plugin_answers.json';
+
+  /// Where plugins live: the host's data directory rather than the sandbox's,
+  /// so a plugin can be dropped in from outside the flatpak.
+  static String get pluginDir => '${Host.dataHome}/omnilauncher-flutter/plugins';
 
   /// `XDG_DATA_DIRS`, defaulted like the spec says.
   static List<String> get dataDirs {

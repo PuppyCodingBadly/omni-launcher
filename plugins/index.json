@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    {
+      "id": "howlongtobeat",
+      "name": "HowLongToBeat",
+      "description": "How long the game is: main story, main + extra and completionist, from howlongtobeat.com.",
+      "author": "PuppyCodingBadly",
+      "version": 1,
+      "file": "howlongtobeat.zip"
+    }
+  ]
+}
