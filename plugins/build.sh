@@ -15,9 +15,9 @@ SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 python3 - "$SELF" "${1:-}" <<'PY'
 """Build, or check, the plugin catalogue.
 
-The zips are written by hand rather than by `zip`, because a reproducible
-comparison is the point of the check: same names, same contents, whatever the
-timestamps are.
+The zips are written by hand rather than by `zip`: fixed names, fixed
+metadata and no compression make the bytes the same on every machine, so the
+check can compare a rebuilt archive with the committed one.
 """
 
 import hashlib
@@ -47,9 +47,17 @@ def files(folder):
 
 def archive(entry, folder):
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as writer:
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_STORED) as writer:
         for name, path in files(folder):
-            writer.write(path, name)
+            # Fixed metadata and no compression: the same files make the same
+            # bytes here, in CI, and on a machine with another zlib. Without
+            # that, a fresh checkout (new mtimes) cannot be compared with the
+            # committed archive at all.
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_STORED
+            info.external_attr = 0o644 << 16
+            with open(path, 'rb') as handle:
+                writer.writestr(info, handle.read())
     return buffer.getvalue()
 
 
