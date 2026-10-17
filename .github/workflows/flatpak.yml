@@ -62,6 +62,9 @@ jobs:
       - name: Check the pinned commit
         if: startsWith(github.ref, 'refs/tags/')
         run: |
+          # The workspace is bind-mounted from the runner user while this step
+          # runs as root, so git refuses the repository as someone else's.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           PINNED=$(grep -m1 -E '^[[:space:]]+commit:' io.github.PuppyCodingBadly.OmniLauncher.yml | sed -E 's/.*commit:[[:space:]]*//; s/["'"'"']//g')
           # `github.sha` is not the commit for every tag shape (an annotated
           # tag has an object of its own), so the checked-out tag decides.
