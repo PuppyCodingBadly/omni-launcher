@@ -63,13 +63,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           PINNED=$(grep -m1 -E '^[[:space:]]+commit:' io.github.PuppyCodingBadly.OmniLauncher.yml | sed -E 's/.*commit:[[:space:]]*//; s/["'"'"']//g')
-          if ! git merge-base --is-ancestor "$PINNED" "${{ github.sha }}"; then
-            echo "Manifest pins $PINNED, which is not in this tag's history (${{ github.sha }})."
+          # `github.sha` is not the commit for every tag shape (an annotated
+          # tag has an object of its own), so the checked-out tag decides.
+          TARGET=$(git rev-parse 'HEAD^{commit}')
+          if ! git merge-base --is-ancestor "$PINNED" "$TARGET"; then
+            echo "::error title=Pin check::pinned=$PINNED target=$TARGET pinned-type=$(git cat-file -t "$PINNED" 2>&1) shallow=$(git rev-parse --is-shallow-repository 2>&1)"
+            echo "Manifest pins $PINNED, which is not in this tag's history ($TARGET)."
             echo "Regenerate the manifest at the code commit and tag the commit that carries it:"
             echo "  flatpak-flutter.py flatpak-flutter.yml"
             exit 1
           fi
-          if [ "$PINNED" != "${{ github.sha }}" ]; then
+          if [ "$PINNED" != "$TARGET" ]; then
             echo "Pinning $PINNED, an ancestor of this tag: the manifest cannot name its own commit."
           fi
 
