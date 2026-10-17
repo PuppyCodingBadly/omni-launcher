@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -23,13 +25,136 @@ class _LibraryPageState extends State<LibraryPage> {
   /// the status bar would leave the wall too little to show.
   static const double _shelfMinBody = 420;
 
+  /// The page's one motion: the panel reveal, the sidebar fold, the
+  /// selection badges and the keyboard scroll all share it.
+  static const Duration _motion = Duration(milliseconds: 200);
+  static const Curve _motionCurve = Curves.easeOutCubic;
+
   final TextEditingController _search = TextEditingController();
-  final FocusNode _searchFocus = FocusNode();
+
+  /// The search field's own Esc handling lives on its node: a text field
+  /// swallows Escape before the page's shortcuts see it, so the page cannot
+  /// offer "Esc clears the search first" from there.
+  late final FocusNode _searchFocus = FocusNode(onKeyEvent: _onSearchKey);
+
+  /// Selection mode for hiding games in bulk: the tiles get a check overlay
+  /// and taps mark a game instead of opening it.
+  bool _selecting = false;
+  final Set<String> _marked = <String>{};
+
+  /// One focus node per visible game, so arrow keys can walk the wall and a
+  /// re-sort keeps the focus where it was.
+  final Map<String, FocusNode> _gridNodes = <String, FocusNode>{};
+
+  /// The wall's column count, refreshed every grid build; the up and down
+  /// arrows move by one row.
+  int _gridColumns = 1;
+
+  /// The game the detail panel showed last, kept through its exit animation
+  /// so the panel never animates out empty.
+  Game? _lastShown;
+
+  KeyEventResult _onSearchKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      _search.clear();
+      widget.controller.setQuery('');
+      node.unfocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// Arrow keys (and a gamepad's D-pad) walk the wall: one tile sideways, one
+  /// row up or down, clamped at the edges. The tile keeps Enter to itself.
+  KeyEventResult _onGridKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    // A D-pad arrives as plain arrow keys on most Linux mappings; the
+    // gameButton13-16 constants catch the hat-style pads.
+    final delta = switch (event.logicalKey) {
+      LogicalKeyboardKey.arrowLeft ||
+      LogicalKeyboardKey.gameButton14 => -1,
+      LogicalKeyboardKey.arrowRight ||
+      LogicalKeyboardKey.gameButton15 => 1,
+      LogicalKeyboardKey.arrowUp ||
+      LogicalKeyboardKey.gameButton13 => -_gridColumns,
+      LogicalKeyboardKey.arrowDown ||
+      LogicalKeyboardKey.gameButton16 => _gridColumns,
+      _ => 0,
+    };
+    if (delta == 0) return KeyEventResult.ignored;
+    // Arrows belong to the search field while it has focus, and selection
+    // mode is pointer-driven: its tiles take no focus.
+    if (_searchFocus.hasFocus || _selecting) return KeyEventResult.ignored;
+    // Only the wall's own focus (or no focus at all, e.g. right after Esc
+    // left the search field) starts a walk; a sidebar or panel control keeps
+    // its arrows for the platform's default traversal.
+    final focused = FocusManager.instance.primaryFocus;
+    final inGrid =
+        focused != null && _gridNodes.values.any((n) => identical(n, focused));
+    final nowhere =
+        focused == null || focused == node || focused is FocusScopeNode;
+    if (!inGrid && !nowhere) return KeyEventResult.ignored;
+    _moveGridFocus(delta);
+    return KeyEventResult.handled;
+  }
+
+  void _moveGridFocus(int delta) {
+    final games = widget.controller.visibleGames;
+    if (games.isEmpty) return;
+    var index = -1;
+    for (var i = 0; i < games.length; i++) {
+      if (_gridNodes[games[i].id]?.hasFocus ?? false) {
+        index = i;
+        break;
+      }
+    }
+    // Nothing focused yet: the first arrow lands on the first tile.
+    final next =
+        index < 0 ? 0 : (index + delta).clamp(0, games.length - 1).toInt();
+    if (next == index) return;
+    final target = _gridNodes[games[next].id];
+    if (target == null) return;
+    target.requestFocus();
+    // A move off the screen scrolls the destination tile back into view.
+    final tileContext = target.context;
+    if (tileContext != null) {
+      Scrollable.ensureVisible(
+        tileContext,
+        duration: _motion,
+        curve: _motionCurve,
+        alignment: 0.5,
+      );
+    }
+  }
+
+  /// Hide every marked game and leave selection mode.
+  void _hideMarked(LibraryController controller) {
+    final byId = {for (final game in controller.games) game.id: game};
+    for (final id in _marked) {
+      final game = byId[id];
+      if (game != null) controller.setHidden(game, hidden: true);
+    }
+    setState(() {
+      _selecting = false;
+      _marked.clear();
+    });
+  }
+
+  void _toggleSelecting() => setState(() {
+    _selecting = !_selecting;
+    _marked.clear();
+  });
 
   @override
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();
+    for (final node in _gridNodes.values) {
+      node.dispose();
+    }
     super.dispose();
   }
 
@@ -43,6 +168,9 @@ class _LibraryPageState extends State<LibraryPage> {
     final recent = controller.query.isEmpty
         ? controller.recentlyPlayed()
         : const <Game>[];
+    // Remember the open game so the detail panel can animate out with its
+    // content still on it.
+    _lastShown = controller.selected ?? _lastShown;
     return Shortcuts(
       shortcuts: {
         const SingleActivator(LogicalKeyboardKey.keyF, control: true):
@@ -67,13 +195,21 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           _ClearIntent: CallbackAction<_ClearIntent>(
             onInvoke: (_) {
-              controller.select(null);
+              // The search field's Esc is handled by its own focus node
+              // (see _onSearchKey); what is left here: fold selection mode,
+              // then close the detail panel.
+              if (_selecting) {
+                _toggleSelecting();
+              } else {
+                controller.select(null);
+              }
               return null;
             },
           ),
         },
         child: Focus(
           autofocus: true,
+          onKeyEvent: _onGridKey,
           child: Scaffold(
             body: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -90,13 +226,18 @@ class _LibraryPageState extends State<LibraryPage> {
                         if (recent.isNotEmpty && constraints.maxHeight >= _shelfMinBody)
                           _shelf(controller, recent),
                         Expanded(child: _grid(controller, games)),
-                        _statusBar(controller, games.length),
+                        if (_selecting)
+                          _selectionBar(controller)
+                        else
+                          _statusBar(controller, games.length),
                       ],
                     ),
                   ),
                 ),
-                if (controller.selected != null)
-                  DetailPanel(controller: controller, game: controller.selected!),
+                // The panel slides and fades in on selection instead of
+                // popping; the last shown game stays through the exit so the
+                // column never animates out empty.
+                _panelReveal(controller),
               ],
             ),
           ),
@@ -105,60 +246,250 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
+  /// The panel's reveal: a slide-and-fade from the right edge. [Tween]'s
+  /// begin follows its end, so the very first build (nothing selected) does
+  /// not animate.
+  Widget _panelReveal(LibraryController controller) {
+    // The page decides the panel's width: the panel would ask MediaQuery for
+    // the whole window, but what it really borders is the wall.
+    final panelWidth = math.min(
+      DetailPanel.defaultWidth,
+      MediaQuery.sizeOf(context).width * 0.42,
+    );
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: controller.selected != null ? 1 : 0),
+      duration: _motion,
+      curve: _motionCurve,
+      builder: (context, t, child) => ClipRect(
+        child: Align(
+          alignment: Alignment.centerLeft,
+          widthFactor: t,
+          child: Opacity(opacity: t, child: child),
+        ),
+      ),
+      child: _lastShown == null
+          ? SizedBox(width: panelWidth)
+          : DetailPanel(
+              controller: controller,
+              game: _lastShown!,
+              width: panelWidth,
+            ),
+    );
+  }
+
   Widget _header(LibraryController controller) {
+    final search = TextField(
+      controller: _search,
+      focusNode: _searchFocus,
+      onChanged: controller.setQuery,
+      decoration: InputDecoration(
+        hintText: 'Search ${controller.games.length} games (Ctrl+F)',
+        prefixIcon: Tooltip(
+          message: 'Search (Ctrl+F)',
+          child: Icon(Icons.search, color: context.palette.textDim),
+        ),
+        suffixIcon: controller.query.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear (Esc)',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () {
+                  _search.clear();
+                  controller.setQuery('');
+                },
+              ),
+      ),
+    );
+    final actions = <Widget>[
+      _sortControl(controller),
+      IconButton.filledTonal(
+        tooltip: _selecting ? 'Cancel selection (Esc)' : 'Select games',
+        isSelected: _selecting,
+        onPressed: _toggleSelecting,
+        icon: const Icon(Icons.checklist),
+      ),
+      IconButton.filledTonal(
+        tooltip: 'Rescan (Ctrl+R)',
+        onPressed: controller.rescan,
+        icon: const Icon(Icons.refresh),
+      ),
+      IconButton.filledTonal(
+        tooltip: 'Add a game by hand',
+        onPressed: () async {
+          final entry = await showAddGameDialog(context);
+          if (entry != null) {
+            await controller.addManual(entry.name, entry.command, cwd: entry.cwd);
+          }
+        },
+        icon: const Icon(Icons.add),
+      ),
+      IconButton.filledTonal(
+        tooltip: 'Settings',
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SettingsView(controller: controller),
+          ),
+        ),
+        icon: const Icon(Icons.settings),
+      ),
+    ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 22, 28, 12),
+      // A narrow wall (a small window with the panel open) cannot fit the
+      // search field and the five buttons on one line: the buttons move under
+      // the field instead of overflowing the column.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 480) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                search,
+                const SizedBox(height: 10),
+                Wrap(spacing: 8, runSpacing: 8, children: actions),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: search),
+              const SizedBox(width: 14),
+              for (var i = 0; i < actions.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                actions[i],
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// The wall's ordering, as a menu behind an icon that matches the header's
+  /// other buttons. The check marks the mode in effect.
+  Widget _sortControl(LibraryController controller) {
+    const labels = {
+      'name': 'Name',
+      'lastPlayed': 'Recently played',
+      'mostPlayed': 'Most played',
+    };
+    return MenuAnchor(
+      menuChildren: [
+        for (final entry in labels.entries)
+          MenuItemButton(
+            leadingIcon: controller.sortMode == entry.key
+                ? const Icon(Icons.check, size: 18)
+                : const SizedBox(width: 18),
+            onPressed: () {
+              controller.setSortMode(entry.key);
+            },
+            child: Text(entry.value),
+          ),
+      ],
+      builder: (context, menu, _) => IconButton.filledTonal(
+        tooltip: 'Sort: ${labels[controller.sortMode] ?? labels['name']}',
+        onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+        icon: const Icon(Icons.sort),
+      ),
+    );
+  }
+
+  /// Selection mode's bar, in place of the status bar: how many games are
+  /// marked, and the way out.
+  Widget _selectionBar(LibraryController controller) {
+    final palette = context.palette;
+    final count = _marked.length;
+    return Container(
+      color: palette.surface,
+      padding: const EdgeInsets.fromLTRB(28, 8, 28, 12),
       child: Row(
         children: [
+          Icon(Icons.checklist, size: 18, color: palette.accentSoft),
+          const SizedBox(width: 10),
           Expanded(
-            child: TextField(
-              controller: _search,
-              focusNode: _searchFocus,
-              onChanged: controller.setQuery,
-              decoration: InputDecoration(
-                hintText: 'Search ${controller.games.length} games',
-                prefixIcon: Icon(Icons.search, color: context.palette.textDim),
-                suffixIcon: controller.query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Clear',
-                        icon: const Icon(Icons.close, size: 18),
-                        onPressed: () {
-                          _search.clear();
-                          controller.setQuery('');
-                        },
-                      ),
-              ),
+            child: Text(
+              count == 0
+                  ? 'Tap games to mark them'
+                  : '$count ${count == 1 ? 'game' : 'games'} marked',
+              style: TextStyle(fontSize: 13, color: palette.textDim),
             ),
           ),
-          const SizedBox(width: 14),
-          IconButton.filledTonal(
-            tooltip: 'Rescan (Ctrl+R)',
-            onPressed: controller.rescan,
-            icon: const Icon(Icons.refresh),
-          ),
+          TextButton(onPressed: _toggleSelecting, child: const Text('Cancel')),
           const SizedBox(width: 8),
-          IconButton.filledTonal(
-            tooltip: 'Add a game by hand',
-            onPressed: () async {
-              final entry = await showAddGameDialog(context);
-              if (entry != null) {
-                await controller.addManual(entry.name, entry.command, cwd: entry.cwd);
-              }
-            },
-            icon: const Icon(Icons.add),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filledTonal(
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => SettingsView(controller: controller),
-              ),
-            ),
-            icon: const Icon(Icons.settings),
+          FilledButton.icon(
+            onPressed: count == 0 ? null : () => _hideMarked(controller),
+            icon: const Icon(Icons.visibility_off_outlined, size: 18),
+            label: Text('Hide $count ${count == 1 ? 'game' : 'games'}'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Selection mode's tile: a tap marks the game instead of opening it, so
+  /// the tile's own pointer and key handling is shut off and a badge and a
+  /// tint say whether the game is marked.
+  Widget _selectableTile(Game game, Widget tile) {
+    final palette = context.palette;
+    final marked = _marked.contains(game.id);
+    return GestureDetector(
+      // Opaque: the AbsorbPointer below keeps the tile itself out of the hit
+      // test, and the tap still has to land here.
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(
+        () => marked ? _marked.remove(game.id) : _marked.add(game.id),
+      ),
+      child: AbsorbPointer(
+        child: ExcludeFocus(
+          child: Stack(
+            children: [
+              tile,
+              // The tint covers the cover, not the labels under it.
+              Positioned(
+                top: 0,
+                left: 0,
+                width: GameTile.width,
+                height: GameTile.coverHeight,
+                child: IgnorePointer(
+                  child: AnimatedContainer(
+                    duration: _motion,
+                    curve: _motionCurve,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: marked
+                          ? palette.accent.withValues(alpha: 0.22)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: marked ? palette.accent : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                left: 8,
+                child: IgnorePointer(
+                  child: AnimatedScale(
+                    scale: marked ? 1 : 0,
+                    duration: _motion,
+                    curve: Curves.easeOutBack,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: palette.accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.check, size: 16, color: palette.onAccent),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -213,21 +544,43 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     if (games.isEmpty) {
       final palette = context.palette;
+      final searching = controller.query.isNotEmpty;
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.videogame_asset_off, size: 44, color: palette.textDim),
+            Icon(
+              searching ? Icons.search_off : Icons.videogame_asset_off,
+              size: 44,
+              color: palette.textDim,
+            ),
             const SizedBox(height: 14),
             Text(
-              controller.query.isEmpty
-                  ? 'Nothing found. Try Rescan, or add a game by hand.'
-                  : 'No game matches "${controller.query}".',
-              style: TextStyle(color: palette.textDim),
+              searching ? 'No matches' : 'No games yet',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              searching
+                  ? 'No game matches "${controller.query}".'
+                  : 'Try Rescan, or add a game by hand.',
+              style: TextStyle(color: palette.textDim, fontSize: 13),
             ),
           ],
         ),
       );
+    }
+    // A node per visible game, kept across rebuilds so focus survives a
+    // re-sort; nodes of games that left the wall are let go here, before the
+    // grid below forgets them.
+    final ids = games.map((game) => game.id).toSet();
+    _gridNodes.removeWhere((id, node) {
+      if (ids.contains(id)) return false;
+      node.dispose();
+      return true;
+    });
+    for (final game in games) {
+      _gridNodes.putIfAbsent(game.id, FocusNode.new);
     }
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -236,6 +589,7 @@ class _LibraryPageState extends State<LibraryPage> {
             ((constraints.maxWidth - 28 * 2 + spacing) / (GameTile.width + spacing))
                 .floor()
                 .clamp(1, 12);
+        _gridColumns = columns;
         return GridView.builder(
           padding: const EdgeInsets.fromLTRB(28, 6, 28, 24),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -252,12 +606,14 @@ class _LibraryPageState extends State<LibraryPage> {
           itemCount: games.length,
           itemBuilder: (context, index) {
             final game = games[index];
-            return GameTile(
+            final tile = GameTile(
               key: ValueKey(game.id),
               game: game,
               controller: controller,
               selected: controller.selected?.id == game.id,
+              focusNode: _selecting ? null : _gridNodes[game.id],
             );
+            return _selecting ? _selectableTile(game, tile) : tile;
           },
         );
       },
@@ -286,15 +642,34 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           if (notice != null)
             Flexible(
-              child: Text(
-                notice,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: controller.failure == null ? palette.textDim : palette.warning,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    controller.failure == null
+                        ? Icons.info_outline
+                        : Icons.error_outline,
+                    size: 14,
+                    color: controller.failure == null
+                        ? palette.textDim
+                        : palette.warning,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      notice,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: controller.failure == null
+                            ? palette.textDim
+                            : palette.warning,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -316,10 +691,21 @@ class _Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final collapsed = controller.config.sidebarCollapsed;
-    return Container(
-      width: collapsed ? railWidth : width,
-      color: context.palette.sidebar,
-      child: collapsed ? _rail(context) : _list(context),
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: collapsed ? railWidth : width),
+      duration: _LibraryPageState._motion,
+      curve: _LibraryPageState._motionCurve,
+      builder: (context, w, _) {
+        // The content swaps halfway through the fold: the list would
+        // overflow the rail's width, and the rail looks lost in the list's.
+        final showRail = w < (width + railWidth) / 2;
+        return Container(
+          width: w,
+          clipBehavior: Clip.hardEdge,
+          decoration: BoxDecoration(color: context.palette.sidebar),
+          child: showRail ? _rail(context) : _list(context),
+        );
+      },
     );
   }
 
@@ -561,6 +947,8 @@ class _Sidebar extends StatelessWidget {
     SourceKind.epic => Icons.sports_esports_outlined,
     SourceKind.lutris => Icons.wine_bar,
     SourceKind.faugus => Icons.sports_martial_arts,
+    SourceKind.prism => Icons.widgets_outlined,
+    SourceKind.bottles => Icons.liquor,
     SourceKind.desktop => Icons.desktop_windows_outlined,
   };
 }

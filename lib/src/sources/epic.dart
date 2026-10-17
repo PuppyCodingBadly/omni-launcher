@@ -54,10 +54,10 @@ Object? _orNull(String value) => value.isEmpty ? null : value;
 /// Lines that are not JSON (a half-written append), not objects, or part of the
 /// header are skipped, so a truncated file still yields the installations it
 /// does describe.
-List<Map<String, Object?>> readInstallations(String path) {
+Future<List<Map<String, Object?>>> readInstallations(String path) async {
   String text;
   try {
-    text = utf8.decode(File(path).readAsBytesSync(), allowMalformed: true);
+    text = utf8.decode(await File(path).readAsBytes(), allowMalformed: true);
   } on FileSystemException {
     return const [];
   }
@@ -83,8 +83,8 @@ List<Map<String, Object?>> readInstallations(String path) {
 }
 
 /// Display titles from the catalog cache, keyed by catalog item id.
-Map<String, String> _catalogTitles(String path) {
-  final data = loadJson(path);
+Future<Map<String, String>> _catalogTitles(String path) async {
+  final data = await loadJson(path);
   if (data is! Map) return const {};
   final items = data['items'];
   if (items is! Map) return const {};
@@ -109,10 +109,17 @@ Map<String, String> _catalogTitles(String path) {
 /// launcher could start.
 String? _launchUri(String namespace, String itemId, String appName) {
   if (appName.isEmpty) return null;
+  // These values come from the launcher's log; a stray `?`, `&` or `#` would
+  // corrupt the URI, so every component is encoded.
   if (namespace.isEmpty || itemId.isEmpty) {
-    return '$_launchPrefix$appName?action=launch';
+    return '$_launchPrefix${Uri.encodeComponent(appName)}?action=launch';
   }
-  return '$_launchPrefix$namespace%3A$itemId%3A$appName?action=launch&silent=true';
+  final triple = [
+    namespace,
+    itemId,
+    appName,
+  ].map(Uri.encodeComponent).join('%3A');
+  return '$_launchPrefix$triple?action=launch&silent=true';
 }
 
 /// The catalog title, else something readable from the record itself.
@@ -130,9 +137,9 @@ String _stem(String name) {
   return dot > 0 ? name.substring(0, dot) : name;
 }
 
-bool _exists(String path) =>
+Future<bool> _exists(String path) async =>
     path.isNotEmpty &&
-    FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound;
+    await FileSystemEntity.type(path) != FileSystemEntityType.notFound;
 
 /// Every game installed through the Epic Games Launcher.
 class EpicSource extends GameSource {
@@ -150,10 +157,10 @@ class EpicSource extends GameSource {
   @override
   Future<List<Game>> discover(AppConfig cfg) async {
     final root = dataRoot;
-    final titles = _catalogTitles('$root/cache/prod/catalog-cache.json');
+    final titles = await _catalogTitles('$root/cache/prod/catalog-cache.json');
     final games = <Game>[];
     final seen = <String>{};
-    for (final entry in readInstallations('$root/installations.jsonl')) {
+    for (final entry in await readInstallations('$root/installations.jsonl')) {
       final installationId = _text(entry['installationId']);
       final namespace = _text(entry['namespace']);
       final itemId = _text(entry['itemId']);
@@ -173,7 +180,7 @@ class EpicSource extends GameSource {
           ),
           source: SourceKind.epic,
           command: ['xdg-open', uri],
-          path: _exists(dir) ? dir : null,
+          path: await _exists(dir) ? dir : null,
           subtitle: SourceKind.epic.label,
           extra: {
             'installationId': _orNull(installationId),

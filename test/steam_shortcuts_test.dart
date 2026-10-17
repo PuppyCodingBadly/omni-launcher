@@ -127,7 +127,7 @@ void main() {
       file.writeAsBytesSync(shortcutFile(shortcuts));
     }
 
-    test('reads every userdata directory and converts the app id unsigned', () {
+    test('reads every userdata directory and converts the app id unsigned', () async {
       writeShortcuts('1', [
         {
           'appid': retroDeckSignedId,
@@ -139,7 +139,7 @@ void main() {
       writeShortcuts('2', [
         {'appid': 42, 'AppName': 'Older Steam', 'exe': '/usr/bin/thing'},
       ]);
-      final shortcuts = readSteamShortcuts(roots: [dir.path]);
+      final shortcuts = await readSteamShortcuts(roots: [dir.path]);
       expect(shortcuts, hasLength(2));
       final byName = {for (final shortcut in shortcuts) shortcut.name: shortcut};
       final retrodeck = byName['RetroDECK']!;
@@ -150,29 +150,38 @@ void main() {
       expect(byName['Older Steam']!.appId, 42);
     });
 
-    test('the same file behind two roots is only read once', () {
+    test('the same file behind two roots is only read once', () async {
       writeShortcuts('1', [
         {'appid': 7, 'appname': 'Once'},
       ]);
       final link = Link('${dir.path}/link');
       link.createSync(dir.path);
-      final shortcuts = readSteamShortcuts(roots: [dir.path, link.path]);
+      final shortcuts = await readSteamShortcuts(roots: [dir.path, link.path]);
       expect(shortcuts, hasLength(1));
     });
 
-    test('entries without an id or a name are skipped', () {
+    test('entries without an id or a name are skipped', () async {
       writeShortcuts('1', [
         {'appname': 'No id'},
         {'appid': 3},
         {'appid': 4, 'appname': '   '},
         {'appid': 5, 'appname': 'Kept'},
       ]);
-      final shortcuts = readSteamShortcuts(roots: [dir.path]);
+      final shortcuts = await readSteamShortcuts(roots: [dir.path]);
       expect(shortcuts.map((s) => s.name).toList(), ['Kept']);
     });
 
-    test('a missing root is not an error', () {
-      expect(readSteamShortcuts(roots: ['${dir.path}/nope']), isEmpty);
+    test('a missing root is not an error', () async {
+      expect(await readSteamShortcuts(roots: ['${dir.path}/nope']), isEmpty);
+    });
+
+    test('the default roots include the flatpak sandbox', () {
+      expect(
+        defaultSteamRoots(),
+        contains(
+          endsWith('.var/app/com.valvesoftware.Steam/.local/share/Steam'),
+        ),
+      );
     });
   });
 
@@ -200,7 +209,29 @@ void main() {
       expect(result.source, SourceKind.flatpak);
     });
 
-    test('a name match covers non-flatpak entries too', () async {
+    test('a bare name match does not hijack a non-flatpak game', () async {
+      // Two unrelated games can share a display name; without a path link the
+      // shortcut must not take over the other game's command.
+      final original = game(
+        id: 'appimage:/games/RetroDECK.AppImage',
+        key: '/games/RetroDECK.AppImage',
+        name: 'retrodeck',
+        source: SourceKind.appimage,
+        command: ['/games/RetroDECK.AppImage'],
+      );
+      final games = await preferSteamShortcuts([original], [shortcut]);
+      expect(games.single.command, original.command);
+      expect(games.single.extra.containsKey('launchedViaSteam'), isFalse);
+    });
+
+    test('a shortcut whose exe sits in the install path still wins', () async {
+      // RetroDECK-style: the file Steam launches is the install this source
+      // found, so the name match is safe to apply.
+      const pointing = SteamShortcut(
+        appId: retroDeckUnsignedId,
+        name: 'RetroDECK',
+        exe: '/games/retrodeck/RetroDECK.AppImage',
+      );
       final games = await preferSteamShortcuts(
         [
           game(
@@ -211,7 +242,7 @@ void main() {
             command: ['/games/RetroDECK.AppImage'],
           ),
         ],
-        [shortcut],
+        [pointing],
       );
       expect(games.single.command.last, '$retroDeckUnsignedId');
       expect(games.single.extra['launchedViaSteam'], isTrue);

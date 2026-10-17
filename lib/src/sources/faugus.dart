@@ -36,8 +36,8 @@ String _textOrEmpty(Object? value) {
 
 /// Parse a Faugus `games.json`: a JSON list of records (`gameid`, `title`,
 /// `path`, `prefix`, `icon`, `cover`, ...); anything else yields no records.
-List<Map<String, Object?>> readGames(String path) {
-  final data = loadJson(path);
+Future<List<Map<String, Object?>>> readGames(String path) async {
+  final data = await loadJson(path);
   if (data is! List) return const [];
   return data.whereType<Map<String, Object?>>().toList();
 }
@@ -63,9 +63,9 @@ String? _gamePath(Map<String, Object?> entry) {
   return exe.isEmpty ? null : _parentOf(exe);
 }
 
-bool _isFile(String path) {
+Future<bool> _isFile(String path) async {
   try {
-    return FileSystemEntity.isFileSync(path);
+    return await FileSystemEntity.isFile(path);
   } on FileSystemException {
     return false;
   }
@@ -84,7 +84,7 @@ class FaugusSource extends GameSource {
     final seen = <String>{};
     final games = <Game>[];
     for (final path in [_flatpakGames(), _nativeGames()]) {
-      for (final entry in readGames(path)) {
+      for (final entry in await readGames(path)) {
         final title = _textOrEmpty(entry['title']).trim();
         if (title.isEmpty || !seen.add(title)) continue;
         final icon = _textOrEmpty(entry['icon']);
@@ -95,7 +95,7 @@ class FaugusSource extends GameSource {
             name: title,
             source: SourceKind.faugus,
             command: [...command, '--game', title],
-            icon: icon.isNotEmpty && _isFile(icon) ? icon : null,
+            icon: icon.isNotEmpty && await _isFile(icon) ? icon : null,
             iconIsName: false,
             path: _gamePath(entry),
             subtitle: 'Faugus',

@@ -10,6 +10,7 @@ import 'package:omni_launcher/src/covers.dart';
 import 'package:omni_launcher/src/host.dart';
 import 'package:omni_launcher/src/launcher.dart';
 import 'package:omni_launcher/src/model/game.dart';
+import 'package:omni_launcher/src/paths.dart';
 import 'package:omni_launcher/src/sources/epic.dart';
 import 'package:omni_launcher/src/sources/registry.dart';
 import 'package:omni_launcher/src/sources/source.dart';
@@ -96,8 +97,13 @@ Future<void> resizeWindow(WidgetTester tester, Size size) async {
 
 /// The artwork files the tiles and panels are showing, in tree order.
 List<String> shownCoverPaths(WidgetTester tester) => [
-  for (final image in tester.widgetList<Image>(find.byType(Image)))
-    if (image.image is FileImage) (image.image as FileImage).file.path,
+  for (final image in tester.widgetList<Image>(find.byType(Image))) ...[
+    // cacheWidth/cacheHeight wrap the provider in a ResizeImage.
+    if (image.image case FileImage file) file.file.path,
+    if (image.image case ResizeImage resized) ...[
+      if (resized.imageProvider case FileImage file) file.file.path,
+    ],
+  ],
 ];
 
 void main() {
@@ -198,10 +204,10 @@ void main() {
 
       final file = File(cachePath());
       expect(file.existsSync(), isTrue);
-      final decoded = jsonDecode(file.readAsStringSync());
-      expect(decoded, isA<List>());
+      final decoded = jsonDecode(file.readAsStringSync()) as Map;
+      expect(decoded['version'], LibraryController.cacheVersion);
       expect(
-        (decoded as List).map((entry) => (entry as Map)['id']).toList(),
+        (decoded['games'] as List).map((entry) => (entry as Map)['id']).toList(),
         controller.games.map((entry) => entry.id).toList(),
       );
       // No half written leftover next to the cache.
@@ -260,7 +266,9 @@ void main() {
         Launcher.resolveProgram(['./not-executable'], cwd: dir.path),
         '${dir.path}/./not-executable',
       );
-      // `~` and `$VAR` are the shell's to expand: never refuse those.
+      // `~` and defined variables are expanded before a launch; [resolveProgram]
+      // itself receives what the caller passes, so neither is resolved or
+      // refused here.
       expect(Launcher.resolveProgram(const ['~/nowhere-at-all']), '~/nowhere-at-all');
       expect(Launcher.resolveProgram(const [r'$HOME/nowhere']), r'$HOME/nowhere');
     });
@@ -332,7 +340,62 @@ void main() {
 
       await controller.launch(missing);
 
-      expect(controller.notice, contains('Could not launch Gone'));
+      expect(controller.failure, contains('Could not launch Gone'));
+    });
+
+    test('expandPaths expands tilde and defined variables', () {
+      final home = Platform.environment['HOME']!;
+      final expanded = Launcher.expandPaths(
+        const [
+          '~/Games/x',
+          '-flag',
+          r'$HOME/nowhere',
+          '~',
+          r'$OMNI_TEST_UNSET_VARIABLE',
+          r'${HOME}/y',
+          'a~b',
+        ],
+      );
+      expect(expanded, [
+        '${AppPaths.home}/Games/x',
+        '-flag',
+        '$home/nowhere',
+        AppPaths.home,
+        r'$OMNI_TEST_UNSET_VARIABLE',
+        '$home/y',
+        'a~b',
+      ]);
+    });
+
+    test('a tilde command reaches the shell expanded', () async {
+      Launcher.logPathOverrideForTest = '${dir.path}/launch.log';
+      addTearDown(() => Launcher.logPathOverrideForTest = null);
+      final out = File('${dir.path}/tilde-out');
+      final tilded = game(
+        'manual:tilde',
+        'Tilde',
+        SourceKind.manual,
+        command: ['sh', '-c', 'printf %s "\$2" > "\$1"', 'x', out.path, '~/Games/x'],
+      );
+
+      await Launcher.launch(tilded);
+
+      for (var i = 0; i < 100 && !out.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(out.readAsStringSync(), '${AppPaths.home}/Games/x');
+    });
+
+    test('ensureExecutable restores the exec bit a download lost', () {
+      Launcher.logPathOverrideForTest = '${dir.path}/launch.log';
+      addTearDown(() => Launcher.logPathOverrideForTest = null);
+      final app = File('${dir.path}/Game.AppImage')
+        ..writeAsStringSync('#!/bin/sh\nexit 0\n');
+      Process.runSync('chmod', ['644', app.path]);
+
+      Launcher.ensureExecutable(app.path);
+
+      expect(app.statSync().mode & 0x49, isNot(0));
     });
   });
 
@@ -358,6 +421,53 @@ void main() {
       expect(artwork.kind, ArtworkKind.letter);
       expect(artwork.pending, isFalse);
       expect(store.resolve(steamGame('424243')).pending, isTrue);
+    });
+
+    test('a missing marker older than thirty days is tried again', () {
+      final store = storeWith();
+      Directory('${dir.path}/covers').createSync(recursive: true);
+      final marker = File('${dir.path}/covers/steam_900090009.missing')
+        ..writeAsStringSync('');
+      // A stale marker is no answer at all: the capsule may exist by now.
+      marker.setLastModifiedSync(
+        DateTime.now().subtract(const Duration(days: 31)),
+      );
+      expect(store.resolve(steamGame('900090009')).pending, isTrue);
+      // A fresh one still suppresses the fetch.
+      marker.writeAsStringSync('');
+      expect(store.resolve(steamGame('900090009')).pending, isFalse);
+    });
+
+    test('the first resolve prunes SteamGridDB art no game points at', () {
+      final covers = Directory('${dir.path}/covers')..createSync(recursive: true);
+      File('${covers.path}/sgdb_steam_1_1.png').writeAsBytesSync([1]);
+      File('${covers.path}/steam_1.jpg').writeAsBytesSync([1]);
+      final kept = File('${covers.path}/sgdb_steam_2_2.png')
+        ..writeAsBytesSync([1]);
+      final store = CoverStore(
+        settings: ArtSettings(autoArt: {'steam:2': kept.path}),
+        coverDir: covers.path,
+      );
+
+      store.resolve(steamGame('900090009'));
+
+      expect(File('${covers.path}/sgdb_steam_1_1.png').existsSync(), isFalse);
+      expect(kept.existsSync(), isTrue);
+      // Steam's own capsules stay: a game that comes back finds them waiting.
+      expect(File('${covers.path}/steam_1.jpg').existsSync(), isTrue);
+    });
+
+    test('resolve sees a cached cover that appears, without being told', () {
+      final store = storeWith();
+      final game = steamGame('900090009');
+      Directory('${dir.path}/covers').createSync(recursive: true);
+      expect(store.resolve(game).kind, ArtworkKind.letter);
+
+      File('${dir.path}/covers/steam_900090009.jpg').writeAsBytesSync([1]);
+
+      final artwork = store.resolve(game);
+      expect(artwork.kind, ArtworkKind.cover);
+      expect(artwork.value, '${dir.path}/covers/steam_900090009.jpg');
     });
 
     test('a known missing Steam cover is not fetched again', () async {
@@ -635,7 +745,7 @@ void main() {
     String configPath() => '${dir.path}/config.json';
     String cachePath() => '${dir.path}/games.json';
     String playtimePath() => '${dir.path}/playtime.json';
-    const String id = 'manual:Alpha';
+    const String id = 'manual:alpha';
 
     /// A library with one hand added game, so the scan finds something that
     /// does not depend on what is installed here.
@@ -645,7 +755,7 @@ void main() {
       Set<String> hidden = const {},
     }) => AppConfig(
       appimageDirs: const [],
-      manual: [ManualEntry(name: 'Alpha', command: const ['true'])],
+      manual: [ManualEntry(name: 'Alpha', key: 'alpha', command: const ['true'])],
       nameOverrides: names,
       artOverrides: art,
       hidden: hidden,
@@ -681,8 +791,10 @@ void main() {
       // could never find the discovered name again.
       await first.rescan();
       expect(foundIn(first).name, 'Beta');
-      final cached = jsonDecode(File(cachePath()).readAsStringSync()) as List;
-      final entry = cached.cast<Map>().firstWhere((row) => row['id'] == id);
+      final cached = jsonDecode(File(cachePath()).readAsStringSync()) as Map;
+      final entry = (cached['games'] as List)
+          .cast<Map>()
+          .firstWhere((row) => row['id'] == id);
       expect(entry['name'], 'Alpha');
 
       // The next start shows the rename before its own scan has run.
@@ -739,28 +851,28 @@ void main() {
         config: AppConfig(
           appimageDirs: const [],
           manual: [
-            ManualEntry(name: 'Alpha', command: const ['true']),
-            ManualEntry(name: 'Beta', command: const ['true']),
+            ManualEntry(name: 'Alpha', key: 'alpha', command: const ['true']),
+            ManualEntry(name: 'Beta', key: 'beta', command: const ['true']),
           ],
         ),
       );
       addTearDown(controllerWithBoth.dispose);
       await controllerWithBoth.rescan();
 
-      controllerWithBoth.setName('manual:Alpha', 'Beta');
+      controllerWithBoth.setName('manual:alpha', 'Beta');
 
       final both = controllerWithBoth.games.where((entry) => entry.name == 'Beta');
       expect(both, hasLength(2));
       expect(
         both.map((entry) => entry.id).toSet(),
-        {'manual:Alpha', 'manual:Beta'},
+        {'manual:alpha', 'manual:beta'},
       );
       // ... and the override never reaches the scan: identity is untouched.
       expect(
         controllerWithBoth.games
-            .firstWhere((entry) => entry.id == 'manual:Alpha')
+            .firstWhere((entry) => entry.id == 'manual:alpha')
             .key,
-        'Alpha',
+        'alpha',
       );
     });
 
@@ -965,6 +1077,10 @@ void main() {
 
       expect(controller.config.showHidden, isTrue);
       expect(controller.visibleGames.length, 3);
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
   });
 
@@ -1056,6 +1172,10 @@ void main() {
       controller.select(controller.games.first);
       await tester.pumpAndSettle();
       expect(shownCoverPaths(tester), [art.path, art.path]);
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
   });
 

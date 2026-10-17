@@ -6,9 +6,24 @@ final RegExp _token = RegExp(r'\s*(?:"((?:[^"\\]|\\.)*)"|([{}])|//[^\n]*)');
 Map<String, Object?> parseKeyValues(String text) {
   final tokens = <String>[];
   var pos = 0;
+  // A UTF-8 BOM is not part of the grammar.
+  if (text.startsWith('\uFEFF')) pos = 1;
   while (pos < text.length) {
     final match = _token.matchAsPrefix(text, pos);
-    if (match == null) break;
+    if (match == null) {
+      if (text[pos] == '[') {
+        // A KeyValues conditional tag such as `[$WIN32]` or `[!$X360]`
+        // following a value: the platform filter is not evaluated, the tag is
+        // simply skipped.
+        final close = text.indexOf(']', pos);
+        pos = close < 0 ? text.length : close + 1;
+      } else {
+        // Anything else the grammar does not know is skipped a byte at a time
+        // rather than aborting the whole parse.
+        pos++;
+      }
+      continue;
+    }
     pos = match.end;
     final quoted = match.group(1);
     if (quoted != null) {

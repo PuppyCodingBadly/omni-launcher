@@ -12,13 +12,50 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Analyze
+        run: flutter analyze
+      - name: Test
+        run: flutter test
+      - name: Validate the metainfo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y appstream
+          appstreamcli validate --no-net flatpak/io.github.PuppyCodingBadly.OmniLauncher.metainfo.xml
+
   flatpak:
+    needs: test
     runs-on: ubuntu-latest
     container:
       image: bilelmoussaoui/flatpak-github-actions:gnome-47
       options: --privileged
     steps:
       - uses: actions/checkout@v4
+
+      # The generated manifest builds a pinned commit of the repo, not this
+      # checkout, so a release cut from a tag whose manifest still pins an
+      # older commit would ship the wrong code. Cutting a release means
+      # checking out the tagged commit and regenerating the manifest first:
+      #   flatpak-flutter/flatpak-flutter.py flatpak-flutter.yml
+      # (flatpak-flutter takes no commit argument; it pins whatever the
+      # checkout points at, so run it at the tag and commit the result before
+      # pushing the tag.)
+      - name: Check the pinned commit
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          PINNED=$(grep -m1 -E '^[[:space:]]+commit:' io.github.PuppyCodingBadly.OmniLauncher.yml | sed -E 's/.*commit:[[:space:]]*//; s/["'"'"']//g')
+          if [ "$PINNED" != "${{ github.sha }}" ]; then
+            echo "Manifest pins $PINNED but this tag is ${{ github.sha }}."
+            echo "Regenerate the manifest at the tagged commit: flatpak-flutter.py flatpak-flutter.yml"
+            exit 1
+          fi
 
       # The store hands out the zips and the index in plugins/, so they have to
       # match the plugin sources they were built from.

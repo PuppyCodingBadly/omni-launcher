@@ -31,6 +31,10 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
   late Future<List<SgdbGrid>> _candidates;
   bool _applying = false;
 
+  /// The candidate a tap is applying right now: it wears the accent ring
+  /// until the download resolves.
+  SgdbGrid? _applyingGrid;
+
   /// Why the last pick failed, shown inside the dialog: the status bar is
   /// hidden behind the modal, so a failure there would look like nothing
   /// happened at all.
@@ -182,6 +186,8 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
   );
 
   Widget _candidate(SgdbGrid grid) {
+    final palette = context.palette;
+    final applying = identical(grid, _applyingGrid);
     return Tooltip(
       message: [
         if (grid.style != null) grid.style!,
@@ -191,26 +197,49 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: _applying ? null : () => _apply(grid),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            color: context.palette.surfaceHigh,
-            child: Image.network(
-              grid.thumb,
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, progress) => progress == null
-                  ? child
-                  : const Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+        // The ring follows the tile's selected-cover treatment — same curve,
+        // same speed — so picking art feels like selecting a game.
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: applying ? palette.accent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              color: palette.surfaceHigh,
+              child: LayoutBuilder(
+                builder: (context, constraints) => Image.network(
+                  grid.thumb,
+                  fit: BoxFit.cover,
+                  // Decode at the pixels the cell actually shows.
+                  cacheWidth:
+                      (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
+                          .round(),
+                  cacheHeight:
+                      (constraints.maxHeight * MediaQuery.devicePixelRatioOf(context))
+                          .round(),
+                  semanticLabel: 'Artwork candidate for ${widget.game.name}',
+                  loadingBuilder: (context, child, progress) => progress == null
+                      ? child
+                      : const Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                  errorBuilder: (context, error, stack) => Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      color: palette.textDim,
                     ),
-              errorBuilder: (context, error, stack) => Center(
-                child: Icon(
-                  Icons.broken_image_outlined,
-                  color: context.palette.textDim,
+                  ),
                 ),
               ),
             ),
@@ -223,6 +252,7 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
   Future<void> _apply(SgdbGrid grid) async {
     setState(() {
       _applying = true;
+      _applyingGrid = grid;
       _failure = null;
     });
     try {
@@ -241,7 +271,12 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
       if (!mounted) return;
       setState(() => _failure = '$error');
     } finally {
-      if (mounted) setState(() => _applying = false);
+      if (mounted) {
+        setState(() {
+          _applying = false;
+          _applyingGrid = null;
+        });
+      }
     }
   }
 }

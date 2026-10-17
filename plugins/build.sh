@@ -20,6 +20,7 @@ comparison is the point of the check: same names, same contents, whatever the
 timestamps are.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -66,6 +67,12 @@ problems = []
 built = []
 for entry, folder in folders():
     manifest = json.load(open(os.path.join(folder, 'plugin.json')))
+    # A manifest that names another folder would ship a plugin under an id it
+    # does not have on disk, and the launcher refuses that mismatch anyway.
+    if manifest.get('id') != entry:
+        problems.append('%s/plugin.json: id is not the folder name' % entry)
+        continue
+    wanted = archive(entry, folder)
     built.append(
         {
             'id': manifest['id'],
@@ -74,9 +81,11 @@ for entry, folder in folders():
             'author': manifest.get('author', ''),
             'version': manifest.get('version', 1),
             'file': entry + '.zip',
+            # The launcher checks the downloaded archive against this before
+            # it unpacks anything.
+            'sha256': hashlib.sha256(wanted).hexdigest(),
         }
     )
-    wanted = archive(entry, folder)
     target = os.path.join(root, entry + '.zip')
     if mode == '--check':
         if not os.path.exists(target):
@@ -86,6 +95,11 @@ for entry, folder in folders():
         source = {name: open(path, 'rb').read() for name, path in files(folder)}
         if committed != source:
             problems.append('%s.zip does not match %s/' % (entry, entry))
+        # The index's checksum is over the archive's bytes, so the committed
+        # file itself has to be what was built, not merely hold the same
+        # contents.
+        if hashlib.sha256(open(target, 'rb').read()).hexdigest() != built[-1]['sha256']:
+            problems.append('%s.zip is not the archive index.json checksums' % entry)
     else:
         with open(target, 'wb') as handle:
             handle.write(wanted)

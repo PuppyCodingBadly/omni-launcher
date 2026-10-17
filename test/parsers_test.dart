@@ -42,10 +42,31 @@ void main() {
     test('returns an empty map for junk', () {
       expect(parseKeyValues('not a vdf file at all'), isEmpty);
     });
+
+    test('a byte order mark is skipped', () {
+      const text = '\uFEFF"root"\n{\n\t"key"\t"value"\n}\n';
+      final root = parseKeyValues(text)['root'] as Map<String, Object?>;
+      expect(root['key'], 'value');
+    });
+
+    test('platform conditional tags are skipped, the parse continues', () {
+      const text = '''
+"appmanifest"
+{
+\t"appid"\t\t"440"
+\t"installdir"\t\t"Team Fortress 2"\t[!\$WIN32]
+\t"name"\t\t"TF2"\t[\$LINUX]
+}
+''';
+      final manifest = parseKeyValues(text)['appmanifest'] as Map<String, Object?>;
+      expect(manifest['appid'], '440');
+      expect(manifest['installdir'], 'Team Fortress 2');
+      expect(manifest['name'], 'TF2');
+    });
   });
 
   group('desktop entries', () {
-    test('reads the Desktop Entry group only, plain keys win', () {
+    test('reads the Desktop Entry group only, plain keys win', () async {
       final dir = Directory.systemTemp.createTempSync('omni-desktop');
       addTearDown(() => dir.deleteSync(recursive: true));
       final file = File('${dir.path}/game.desktop')
@@ -61,7 +82,7 @@ NoDisplay=false
 [Desktop Action Play]
 Name=Ignored
 ''');
-      final entry = readDesktopFile(file.path);
+      final entry = await readDesktopFile(file.path);
       expect(entry['Name'], 'Plain');
       expect(entry.containsKey('Name[de]'), isFalse);
       expect(entry['Name'], isNot('Ignored'));
@@ -157,6 +178,38 @@ game:
 
     test('rejects records without a known source', () {
       expect(Game.fromJson({'id': 'x:1', 'name': 'x', 'source': 'nope'}), isNull);
+    });
+
+    test('equality is by id alone', () {
+      const first = Game(
+        id: 'steam:105600',
+        key: '105600',
+        name: 'Terraria',
+        source: SourceKind.steam,
+        command: ['/usr/bin/steam', '-applaunch', '105600'],
+      );
+      final renamed = first.copyWith(name: 'Terraria (modded)');
+      expect(first, equals(renamed));
+      expect(first.hashCode, renamed.hashCode);
+      const other = Game(
+        id: 'steam:440',
+        key: '440',
+        name: 'Terraria',
+        source: SourceKind.steam,
+        command: ['/usr/bin/steam', '-applaunch', '105600'],
+      );
+      expect(first, isNot(equals(other)));
+    });
+
+    test('the extra map of a decoded game cannot be mutated', () {
+      final decoded = jsonDecode(
+        '{"id":"steam:1","name":"X","source":"steam",'
+        '"command":["steam"],"extra":{"appid":"1"}}',
+      ) as Map<String, Object?>;
+      final game = Game.fromJson(decoded)!;
+      expect(game.extra['appid'], '1');
+      expect(() => game.extra['appid'] = '2', throwsUnsupportedError);
+      expect((decoded['extra'] as Map<String, Object?>)['appid'], '1');
     });
   });
 

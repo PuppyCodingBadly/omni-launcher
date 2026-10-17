@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 /// Read and decode a JSON file, or `null` when missing/unreadable/invalid.
-Object? loadJson(String path) {
+Future<Object?> loadJson(String path) async {
   try {
-    return jsonDecode(File(path).readAsStringSync());
+    return jsonDecode(await File(path).readAsString());
   } on FileSystemException {
     return null;
   } on FormatException {
@@ -16,21 +16,21 @@ Object? loadJson(String path) {
 ///
 /// Directories that cannot be listed are skipped, matching the Python
 /// original (`glob` swallows the `OSError`).
-List<File> iterDesktopFiles(Iterable<String> dirs) {
+Future<List<File>> iterDesktopFiles(Iterable<String> dirs) async {
   final seen = <String>{};
   final result = <File>[];
   for (final dir in dirs) {
     final directory = Directory(dir);
     bool isDir;
     try {
-      isDir = directory.existsSync();
+      isDir = await directory.exists();
     } on FileSystemException {
       continue;
     }
     if (!isDir) continue;
     List<FileSystemEntity> listed;
     try {
-      listed = directory.listSync();
+      listed = await directory.list().toList();
     } on FileSystemException {
       continue;
     }
@@ -49,10 +49,10 @@ List<File> iterDesktopFiles(Iterable<String> dirs) {
 ///
 /// Bytes that are not valid UTF-8 are replaced rather than dropping the whole
 /// entry, matching the Python original's `errors="replace"`.
-Map<String, String> readDesktopFile(String path) {
+Future<Map<String, String>> readDesktopFile(String path) async {
   String text;
   try {
-    text = utf8.decode(File(path).readAsBytesSync(), allowMalformed: true);
+    text = utf8.decode(await File(path).readAsBytes(), allowMalformed: true);
   } on FileSystemException {
     return <String, String>{};
   }
@@ -82,8 +82,8 @@ Map<String, String> parseDesktopEntry(String text) {
 }
 
 /// Write [text] to [path], creating parent directories.
-void writeTextFile(String path, String text) {
+Future<void> writeTextFile(String path, String text) async {
   final file = File(path);
-  file.parent.createSync(recursive: true);
-  file.writeAsStringSync(text);
+  await file.parent.create(recursive: true);
+  await file.writeAsString(text);
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omni_launcher/src/art/steamgriddb.dart';
@@ -99,6 +100,79 @@ void main() {
         throwsA(isA<SteamGridDbException>()),
       );
       client.close();
+    });
+  });
+
+  group('over the wire', () {
+    setUp(() {
+      // flutter_test answers every HttpClient with a canned 400; these tests
+      // use a loopback server instead, and never leave the machine.
+      HttpOverrides.global = null;
+    });
+
+    /// A server that answers with [answer], plus the requests it saw.
+    Future<(HttpServer, List<HttpRequest>)> serve(
+      void Function(HttpRequest request) answer,
+    ) async {
+      final seen = <HttpRequest>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) {
+        seen.add(request);
+        answer(request);
+      });
+      addTearDown(() => server.close(force: true));
+      return (server, seen);
+    }
+
+    test('a redirect is followed, but the API key stays behind', () async {
+      final (server, seen) = await serve((request) {
+        if (request.uri.path.startsWith('/grids')) {
+          request.response.statusCode = HttpStatus.found;
+          request.response.headers.set(HttpHeaders.locationHeader, '/real');
+        } else {
+          request.response.write('{"success":true,"data":[]}');
+        }
+        request.response.close();
+      });
+      final client = SteamGridDb(
+        apiKey: 'secret-key',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+      );
+      addTearDown(client.close);
+
+      final grids = await client.gridsForSteamApp(427410);
+
+      expect(grids, isEmpty);
+      expect(seen, hasLength(2));
+      // The first request is the API and carries the key; the redirect target
+      // is not www.steamgriddb.com, so the key does not follow it.
+      expect(seen.first.headers.value('authorization'), 'Bearer secret-key');
+      expect(seen.last.uri.path, '/real');
+      expect(seen.last.headers.value('authorization'), isNull);
+    });
+
+    test('a redirect that never ends is refused', () async {
+      var hops = 0;
+      final (server, seen) = await serve((request) {
+        request.response.statusCode = HttpStatus.found;
+        request.response.headers.set(
+          HttpHeaders.locationHeader,
+          '/again/${++hops}',
+        );
+        request.response.close();
+      });
+      final client = SteamGridDb(
+        apiKey: 'secret-key',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+      );
+      addTearDown(client.close);
+
+      await expectLater(
+        client.gridsForSteamApp(427410),
+        throwsA(isA<SteamGridDbException>()),
+      );
+      // The first request and the five redirects it was willing to follow.
+      expect(seen, hasLength(6));
     });
   });
 }

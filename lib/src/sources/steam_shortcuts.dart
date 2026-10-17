@@ -36,49 +36,52 @@ class SteamShortcut {
       name.trim().toLowerCase() == other.trim().toLowerCase();
 }
 
-/// Steam roots to scan, in order.
+/// Steam roots to scan, in order: the native install (both spellings) and the
+/// flatpak sandbox.
 List<String> defaultSteamRoots() => [
   '${AppPaths.home}/.local/share/Steam',
   '${AppPaths.home}/.steam/steam',
+  '${AppPaths.home}/.var/app/com.valvesoftware.Steam/.local/share/Steam',
 ];
 
 /// Every shortcut in every Steam userdata directory.
 ///
-/// The two default roots usually point at the same directory through a symlink,
+/// The two native roots usually point at the same directory through a symlink,
 /// so files are de-duplicated by their resolved path. Nothing here throws: a
 /// missing, unreadable or half-written file simply yields no shortcuts.
-List<SteamShortcut> readSteamShortcuts({List<String>? roots}) {
+Future<List<SteamShortcut>> readSteamShortcuts({List<String>? roots}) async {
   final seen = <String>{};
   final shortcuts = <SteamShortcut>[];
   for (final root in roots ?? defaultSteamRoots()) {
     final userdata = Directory('$root/userdata');
-    if (!userdata.existsSync()) continue;
+    if (!await userdata.exists()) continue;
     List<FileSystemEntity> users;
     try {
-      users = userdata.listSync()..sort((a, b) => a.path.compareTo(b.path));
+      users = await userdata.list().toList();
+      users.sort((a, b) => a.path.compareTo(b.path));
     } on FileSystemException {
       continue;
     }
     for (final user in users) {
       final file = File('${user.path}/config/shortcuts.vdf');
-      if (!file.existsSync()) continue;
+      if (!await file.exists()) continue;
       String identity;
       try {
-        identity = file.resolveSymbolicLinksSync();
+        identity = await file.resolveSymbolicLinks();
       } on FileSystemException {
         identity = file.path;
       }
       if (!seen.add(identity)) continue;
-      shortcuts.addAll(_readShortcutsFile(file));
+      shortcuts.addAll(await _readShortcutsFile(file));
     }
   }
   return shortcuts;
 }
 
-List<SteamShortcut> _readShortcutsFile(File file) {
+Future<List<SteamShortcut>> _readShortcutsFile(File file) async {
   Uint8List bytes;
   try {
-    bytes = file.readAsBytesSync();
+    bytes = await file.readAsBytes();
   } on FileSystemException {
     return const [];
   }

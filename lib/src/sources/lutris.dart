@@ -85,7 +85,7 @@ class LutrisSource extends GameSource {
       final directory = Directory(dir);
       bool isDir;
       try {
-        isDir = directory.existsSync();
+        isDir = await directory.exists();
       } on FileSystemException {
         continue;
       }
@@ -93,7 +93,7 @@ class LutrisSource extends GameSource {
 
       List<FileSystemEntity> entries;
       try {
-        entries = directory.listSync();
+        entries = await directory.list().toList();
       } on FileSystemException {
         continue;
       }
@@ -104,7 +104,7 @@ class LutrisSource extends GameSource {
         Map<String, String> data;
         try {
           data = parseGameYaml(
-            utf8.decode(file.readAsBytesSync(), allowMalformed: true),
+            utf8.decode(await file.readAsBytes(), allowMalformed: true),
           );
         } on FileSystemException {
           continue;

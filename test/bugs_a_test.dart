@@ -84,7 +84,7 @@ void main() {
   });
 
   group('desktop entry files', () {
-    test('an entry with non-UTF-8 bytes is read, not dropped', () {
+    test('an entry with non-UTF-8 bytes is read, not dropped', () async {
       final dir = tempDir('omni-latin1');
       final file = File('${dir.path}/latin1.desktop');
       file.writeAsBytesSync([
@@ -93,32 +93,31 @@ void main() {
         ...utf8.encode(' Game\nCategories=Game;\nExec=/opt/game/run\n'),
       ]);
 
-      final entry = readDesktopFile(file.path);
+      final entry = await readDesktopFile(file.path);
       expect(entry, isNotEmpty);
       expect(entry['Name'], 'Caf\uFFFD Game');
       expect(desktopCategories(entry), ['Game']);
       expect(desktopExecArgv(entry['Exec']!), ['/opt/game/run']);
     });
 
-    test('a directory that cannot be listed yields nothing', () {
+    test('a directory that cannot be listed yields nothing', () async {
       final dir = tempDir('omni-locked');
       final locked = Directory('${dir.path}/locked')..createSync();
       final chmod = Process.runSync('chmod', ['000', locked.path]);
       expect(chmod.exitCode, 0);
       addTearDown(() => Process.runSync('chmod', ['755', locked.path]));
 
-      expect(() => iterDesktopFiles([locked.path]), returnsNormally);
-      expect(iterDesktopFiles([locked.path]), isEmpty);
+      expect(await iterDesktopFiles([locked.path]), isEmpty);
       // The unreadable directory must not stop the readable ones either.
       final good = File('${dir.path}/good.desktop')
         ..writeAsStringSync('[Desktop Entry]\nName=Good\n');
       expect(
-        iterDesktopFiles([locked.path, dir.path]).map((f) => f.path),
+        (await iterDesktopFiles([locked.path, dir.path])).map((f) => f.path),
         [good.path],
       );
     });
 
-    test('first directory wins a duplicated file name', () {
+    test('first directory wins a duplicated file name', () async {
       final first = tempDir('omni-apps-first');
       final second = tempDir('omni-apps-second');
       for (final dir in [first, second]) {
@@ -129,7 +128,7 @@ void main() {
       File('${first.path}/ignored.txt').writeAsStringSync('Name=z\n');
 
       expect(
-        iterDesktopFiles([first.path, second.path]).map((f) => f.path),
+        (await iterDesktopFiles([first.path, second.path])).map((f) => f.path),
         [
           '${first.path}/game.desktop',
           '${second.path}/only.desktop',
@@ -190,7 +189,8 @@ void main() {
 
       final config = AppConfig.load(path);
       expect(config.manual, hasLength(6));
-      expect(config.manual[0].command, ['flatpak run com.example.Quake']);
+      // A command written as one string is split into words on load.
+      expect(config.manual[0].command, ['flatpak', 'run', 'com.example.Quake']);
       expect(config.manual[0].name, 'String Command');
       expect(config.manual[1].command, isEmpty);
       expect(config.manual[2].command, isEmpty);
@@ -370,9 +370,9 @@ void main() {
     test('discoverAll renames what it found', () async {
       final config = AppConfig(
         manual: [
-          ManualEntry(name: 'Hand Added', command: ['/opt/run']),
+          ManualEntry(name: 'Hand Added', key: 'hand-added', command: ['/opt/run']),
         ],
-        nameOverrides: {'manual:Hand Added': 'Renamed By Hand'},
+        nameOverrides: {'manual:hand-added': 'Renamed By Hand'},
       );
 
       final games = await discoverAll(
@@ -383,8 +383,8 @@ void main() {
 
       expect(games, hasLength(1));
       expect(games.single.name, 'Renamed By Hand');
-      expect(games.single.id, 'manual:Hand Added');
-      expect(games.single.key, 'Hand Added');
+      expect(games.single.id, 'manual:hand-added');
+      expect(games.single.key, 'hand-added');
       expect(games.single.command, ['/opt/run']);
 
       // Without an override the discovered name stays.
@@ -940,6 +940,31 @@ void main() {
       expect(which('nope', searchPath: dir.path), isNull);
       expect(which('lutris-bin', searchPath: ':${dir.path}:'), exe.path);
       expect(which('lutris-bin', searchPath: ''), isNull);
+    });
+  });
+
+  group('runCapture', () {
+    test('collects stdout, anything else is the empty string', () async {
+      expect(await runCapture(['printf', 'hello']), 'hello');
+      expect(await runCapture(['sh', '-c', 'echo oops >&2; exit 3']), '');
+      expect(await runCapture(['definitely-not-a-program-xyz']), '');
+    });
+
+    test('a timed out command is killed and reports nothing', () async {
+      final dir = tempDir('omni-capture');
+      final pidFile = File('${dir.path}/pid');
+      final result = await runCapture(
+        ['sh', '-c', 'echo \$\$ > "${pidFile.path}"; sleep 60'],
+        timeout: const Duration(milliseconds: 300),
+      );
+      expect(result, '');
+
+      // The shell that ran the capture is dead, not still sleeping.
+      final pid = int.parse(pidFile.readAsStringSync().trim());
+      for (var i = 0; i < 50 && processRunning(pid); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(processRunning(pid), isFalse);
     });
   });
 

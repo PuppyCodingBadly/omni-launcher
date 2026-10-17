@@ -1,11 +1,17 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omni_launcher/src/config.dart';
 import 'package:omni_launcher/src/covers.dart';
 import 'package:omni_launcher/src/model/game.dart';
+import 'package:omni_launcher/src/plugins/plugin.dart';
+import 'package:omni_launcher/src/plugins/plugin_runner.dart';
+import 'package:omni_launcher/src/sources/source.dart';
 import 'package:omni_launcher/src/state/library_controller.dart';
 import 'package:omni_launcher/src/state/playtime_store.dart';
+import 'package:omni_launcher/src/state/plugin_store.dart';
 
 Game game(String id, String name, SourceKind source) => Game(
   id: id,
@@ -93,6 +99,26 @@ void main() {
     expect(controller.visibleGames, hasLength(2));
   });
 
+  test('opening a folder the game does not have is a failure', () async {
+    final game = controller.games.first;
+    await controller.openFolder(game);
+
+    expect(controller.failure, contains('no folder known'));
+  });
+
+  test('a favorite is persisted and comes first', () async {
+    final gamma = controller.games.last;
+    await controller.toggleFavorite(gamma.id);
+
+    expect(controller.isFavorite(gamma.id), isTrue);
+    expect(controller.visibleGames.first.id, gamma.id);
+    expect(AppConfig.load(configPath).favorites, contains(gamma.id));
+
+    await controller.toggleFavorite(gamma.id);
+    expect(controller.isFavorite(gamma.id), isFalse);
+    expect(AppConfig.load(configPath).favorites, isNot(contains(gamma.id)));
+  });
+
   test('pinned artwork survives a reload and wins over the icon', () {
     final gamma = controller.games.last;
     final art = File('${dir.path}/art.png')..writeAsBytesSync([1, 2, 3]);
@@ -124,6 +150,292 @@ void main() {
 
   test('source counts follow the library', () {
     expect(controller.countsBySource, {SourceKind.steam: 2, SourceKind.flatpak: 1});
+  });
+
+  group('scanning', () {
+    LibraryController scanning(List<GameSource> sources) => LibraryController(
+      configPath: configPath,
+      cachePath: '${dir.path}/games.json',
+      playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+      config: AppConfig(appimageDirs: const []),
+      sources: sources,
+    );
+
+    test('a source that fails is reported, and the rest arrives anyway', () async {
+      final broken = _ThrowingSource(SourceKind.flatpak, StateError('no permission'));
+      final also = _ThrowingSource(SourceKind.epic, StateError('gone'));
+      final controller = scanning([
+        _FixedSource(SourceKind.steam, [game('steam:1', 'Alpha', SourceKind.steam)]),
+        broken,
+        also,
+      ]);
+      addTearDown(controller.dispose);
+
+      await controller.rescan();
+
+      expect(controller.status, LibraryStatus.ready);
+      expect(controller.games.map((entry) => entry.id).toList(), ['steam:1']);
+      // Every broken source is named, not just the last one asked.
+      expect(controller.failure, contains('Flatpak'));
+      expect(controller.failure, contains('no permission'));
+      expect(controller.failure, contains('Epic Games Launcher'));
+      expect(controller.failure, contains('gone'));
+
+      // A clean scan clears the report.
+      broken.error = null;
+      also.error = null;
+      await controller.rescan();
+      expect(controller.failure, isNull);
+    });
+
+    test('the cache is versioned, and a bare list still loads', () async {
+      final path = '${dir.path}/games.json';
+      File(path).writeAsStringSync(
+        jsonEncode([game('steam:9', 'Old', SourceKind.steam).toJson()]),
+      );
+      final controller = scanning([
+        _FixedSource(SourceKind.steam, [game('steam:1', 'Alpha', SourceKind.steam)]),
+      ]);
+      addTearDown(controller.dispose);
+
+      // The old bare-list format still starts the wall.
+      await controller.load(refresh: false);
+      expect(controller.games.map((entry) => entry.id).toList(), ['steam:9']);
+
+      // A scan writes the versioned envelope.
+      await controller.rescan();
+      final decoded = jsonDecode(File(path).readAsStringSync()) as Map;
+      expect(decoded['version'], LibraryController.cacheVersion);
+      expect((decoded['games'] as List).single['id'], 'steam:1');
+      expect(File('$path.tmp').existsSync(), isFalse);
+    });
+
+    test('a rescan during a rescan folds into one trailing scan', () async {
+      final source = _GatedSource();
+      final controller = scanning([source]);
+      addTearDown(controller.dispose);
+
+      final first = controller.rescan();
+      expect(source.calls, 1);
+      // Three asks while the gate is shut are one trailing scan, not three.
+      final second = controller.rescan();
+      final third = controller.rescan();
+      source.gates.single.complete();
+      await untilTrue(() => source.calls == 2);
+      source.gates.last.complete();
+      await Future.wait([first, second, third]);
+
+      expect(source.calls, 2);
+      expect(controller.status, LibraryStatus.ready);
+    });
+
+    test('the selection survives a scan by id, and clears when the game goes', () async {
+      final source = _FixedSource(SourceKind.steam, [
+        game('steam:1', 'Alpha', SourceKind.steam),
+        game('steam:2', 'Beta', SourceKind.steam),
+      ]);
+      final controller = scanning([source]);
+      addTearDown(controller.dispose);
+      await controller.rescan();
+
+      controller.select(controller.games.firstWhere((entry) => entry.id == 'steam:1'));
+      await controller.rescan();
+      expect(controller.selected?.id, 'steam:1');
+
+      source.games = [game('steam:2', 'Beta', SourceKind.steam)];
+      await controller.rescan();
+      expect(controller.selected, isNull);
+    });
+  });
+
+  group('ordering', () {
+    /// A controller over four games: two played (one long ago and much, one
+    /// recently and little), one played as recently and as little as the
+    /// second, and one never played at all.
+    LibraryController ordered({AppConfig? config}) {
+      File('${dir.path}/playtime.json').writeAsStringSync(
+        jsonEncode({
+          'steam:1': {'total': 3600, 'played': DateTime(2026, 10, 14, 9).millisecondsSinceEpoch},
+          'steam:2': {'total': 60, 'played': DateTime(2026, 10, 15, 9).millisecondsSinceEpoch},
+          'desktop:delta': {'total': 60, 'played': DateTime(2026, 10, 15, 9).millisecondsSinceEpoch},
+        }),
+      );
+      return LibraryController(
+        configPath: configPath,
+        cachePath: '${dir.path}/games.json',
+        playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+        config: config ?? AppConfig(appimageDirs: const []),
+      )..games = [
+          game('flatpak:gamma', 'Gamma', SourceKind.flatpak),
+          game('desktop:delta', 'Delta', SourceKind.desktop),
+          game('steam:2', 'beta', SourceKind.steam),
+          game('steam:1', 'Alpha', SourceKind.steam),
+        ];
+    }
+
+    List<String> ids(LibraryController controller) =>
+        controller.visibleGames.map((entry) => entry.id).toList();
+
+    test('by name, case-insensitive, is the default', () {
+      final controller = ordered();
+      addTearDown(controller.dispose);
+
+      expect(controller.sortMode, 'name');
+      expect(ids(controller), ['steam:1', 'steam:2', 'desktop:delta', 'flatpak:gamma']);
+    });
+
+    test('by last played, never played last, ties by name', () async {
+      final controller = ordered(config: AppConfig(sortMode: 'lastPlayed'));
+      addTearDown(controller.dispose);
+
+      // beta and Delta played at the same moment, so the name decides.
+      expect(ids(controller), ['steam:2', 'desktop:delta', 'steam:1', 'flatpak:gamma']);
+    });
+
+    test('by most played, nothing played last, ties by name', () async {
+      final controller = ordered(config: AppConfig(sortMode: 'mostPlayed'));
+      addTearDown(controller.dispose);
+
+      // beta and Delta both played a minute, so the name decides.
+      expect(ids(controller), ['steam:1', 'steam:2', 'desktop:delta', 'flatpak:gamma']);
+    });
+
+    test('favourites come first, ordered among themselves', () async {
+      final controller = ordered(
+        config: AppConfig(sortMode: 'lastPlayed', favorites: ['flatpak:gamma', 'steam:2']),
+      );
+      addTearDown(controller.dispose);
+
+      // Gamma never played still leads, as a favourite; behind the favourites
+      // the last played order is untouched.
+      expect(ids(controller), ['steam:2', 'flatpak:gamma', 'desktop:delta', 'steam:1']);
+    });
+
+    test('the sort mode persists and re-orders the wall', () async {
+      final controller = ordered();
+      addTearDown(controller.dispose);
+
+      await controller.setSortMode('lastPlayed');
+      expect(controller.sortMode, 'lastPlayed');
+      expect(ids(controller).first, 'steam:2');
+      expect(AppConfig.load(configPath).sortMode, 'lastPlayed');
+
+      // An unknown mode is refused, not saved.
+      await controller.setSortMode('random');
+      expect(controller.sortMode, 'lastPlayed');
+      expect(AppConfig.load(configPath).sortMode, 'lastPlayed');
+    });
+
+    test('a favourite persists through a reload', () async {
+      final controller = ordered();
+      addTearDown(controller.dispose);
+
+      expect(controller.isFavorite('steam:1'), isFalse);
+      await controller.toggleFavorite('steam:1');
+      expect(controller.isFavorite('steam:1'), isTrue);
+      expect(AppConfig.load(configPath).favorites, ['steam:1']);
+
+      final reloaded = LibraryController(
+        configPath: configPath,
+        cachePath: '${dir.path}/games.json',
+        playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+      )..games = controller.games;
+      addTearDown(reloaded.dispose);
+      expect(reloaded.isFavorite('steam:1'), isTrue);
+      expect(reloaded.visibleGames.first.id, 'steam:1');
+
+      await reloaded.toggleFavorite('steam:1');
+      expect(reloaded.isFavorite('steam:1'), isFalse);
+      expect(AppConfig.load(configPath).favorites, isEmpty);
+    });
+  });
+
+  group('notices', () {
+    test('a notice clears itself, and a new one reschedules the clear', () async {
+      final controller = LibraryController(
+        configPath: configPath,
+        config: AppConfig(),
+        noticeDuration: const Duration(milliseconds: 200),
+      );
+      addTearDown(controller.dispose);
+      var clears = 0;
+      controller.addListener(() {
+        if (controller.notice == null) clears++;
+      });
+
+      controller.announce('one');
+      expect(controller.notice, 'one');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      // A new notice pushes the clear back: 'one' would be gone by now.
+      controller.announce('two');
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(controller.notice, 'two');
+
+      await untilTrue(() => controller.notice == null);
+      expect(controller.notice, isNull);
+      expect(clears, greaterThan(0));
+    });
+  });
+
+  test('a failed launch is a failure, not a notice', () async {
+    final controller = LibraryController(configPath: configPath, config: AppConfig());
+    addTearDown(controller.dispose);
+    const gone = Game(
+      id: 'manual:gone',
+      key: 'gone',
+      name: 'Gone',
+      source: SourceKind.manual,
+      command: ['definitely-not-a-program-xyz'],
+    );
+
+    await controller.launch(gone);
+
+    expect(controller.failure, contains('Could not launch Gone'));
+    expect(controller.notice, isNull);
+  });
+
+  test('a lookup that throws is reported, and the guard still clears', () async {
+    final controller = _FailingLookupController(
+      configPath: configPath,
+      cachePath: '${dir.path}/games.json',
+      config: AppConfig(appimageDirs: const []),
+      pluginAnswers: PluginStore(path: '${dir.path}/answers.json'),
+    );
+    addTearDown(controller.dispose);
+    const plugin = Plugin(
+      id: 'beat',
+      name: 'Beat',
+      description: '',
+      action: 'Ask',
+      command: ['true'],
+      dir: '/tmp',
+    );
+    final query = PluginQuery.byName('Alpha');
+
+    await controller.lookUp(plugin, query);
+
+    expect(controller.failure, contains('boom'));
+    expect(controller.isLookingUp(plugin.id, query.id), isFalse);
+
+    // The guard cleared: asking again really asks again.
+    await controller.lookUp(plugin, query);
+    expect(controller.pluginAnswer(plugin.id, query.id)?.ok, isTrue);
+  });
+
+  test('the window size is saved without repainting', () async {
+    final controller = LibraryController(configPath: configPath, config: AppConfig());
+    addTearDown(controller.dispose);
+    var repaints = 0;
+    controller.addListener(() => repaints++);
+
+    await controller.saveWindowSize(1440, 900);
+
+    expect(repaints, 0);
+    expect(controller.config.windowWidth, 1440);
+    expect(controller.config.windowHeight, 900);
+    final saved = AppConfig.load(configPath);
+    expect(saved.windowWidth, 1440);
+    expect(saved.windowHeight, 900);
   });
 }
 
@@ -214,6 +526,80 @@ void _fetchedArtTests(Directory Function() dir) {
     await controller.requestCoverArt(game);
     expect(covers.fetches, 2);
   });
+}
+
+/// Waits until [condition] holds, polling rather than sleeping a fixed time.
+Future<void> untilTrue(bool Function() condition) async {
+  for (var tick = 0; tick < 200 && !condition(); tick++) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
+/// A source that yields a fixed list, replaceable between scans.
+class _FixedSource extends GameSource {
+  _FixedSource(this.kind, this.games);
+
+  @override
+  final SourceKind kind;
+
+  List<Game> games;
+
+  @override
+  Future<List<Game>> discover(AppConfig cfg) async => games;
+}
+
+/// A source that fails with [error] until the error is cleared.
+class _ThrowingSource extends GameSource {
+  _ThrowingSource(this.kind, this.error);
+
+  @override
+  final SourceKind kind;
+
+  Object? error;
+
+  @override
+  Future<List<Game>> discover(AppConfig cfg) =>
+      error == null ? Future.value(const []) : Future.error(error!);
+}
+
+/// A source that waits on a gate it hands out, counting how often it was
+/// asked, so overlapping scans can be watched.
+class _GatedSource extends GameSource {
+  final gates = <Completer<void>>[];
+  int calls = 0;
+
+  @override
+  SourceKind get kind => SourceKind.manual;
+
+  @override
+  Future<List<Game>> discover(AppConfig cfg) {
+    calls++;
+    final gate = Completer<void>();
+    gates.add(gate);
+    return gate.future.then((_) => const <Game>[]);
+  }
+}
+
+/// A controller whose first plugin round trip throws, so the lookup guard can
+/// be watched clearing.
+class _FailingLookupController extends LibraryController {
+  _FailingLookupController({
+    super.configPath,
+    super.cachePath,
+    super.config,
+    super.pluginAnswers,
+  });
+
+  int lookups = 0;
+
+  @override
+  Future<PluginAnswer> askPlugin(Plugin plugin, PluginQuery query) {
+    lookups++;
+    if (lookups == 1) return Future.error(StateError('boom'));
+    return Future.value(
+      const PluginAnswer(fields: [PluginField(label: 'Main story', value: '3h')]),
+    );
+  }
 }
 
 /// A cover store that counts what the controller asks it to fetch.

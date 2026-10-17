@@ -83,6 +83,10 @@ class CoverStore {
   static const String _userAgent = 'OmniLauncher/1.0';
   static const int _minBytes = 4096;
 
+  /// How long a Steam "no capsule" answer is believed before it is retried: a
+  /// game can get artwork on the CDN long after the launcher first asked.
+  static const Duration _missingTtl = Duration(days: 30);
+
   /// How many capsules are fetched at once.
   static const int _maxDownloads = 4;
 
@@ -93,11 +97,22 @@ class CoverStore {
   int _downloads = 0;
   final Queue<Completer<void>> _downloadQueue = Queue<Completer<void>>();
 
+  /// Resolution results by game id, each with the file stamps it was computed
+  /// from: [resolve] is called from build paths, so the stat chain runs again
+  /// only when one of the files it read has actually changed.
+  final Map<String, _Resolution> _resolutions = {};
+
+  /// Whether the cover folder was already pruned this run.
+  bool _pruned = false;
+
   ArtSettings get settings => _settings;
 
   set settings(ArtSettings value) {
     final keyChanged = _sgdb != null && _sgdb!.apiKey != value.sgdbKey;
     _settings = value;
+    // New overrides or newly fetched art are exactly what the resolution
+    // cache keys on, so a settings change has to recompute everything.
+    _resolutions.clear();
     if (keyChanged) {
       _sgdb?.close();
       _sgdb = null;
@@ -127,6 +142,17 @@ class CoverStore {
 
   /// Best artwork available right now (never blocks on the network).
   Artwork resolve(Game game) {
+    _prune();
+    final stamp = _stampFor(game);
+    final cached = _resolutions[game.id];
+    if (cached != null && cached.matches(stamp)) return cached.artwork;
+    final artwork = _resolve(game);
+    _resolutions[game.id] = _Resolution(stamp, artwork);
+    return artwork;
+  }
+
+  /// Best artwork available right now, worked out from the files on disk.
+  Artwork _resolve(Game game) {
     final override = overrideFor(game);
     if (override != null) return Artwork(ArtworkKind.cover, value: override);
     final fetched = autoArtFor(game);
@@ -151,6 +177,84 @@ class CoverStore {
     return Artwork(ArtworkKind.letter, pending: _pendingFor(null));
   }
 
+  /// The file stamps [_resolve]'s answer for [game] depends on, in a fixed
+  /// order: any change that could change the answer changes one of these.
+  ///
+  /// Steam's per-game folder is stamped rather than every asset in it: an
+  /// asset that appears or vanishes changes the folder's mtime, and a file's
+  /// contents changing does not matter — the answer is the path, which the
+  /// tile reloads when it paints.
+  List<int> _stampFor(Game game) {
+    final stamp = <int>[
+      _stamp(_settings.overrides[game.id]),
+      _stamp(_settings.autoArt[game.id]),
+      _stamp(game.cover),
+    ];
+    if (game.source == SourceKind.steam) {
+      final appid = '${game.extra['appid'] ?? ''}';
+      if (appid.isNotEmpty) {
+        stamp.add(_stamp('$_steamLibraryCache/$appid'));
+        stamp.add(_stamp('$_coverFolder/steam_$appid.jpg'));
+        stamp.add(_stamp(_missingMarker(appid).path));
+      }
+    }
+    final icon = game.icon;
+    if (icon != null && icon.isNotEmpty && !game.iconIsName) {
+      stamp.add(_stamp(icon));
+    }
+    return stamp;
+  }
+
+  /// [path]'s mtime in milliseconds, or -1 when it is not there.
+  static int _stamp(String? path) {
+    if (path == null || path.isEmpty) return -1;
+    final FileStat stat;
+    try {
+      stat = FileStat.statSync(path);
+    } on FileSystemException {
+      return -1;
+    }
+    return stat.type == FileSystemEntityType.notFound
+        ? -1
+        : stat.modified.millisecondsSinceEpoch;
+  }
+
+  /// Delete cached art that nothing points at any more, once per run.
+  ///
+  /// A SteamGridDB pick of a game the library no longer holds would sit in the
+  /// folder forever otherwise. Steam's capsules and the missing markers stay:
+  /// they are keyed by app id, and a game that comes back finds them waiting.
+  /// Anything that is not the launcher's own cache file is left alone.
+  void _prune() {
+    if (_pruned) return;
+    _pruned = true;
+    final folder = Directory(_coverFolder);
+    if (!folder.existsSync()) return;
+    final keep = <String>{
+      ..._settings.overrides.values,
+      ..._settings.autoArt.values,
+    };
+    final List<FileSystemEntity> entries;
+    try {
+      entries = folder.listSync(followLinks: false);
+    } on FileSystemException {
+      return;
+    }
+    for (final entry in entries) {
+      if (entry is! File) continue;
+      // Only the SteamGridDB cache files are pruned: Steam's capsules and
+      // markers are keyed by app id, and anything else is not ours.
+      if (!entry.uri.pathSegments.last.startsWith('sgdb_')) continue;
+      if (keep.contains(entry.path)) continue;
+      try {
+        entry.deleteSync();
+      } on FileSystemException {
+        // Another run of the launcher got there first; a stale file is only
+        // ever disk space.
+      }
+    }
+  }
+
   /// Whether a fetch could still produce art for a game whose Steam app id is
   /// [appid] (`null` when it has none).
   ///
@@ -158,7 +262,7 @@ class CoverStore {
   /// cover again (a request and a stat per tile), so a known missing Steam
   /// capsule and the games the CDN never covers are excluded here.
   bool _pendingFor(String? appid) {
-    if (appid != null && _settings.steamCovers && !_missingMarker(appid).existsSync()) {
+    if (appid != null && _settings.steamCovers && !_missingFresh(appid)) {
       return true;
     }
     return _settings.sgdbEnabled && _settings.sgdbAuto;
@@ -167,6 +271,21 @@ class CoverStore {
   // ---------------------------------------------------------------- steam
 
   File _missingMarker(String appid) => File('$_coverFolder/steam_$appid.missing');
+
+  /// True while [appid]'s missing marker is fresh enough to believe: a
+  /// capsule can appear on the CDN later, so a marker older than
+  /// [_missingTtl] counts as absent and the fetch is tried again.
+  bool _missingFresh(String appid) {
+    final marker = _missingMarker(appid);
+    final FileStat stat;
+    try {
+      stat = marker.statSync();
+    } on FileSystemException {
+      return false;
+    }
+    if (stat.type == FileSystemEntityType.notFound) return false;
+    return DateTime.now().difference(stat.modified) < _missingTtl;
+  }
 
   String? _steamLocal(String appid) {
     for (final asset in assets) {
@@ -223,7 +342,7 @@ class CoverStore {
     final cached = _steamCached(appid);
     if (cached != null) return cached;
     final missing = _missingMarker(appid);
-    if (missing.existsSync()) return null;
+    if (_missingFresh(appid)) return null;
     Directory(_coverFolder).createSync(recursive: true);
     final target = File('$_coverFolder/steam_$appid.jpg');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
@@ -337,4 +456,21 @@ class CoverStore {
 
   /// Resolve an icon-theme name such as `steam` to a raster file, if any.
   String? themeIconPath(String name) => _themeIconIndex()[name];
+}
+
+/// A [CoverStore.resolve] answer, with the file stamps it was computed from.
+class _Resolution {
+  const _Resolution(this.stamp, this.artwork);
+
+  final List<int> stamp;
+  final Artwork artwork;
+
+  /// True when [other] is the stamp the files give now.
+  bool matches(List<int> other) {
+    if (other.length != stamp.length) return false;
+    for (var index = 0; index < stamp.length; index++) {
+      if (stamp[index] != other[index]) return false;
+    }
+    return true;
+  }
 }

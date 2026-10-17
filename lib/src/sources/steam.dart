@@ -6,19 +6,20 @@ import '../model/game.dart';
 import '../util/proc.dart';
 import '../util/vdf.dart';
 import 'source.dart';
-import '../paths.dart';
+import 'steam_shortcuts.dart';
 
 /// Steam runtime/tooling entries that are not games.
-const List<String> _skipPrefixes = ['Steam Linux Runtime', 'Proton'];
+const List<String> _skipPrefixes = [
+  'Steam Linux Runtime',
+  'SteamVR',
+  'Steamworks Common Redistributables',
+  'Proton',
+];
 
 /// Fully-installed bit inside `StateFlags`.
 const int _stateInstalled = 4;
 
 final RegExp _manifestName = RegExp(r'^appmanifest_.*\.acf$');
-
-String get _home => AppPaths.home;
-
-String get _defaultSteam => '$_home/.local/share/Steam';
 
 String _basename(String path) => path.split('/').last;
 
@@ -27,9 +28,10 @@ String _join(String base, String part) {
   return base.endsWith('/') ? '$base$part' : '$base/$part';
 }
 
-String _resolved(String path) {
+/// Resolved symlink target, or the path itself when it cannot be resolved.
+Future<String> _resolved(String path) async {
   try {
-    return File(path).resolveSymbolicLinksSync();
+    return await File(path).resolveSymbolicLinks();
   } on FileSystemException {
     return path;
   }
@@ -46,11 +48,11 @@ int? _asInt(Object? value) {
 }
 
 /// Libraries listed in `libraryfolders.vdf`, or the default one.
-List<String> _libraryPaths(String steamRoot) {
+Future<List<String>> _libraryPaths(String steamRoot) async {
   String? text;
   try {
     text = utf8.decode(
-      File('$steamRoot/steamapps/libraryfolders.vdf').readAsBytesSync(),
+      await File('$steamRoot/steamapps/libraryfolders.vdf').readAsBytes(),
       allowMalformed: true,
     );
   } on FileSystemException {
@@ -86,9 +88,16 @@ Future<List<String>> _launchPrefix() async {
 Future<List<String>> steamLaunchCommand(String appid) async =>
     [...await _launchPrefix(), appid];
 
-String? _coverPath(String appid) {
-  final cover = '$_home/.local/share/Steam/appcache/librarycache/$appid/library_600x900.jpg';
-  return File(cover).existsSync() ? cover : null;
+/// Cover art for [appid] in any Steam root's librarycache, or `null`.
+///
+/// The flatpak sandbox keeps its own appcache, so a cover downloaded by a
+/// flatpak Steam never appears under the native root.
+Future<String?> _coverPath(List<String> roots, String appid) async {
+  for (final root in roots) {
+    final cover = '$root/appcache/librarycache/$appid/library_600x900.jpg';
+    if (await File(cover).exists()) return cover;
+  }
+  return null;
 }
 
 String _appId(Map<Object?, Object?> state, String manifestPath) {
@@ -104,6 +113,7 @@ Game? _game(
   String appid,
   String library,
   List<String> prefix,
+  String? cover,
 ) {
   final rawName = state['name'];
   final name = rawName == null ? '' : '$rawName';
@@ -121,7 +131,7 @@ Game? _game(
     name: name,
     source: SourceKind.steam,
     command: [...prefix, appid],
-    cover: _coverPath(appid),
+    cover: cover,
     path: _join(_join(_join(library, 'steamapps'), 'common'), installdir),
     subtitle: 'Steam',
     extra: {'appid': appid, 'size': size, 'library': library},
@@ -130,6 +140,12 @@ Game? _game(
 
 /// Installed Steam games, read from the `appmanifest_*.acf` files.
 class SteamSource extends GameSource {
+  SteamSource({List<String>? roots}) : roots = roots ?? defaultSteamRoots();
+
+  /// Steam roots to scan: the native install and the flatpak sandbox, unless
+  /// a caller (a test, or an unusual layout) points somewhere else.
+  final List<String> roots;
+
   @override
   SourceKind get kind => SourceKind.steam;
 
@@ -137,37 +153,55 @@ class SteamSource extends GameSource {
   Future<List<Game>> discover(AppConfig cfg) async {
     final prefix = await _launchPrefix();
     final games = <Game>[];
-    final seen = <String>{};
-    for (final library in _libraryPaths(_defaultSteam)) {
-      if (!Directory(library).existsSync()) continue;
-      if (!seen.add(_resolved(library))) continue;
-      List<String> manifests;
-      try {
-        manifests =
-            Directory('$library/steamapps')
-                .listSync()
-                .whereType<File>()
-                .map((file) => file.path)
-                .where((path) => _manifestName.hasMatch(_basename(path)))
-                .toList()
-              ..sort();
-      } on FileSystemException {
-        continue;
-      }
-      for (final manifest in manifests) {
-        Map<String, Object?> data;
+    final seenRoots = <String>{};
+    final seenLibraries = <String>{};
+    for (final root in roots) {
+      if (!await Directory(root).exists()) continue;
+      // `~/.steam/steam` and `~/.local/share/Steam` usually point at the same
+      // directory through a symlink, so each real root is scanned once.
+      if (!seenRoots.add(await _resolved(root))) continue;
+      for (final library in await _libraryPaths(root)) {
+        if (!await Directory(library).exists()) continue;
+        if (!seenLibraries.add(await _resolved(library))) continue;
+        List<String> manifests;
         try {
-          data = parseKeyValues(
-            utf8.decode(File(manifest).readAsBytesSync(), allowMalformed: true),
-          );
+          manifests = await Directory('$library/steamapps')
+              .list()
+              .where(
+                (entity) =>
+                    entity is File &&
+                    _manifestName.hasMatch(_basename(entity.path)),
+              )
+              .map((entity) => entity.path)
+              .toList();
+          manifests.sort();
         } on FileSystemException {
           continue;
         }
-        final state = data['AppState'];
-        if (state is! Map) continue;
-        final appid = _appId(state, manifest);
-        final game = _game(state, appid, library, prefix);
-        if (game != null) games.add(game);
+        for (final manifest in manifests) {
+          Map<String, Object?> data;
+          try {
+            data = parseKeyValues(
+              utf8.decode(
+                await File(manifest).readAsBytes(),
+                allowMalformed: true,
+              ),
+            );
+          } on FileSystemException {
+            continue;
+          }
+          final state = data['AppState'];
+          if (state is! Map) continue;
+          final appid = _appId(state, manifest);
+          final game = _game(
+            state,
+            appid,
+            library,
+            prefix,
+            await _coverPath(roots, appid),
+          );
+          if (game != null) games.add(game);
+        }
       }
     }
     return games;

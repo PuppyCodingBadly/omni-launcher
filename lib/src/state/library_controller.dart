@@ -15,6 +15,7 @@ import '../plugins/catalog.dart' as catalogue;
 import '../plugins/plugin.dart';
 import '../plugins/plugin_runner.dart';
 import '../sources/registry.dart';
+import '../sources/source.dart';
 import '../util/proc.dart';
 import 'playtime_store.dart';
 import 'plugin_store.dart';
@@ -34,12 +35,18 @@ class LibraryController extends ChangeNotifier {
     AssetReader? pluginAssets,
     catalogue.UrlReader? pluginReader,
     Duration? pollInterval,
+    Duration? noticeDuration,
+    List<GameSource>? sources,
   }) : _configPath = configPath ?? AppPaths.configFile,
        _cachePath = cachePath ?? AppPaths.cacheFile,
        _pluginDir = pluginDir ?? AppPaths.pluginDir,
        _pluginAssets = pluginAssets ?? bundledAsset,
        _pluginReader = pluginReader ?? catalogue.readUrl,
        _pollInterval = pollInterval ?? const Duration(seconds: 5),
+       _noticeDuration = noticeDuration ?? const Duration(seconds: 6),
+       // The parameter keeps its public name: tests inject sources through it.
+       // ignore: prefer_initializing_formals
+       _sources = sources,
        playtime = playtime ?? PlaytimeStore(),
        covers = covers ?? CoverStore(),
        pluginAnswers = pluginAnswers ?? PluginStore(),
@@ -65,6 +72,13 @@ class LibraryController extends ChangeNotifier {
   /// [_pollInterval] so a session can be watched to its end quickly.
   final Duration _pollInterval;
   static const Duration _touchInterval = Duration(seconds: 30);
+
+  /// How long a [notice] stays before it clears itself. Tests shorten it.
+  final Duration _noticeDuration;
+
+  /// The sources a rescan asks; the ones on this machine, unless a test
+  /// handed in a fixed set (mirrors `discoverAll`'s own seam).
+  final List<GameSource>? _sources;
 
   /// Consecutive polls a live launcher may have no descendants before it is
   /// asked to close.
@@ -132,20 +146,104 @@ class LibraryController extends ChangeNotifier {
   Game? selected;
 
   /// Last thing that happened, shown in the status bar.
-  String? notice;
+  ///
+  /// A notice clears itself after [_noticeDuration]: the status bar reports
+  /// what just happened, not what happened at some point. Assigning again —
+  /// including null — replaces the pending clear.
+  String? get notice => _notice;
+
+  set notice(String? value) {
+    _notice = value;
+    _noticeTimer?.cancel();
+    _noticeTimer = null;
+    if (value == null) return;
+    _noticeTimer = Timer(_noticeDuration, () {
+      _noticeTimer = null;
+      // A newer notice reschedules instead, so what fires here is only ever
+      // the clear for a notice still showing.
+      if (_notice == null) return;
+      _notice = null;
+      notifyListeners();
+    });
+  }
+
+  String? _notice;
+  Timer? _noticeTimer;
+
   String? failure;
 
   /// Games matching the current query, filter and hidden settings.
+  ///
+  /// Favourites come first; inside each group the order is [sortMode].
   List<Game> get visibleGames {
     final needle = query.trim().toLowerCase();
-    return games.where((game) {
-      if (!config.showHidden && config.isHidden(game.id)) return false;
-      if (sourceFilter.isNotEmpty && !sourceFilter.contains(game.source)) return false;
-      if (needle.isEmpty) return true;
-      return game.name.toLowerCase().contains(needle) ||
-          game.id.toLowerCase().contains(needle) ||
-          game.displaySubtitle.toLowerCase().contains(needle);
-    }).toList();
+    final favorites = <Game>[];
+    final rest = <Game>[];
+    for (final game in games) {
+      if (!config.showHidden && config.isHidden(game.id)) continue;
+      if (sourceFilter.isNotEmpty && !sourceFilter.contains(game.source)) continue;
+      if (needle.isNotEmpty &&
+          !game.name.toLowerCase().contains(needle) &&
+          !game.id.toLowerCase().contains(needle) &&
+          !game.displaySubtitle.toLowerCase().contains(needle)) {
+        continue;
+      }
+      (isFavorite(game.id) ? favorites : rest).add(game);
+    }
+    return [..._ordered(favorites), ..._ordered(rest)];
+  }
+
+  /// How the wall orders its games; one of [AppConfig.sortModes].
+  String get sortMode => config.sortMode;
+
+  /// Persist [mode] and re-order the wall. Anything outside
+  /// [AppConfig.sortModes] — or the mode already showing — is ignored.
+  Future<void> setSortMode(String mode) async {
+    if (!AppConfig.sortModes.contains(mode) || mode == config.sortMode) return;
+    _apply(config.copyWith(sortMode: mode));
+    notifyListeners();
+  }
+
+  /// Whether [gameId] is pinned as a favourite.
+  bool isFavorite(String gameId) => config.favorites.contains(gameId);
+
+  /// Pin or unpin [gameId] as a favourite, persisted with the config.
+  Future<void> toggleFavorite(String gameId) async {
+    final favorites = List<String>.from(config.favorites);
+    if (!favorites.remove(gameId)) favorites.add(gameId);
+    _apply(config.copyWith(favorites: favorites));
+    notifyListeners();
+  }
+
+  /// [matched] in [sortMode] order: by name, by last played (never played
+  /// last), or by total played (none last). Ties fall back to the name order
+  /// the library itself keeps.
+  List<Game> _ordered(List<Game> matched) {
+    switch (config.sortMode) {
+      case 'lastPlayed':
+        matched.sort((a, b) {
+          final at = playtime.lastPlayedFor(a.id);
+          final bt = playtime.lastPlayedFor(b.id);
+          if (at == null) return bt == null ? _byName(a, b) : 1;
+          if (bt == null) return -1;
+          final byPlayed = bt.compareTo(at);
+          return byPlayed != 0 ? byPlayed : _byName(a, b);
+        });
+        return matched;
+      case 'mostPlayed':
+        matched.sort((a, b) {
+          final byTime = playtime.totalFor(b.id).compareTo(playtime.totalFor(a.id));
+          return byTime != 0 ? byTime : _byName(a, b);
+        });
+        return matched;
+      default:
+        return sortGames(matched);
+    }
+  }
+
+  static int _byName(Game a, Game b) {
+    final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    return byName != 0 ? byName : a.source.index.compareTo(b.source.index);
   }
 
   int get hiddenCount => games.where((game) => config.isHidden(game.id)).length;
@@ -193,27 +291,65 @@ class LibraryController extends ChangeNotifier {
     if (refresh) await rescan();
   }
 
-  Future<void> rescan() async {
+  /// The scan that is running, if one is. Rescans never overlap.
+  Future<void>? _rescan;
+
+  /// Whether another scan was asked for while [_rescan] ran.
+  bool _rescanAgain = false;
+
+  /// Scan every source again.
+  ///
+  /// Asking while a scan runs queues exactly one more behind it — however
+  /// often the ask comes (a refresh during a load, two manual entries added
+  /// in a row) it collapses into that one trailing scan — and every caller's
+  /// future settles when the scans its ask folded into are done.
+  Future<void> rescan() {
+    final running = _rescan;
+    if (running != null) {
+      _rescanAgain = true;
+      return running;
+    }
+    final scan = _scanUntilSettled();
+    _rescan = scan;
+    return scan;
+  }
+
+  Future<void> _scanUntilSettled() async {
+    try {
+      do {
+        _rescanAgain = false;
+        await _scan();
+      } while (_rescanAgain);
+    } finally {
+      _rescan = null;
+    }
+  }
+
+  Future<void> _scan() async {
     status = games.isEmpty ? LibraryStatus.loading : status;
     notifyListeners();
     try {
+      // One broken source fails its games, not the scan: the rest of the
+      // library still arrives, and the status bar says what was lost.
+      final errors = <String>[];
       final found = await discoverAll(
         // Overrides are applied here instead, so a rename can be undone.
         config.copyWith(nameOverrides: const <String, String>{}),
-        onError: (kind, error) => failure = '${kind.label}: $error',
+        sources: _sources,
+        onError: (kind, error) => errors.add('${kind.label}: $error'),
       );
       _discovered = found;
       games = applyNameOverrides(found, config.nameOverrides);
       _writeCache(found);
-      failure = null;
+      failure = errors.isEmpty ? null : errors.join('; ');
       notice = '${found.length} games from ${countsBySource.length} sources';
     } catch (error) {
       failure = '$error';
     }
     status = LibraryStatus.ready;
-    if (selected != null) {
-      selected = _findById(selected!.id);
-    }
+    // The selection survives a scan by id; a game the scan no longer offers
+    // is gone, and so is its selection.
+    selected = selected == null ? null : _findById(selected!.id);
     notifyListeners();
   }
 
@@ -281,7 +417,7 @@ class LibraryController extends ChangeNotifier {
       pid = await Launcher.launch(game);
       notice = 'Launched ${game.name}';
     } catch (error) {
-      notice = 'Could not launch ${game.name}: $error';
+      failure = 'Could not launch ${game.name}: $error';
     }
     // A launch that failed has nothing to record.
     if (pid != null) _watchSession(game.id, pid, startedAt);
@@ -351,8 +487,14 @@ class LibraryController extends ChangeNotifier {
       if (shouldTouch(lastTouched, now)) {
         lastTouched = now;
         playtime.touch(gameId, now);
+        // The heartbeat moved the totals; the detail panel and the shelf
+        // follow the session live rather than freezing until it ends.
+        notifyListeners();
       }
       if (asked) return;
+      // Walking /proc on every tick is only needed to decide when a game
+      // launcher has outlived its game; a plain session just polls the pid.
+      if (!config.closesWithGame(gameId)) return;
       if (descendants(pid).isEmpty) {
         quietTicks++;
       } else {
@@ -379,13 +521,14 @@ class LibraryController extends ChangeNotifier {
       timer.cancel();
     }
     _sessions.clear();
+    _noticeTimer?.cancel();
     super.dispose();
   }
 
   Future<void> openFolder(Game game) async {
     final target = game.path ?? (game.command.isNotEmpty ? _parentOf(game.command.first) : null);
     if (target == null || !Directory(target).existsSync()) {
-      notice = '${game.name}: no folder known';
+      failure = '${game.name}: no folder known';
       notifyListeners();
       return;
     }
@@ -393,7 +536,7 @@ class LibraryController extends ChangeNotifier {
       await Launcher.openFolder(target);
       notice = 'Opened $target';
     } catch (error) {
-      notice = 'Could not open $target: $error';
+      failure = 'Could not open $target: $error';
     }
     notifyListeners();
   }
@@ -601,16 +744,27 @@ class LibraryController extends ChangeNotifier {
     if (!_lookingUp.add(key)) return;
     notice = '${plugin.name}: looking up ${query.name}…';
     notifyListeners();
-    final answer = await runPlugin(plugin, query);
-    _lookingUp.remove(key);
-    pluginAnswers.put(plugin.id, query.id, answer);
-    if (answer.ok) {
-      notice = '${plugin.name} answered for ${query.name}';
-    } else {
-      failure = answer.error;
+    try {
+      final answer = await askPlugin(plugin, query);
+      pluginAnswers.put(plugin.id, query.id, answer);
+      if (answer.ok) {
+        notice = '${plugin.name} answered for ${query.name}';
+      } else {
+        failure = answer.error;
+      }
+    } catch (error) {
+      // runPlugin promises never to throw; if that promise ever breaks, the
+      // user still hears about it and the guard below still clears.
+      failure = '${plugin.name}: $error';
+    } finally {
+      _lookingUp.remove(key);
     }
     notifyListeners();
   }
+
+  /// The round trip [lookUp] makes, split out so a test can make it fail.
+  Future<PluginAnswer> askPlugin(Plugin plugin, PluginQuery query) =>
+      runPlugin(plugin, query);
 
   /// Open a URL in whatever the desktop uses for links.
   Future<void> openUrl(String url) async {
@@ -701,6 +855,15 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Remember the window's size so the next launch restores it.
+  ///
+  /// Saved without notifying: the window is already that size, so nothing
+  /// would repaint — and resize bookkeeping can call this on every frame of
+  /// a drag.
+  Future<void> saveWindowSize(double width, double height) async {
+    _apply(config.copyWith(windowWidth: width, windowHeight: height));
+  }
+
   Future<void> addManual(String name, List<String> command, {String? cwd}) async {
     // The name is the entry's identity (the game id is `manual:<name>`), so a
     // second entry under the same name would never reach the library and could
@@ -732,13 +895,20 @@ class LibraryController extends ChangeNotifier {
 
   // --------------------------------------------------------------- cache
 
+  /// The on-disk shape this build writes. A bare list from an older build
+  /// still loads, so the cache survived the upgrade.
+  static const int cacheVersion = 1;
+
   List<Game> _readCache() {
     final file = File(_cachePath);
     if (!file.existsSync()) return const [];
     try {
       final decoded = jsonDecode(file.readAsStringSync());
-      if (decoded is! List) return const [];
-      return decoded
+      final entries = decoded is Map && decoded['games'] is List
+          ? decoded['games'] as List
+          : decoded;
+      if (entries is! List) return const [];
+      return entries
           .whereType<Map>()
           .map((entry) => Game.fromJson(entry.cast<String, Object?>()))
           .whereType<Game>()
@@ -757,7 +927,12 @@ class LibraryController extends ChangeNotifier {
       // Through a sibling file and a rename: a crash halfway through writing
       // must not leave a half written cache behind.
       final temporary = File('$_cachePath.tmp');
-      temporary.writeAsStringSync(jsonEncode(value.map((game) => game.toJson()).toList()));
+      temporary.writeAsStringSync(
+        jsonEncode({
+          'version': cacheVersion,
+          'games': value.map((game) => game.toJson()).toList(),
+        }),
+      );
       temporary.renameSync(_cachePath);
     } on FileSystemException {
       // The cache is only a fast start.

@@ -33,9 +33,9 @@
 
   <launchable type="desktop-id">io.github.PuppyCodingBadly.OmniLauncher.desktop</launchable>
 
-  <url type="homepage">https://github.com/PuppyCodingBadly/OmniLauncher</url>
-  <url type="bugtracker">https://github.com/PuppyCodingBadly/OmniLauncher/issues</url>
-  <url type="vcs-browser">https://github.com/PuppyCodingBadly/OmniLauncher</url>
+  <url type="homepage">https://github.com/PuppyCodingBadly/omni-launcher</url>
+  <url type="bugtracker">https://github.com/PuppyCodingBadly/omni-launcher/issues</url>
+  <url type="vcs-browser">https://github.com/PuppyCodingBadly/omni-launcher</url>
 
   <categories>
     <category>Game</category>
@@ -53,25 +53,30 @@
   <screenshots>
     <screenshot type="default">
       <caption>The library</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/library.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/docs/screenshots/library.jpg</image>
     </screenshot>
     <screenshot>
       <caption>Game details</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/details.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/docs/screenshots/details.jpg</image>
     </screenshot>
     <screenshot>
       <caption>Settings</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/settings.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/docs/screenshots/settings.jpg</image>
     </screenshot>
     <screenshot>
       <caption>Picking cover art from SteamGridDB</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/v0.2.1/docs/screenshots/steamgriddb.jpg</image>
+      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/docs/screenshots/steamgriddb.jpg</image>
     </screenshot>
   </screenshots>
 
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.0" date="2026-10-17">
+      <description>
+        <p>A stability and polish release. Discovery is asynchronous and finds Flatpak Steam, Prism Launcher and Bottles libraries; plugin installs are checksum-verified, HTTPS-only and confirmed before they run; config, playtime and caches are written atomically with a schema version; the wall is keyboard and gamepad navigable, with favorites, sorting, bulk hide and a persisted window size; and the release workflow now gates the flatpak build on analysis and tests.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-10-15">
       <description>
         <p>AppStream metadata: the homepage, screenshots and a brand colour, so the launcher is presented properly by software centres and by Flathub.</p>

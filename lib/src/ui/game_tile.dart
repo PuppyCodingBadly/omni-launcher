@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../covers.dart';
 import '../model/game.dart';
@@ -8,6 +9,20 @@ import '../state/library_controller.dart';
 import 'playtime.dart';
 import 'rename_dialog.dart';
 import 'theme.dart';
+
+/// The tile's one motion language: hover, focus, press and the artwork's
+/// fade-in all settle on the same fast ease-out, so the pointer, the keyboard
+/// and the gamepad read as the same gesture.
+const _motionDuration = Duration(milliseconds: 150);
+const _motionCurve = Curves.easeOutCubic;
+
+/// The hover overlay (Play, ⋮) arrives a touch quicker than the lift itself.
+const _overlayDuration = Duration(milliseconds: 120);
+
+/// How much a hovered or focused tile grows, and how much a pressed one
+/// gives: small enough that the wall never feels jumpy.
+const _hoverScale = 1.03;
+const _pressScale = 0.98;
 
 /// One cover tile: the wall's, or the recently played shelf's small one.
 class GameTile extends StatefulWidget {
@@ -17,6 +32,7 @@ class GameTile extends StatefulWidget {
     required this.controller,
     required this.selected,
     this.compact = false,
+    this.focusNode,
   });
 
   /// The wall's tile: the 2:3 poster shape the covers are.
@@ -58,6 +74,11 @@ class GameTile extends StatefulWidget {
   /// was played in place of its source.
   final bool compact;
 
+  /// Focus for keyboard and gamepad traversal: the page hands each tile a
+  /// node so arrow keys can walk the wall. Null leaves the tile focusable on
+  /// its own, so a tile built without one still takes focus and keys.
+  final FocusNode? focusNode;
+
   double get tileWidth => compact ? compactWidth : width;
 
   double get tileHeight => compact ? compactCoverHeight : coverHeight;
@@ -73,7 +94,13 @@ class _GameTileState extends State<GameTile> {
   /// game is noticed even though its id has not changed.
   String? _pinned;
   bool _hovered = false;
+  bool _focused = false;
+  bool _pressed = false;
   bool _requested = false;
+
+  /// Pointer hover and focus draw identically: a tile the cursor is on and a
+  /// tile the gamepad is on should be indistinguishable.
+  bool get _highlighted => _hovered || _focused;
 
   @override
   void initState() {
@@ -111,61 +138,114 @@ class _GameTileState extends State<GameTile> {
     final game = widget.game;
     final hidden = widget.controller.config.isHidden(game.id);
     final palette = context.palette;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => widget.controller.select(game),
-        onDoubleTap: () => widget.controller.launch(game),
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 150),
-          opacity: hidden ? 0.45 : 1,
-          // The strip is a horizontal list, which hands a tile as much width as
-          // it asks for: without this the labels decide the tile's width, and a
-          // long name widens it past its cover instead of trailing off.
-          child: SizedBox(
-            width: widget.tileWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _Cover(
-                  artwork: _artwork,
-                  name: game.name,
-                  hovered: _hovered,
-                  selected: widget.selected,
-                  themeIcon: widget.controller.covers.themeIconPath,
-                  onPlay: () => widget.controller.launch(game),
-                  menu: _menu(context, game, hidden),
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      label: '${game.name}, ${_subtitle(game)}',
+      child: FocusableActionDetector(
+        focusNode: widget.focusNode,
+        mouseCursor: SystemMouseCursors.click,
+        onShowFocusHighlight: (value) => setState(() => _focused = value),
+        shortcuts: const {
+          // Enter launches, Space selects; the gamepad's A launches, B
+          // selects, matching what its buttons mean on a console dashboard.
+          SingleActivator(LogicalKeyboardKey.enter): _LaunchIntent(),
+          SingleActivator(LogicalKeyboardKey.space): _SelectIntent(),
+          SingleActivator(LogicalKeyboardKey.gameButtonA): _LaunchIntent(),
+          SingleActivator(LogicalKeyboardKey.gameButtonB): _SelectIntent(),
+        },
+        actions: {
+          _SelectIntent: CallbackAction<_SelectIntent>(
+            onInvoke: (_) {
+              widget.controller.select(game);
+              return null;
+            },
+          ),
+          _LaunchIntent: CallbackAction<_LaunchIntent>(
+            onInvoke: (_) {
+              widget.controller.launch(game);
+              return null;
+            },
+          ),
+        },
+        // The overlay is a pointer affordance, not a focus highlight: it must
+        // follow the mouse even when the app is in touch highlight mode, so
+        // hover is tracked here and not through onShowHoverHighlight.
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+          onTap: () => widget.controller.select(game),
+          onDoubleTap: () => widget.controller.launch(game),
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          child: AnimatedOpacity(
+            duration: _motionDuration,
+            opacity: hidden ? 0.45 : 1,
+            child: AnimatedScale(
+              scale: _pressed
+                  ? _pressScale
+                  : _highlighted
+                  ? _hoverScale
+                  : 1,
+              duration: _motionDuration,
+              curve: _motionCurve,
+              // A tile's hover repaints (shadow, scrim, scale) stay inside the
+              // tile: without the boundary a blur this size would drag the
+              // neighbouring covers into the same repaint.
+              child: RepaintBoundary(
+                // The strip is a horizontal list, which hands a tile as much
+                // width as it asks for: without this the labels decide the
+                // tile's width, and a long name widens it past its cover
+                // instead of trailing off.
+                child: SizedBox(
                   width: widget.tileWidth,
-                  height: widget.tileHeight,
-                  compact: widget.compact,
-                ),
-                SizedBox(height: widget.compact ? 8 : 10),
-                Text(
-                  game.name,
-                  maxLines: widget.compact ? 1 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: widget.compact ? 12.5 : 14,
-                    height: 1.2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _Cover(
+                        artwork: _artwork,
+                        name: game.name,
+                        highlighted: _highlighted,
+                        selected: widget.selected,
+                        favorite: widget.controller.isFavorite(game.id),
+                        themeIcon: widget.controller.covers.themeIconPath,
+                        onPlay: () => widget.controller.launch(game),
+                        menu: _menu(context, game, hidden),
+                        width: widget.tileWidth,
+                        height: widget.tileHeight,
+                        compact: widget.compact,
+                      ),
+                      SizedBox(height: widget.compact ? 8 : 10),
+                      Text(
+                        game.name,
+                        maxLines: widget.compact ? 1 : 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: widget.compact ? 12.5 : 14,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _subtitle(game),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textDim,
+                          fontSize: widget.compact ? 11 : 12,
+                          height: widget.compact ? 1.2 : null,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  _subtitle(game),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: palette.textDim,
-                    fontSize: widget.compact ? 11 : 12,
-                    height: widget.compact ? 1.2 : null,
-                  ),
-                ),
-              ],
+              ),
             ),
+          ),
           ),
         ),
       ),
@@ -198,6 +278,8 @@ class _GameTileState extends State<GameTile> {
             widget.controller.openFolder(game);
           case 'hide':
             widget.controller.setHidden(game, hidden: !hidden);
+          case 'favorite':
+            widget.controller.toggleFavorite(game.id);
           case 'remove':
             widget.controller.removeManual(game.key);
         }
@@ -207,6 +289,14 @@ class _GameTileState extends State<GameTile> {
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
         const PopupMenuItem(value: 'folder', child: Text('Open folder')),
         PopupMenuItem(value: 'hide', child: Text(hidden ? 'Unhide' : 'Hide')),
+        PopupMenuItem(
+          value: 'favorite',
+          child: Text(
+            widget.controller.isFavorite(game.id)
+                ? 'Unpin favorite'
+                : 'Pin as favorite',
+          ),
+        ),
         if (game.source == SourceKind.manual)
           const PopupMenuItem(value: 'remove', child: Text('Remove')),
       ],
@@ -228,8 +318,9 @@ class _Cover extends StatelessWidget {
   const _Cover({
     required this.artwork,
     required this.name,
-    required this.hovered,
+    required this.highlighted,
     required this.selected,
+    required this.favorite,
     required this.themeIcon,
     required this.onPlay,
     required this.menu,
@@ -240,8 +331,12 @@ class _Cover extends StatelessWidget {
 
   final Artwork artwork;
   final String name;
-  final bool hovered;
+
+  /// Hovered by the pointer or focused by keyboard/gamepad; both draw the
+  /// same lifted cover.
+  final bool highlighted;
   final bool selected;
+  final bool favorite;
 
   /// Resolves an icon-theme name to a raster file.
   final String? Function(String name) themeIcon;
@@ -254,8 +349,10 @@ class _Cover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
+      duration: _motionDuration,
+      curve: _motionCurve,
       width: width,
       height: height,
       decoration: BoxDecoration(
@@ -265,18 +362,38 @@ class _Cover extends StatelessWidget {
           color: selected ? palette.accent : Colors.transparent,
           width: 2,
         ),
-        boxShadow: [palette.coverShadow(hovered: hovered)],
+        boxShadow: [palette.coverShadow(hovered: highlighted)],
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          _artwork(palette),
+          _artwork(palette, dpr),
+          if (favorite)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: palette.scrim.first,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.star_rounded,
+                    size: 14,
+                    color: palette.onScrim,
+                  ),
+                ),
+              ),
+            ),
           IgnorePointer(
-            ignoring: !hovered,
+            ignoring: !highlighted,
             child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 150),
-              opacity: hovered ? 1 : 0,
+              duration: _overlayDuration,
+              curve: _motionCurve,
+              opacity: highlighted ? 1 : 0,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -295,31 +412,41 @@ class _Cover extends StatelessWidget {
                   ),
                   Align(
                     alignment: Alignment.topRight,
-                    child: Padding(padding: const EdgeInsets.all(2), child: menu),
+                    child: AnimatedSlide(
+                      offset: highlighted ? Offset.zero : const Offset(0, -0.25),
+                      duration: _overlayDuration,
+                      curve: _motionCurve,
+                      child: Padding(padding: const EdgeInsets.all(2), child: menu),
+                    ),
                   ),
                   Align(
                     alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: EdgeInsets.all(compact ? 10 : 12),
-                      // A labelled button has no room on a shelf tile: the cover
-                      // itself is the target there.
-                      child: compact
-                          ? IconButton.filled(
-                              tooltip: 'Play',
-                              onPressed: onPlay,
-                              icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                            )
-                          : SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
+                    child: AnimatedSlide(
+                      offset: highlighted ? Offset.zero : const Offset(0, 0.25),
+                      duration: _overlayDuration,
+                      curve: _motionCurve,
+                      child: Padding(
+                        padding: EdgeInsets.all(compact ? 10 : 12),
+                        // A labelled button has no room on a shelf tile: the cover
+                        // itself is the target there.
+                        child: compact
+                            ? IconButton.filled(
+                                tooltip: 'Play',
                                 onPressed: onPlay,
                                 icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                                label: const Text('Play'),
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                              )
+                            : SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: onPlay,
+                                  icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                                  label: const Text('Play'),
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                  ),
                                 ),
                               ),
-                            ),
+                      ),
                     ),
                   ),
                 ],
@@ -331,13 +458,20 @@ class _Cover extends StatelessWidget {
     );
   }
 
-  Widget _artwork(AppPalette palette) {
+  Widget _artwork(AppPalette palette, double dpr) {
     switch (artwork.kind) {
       case ArtworkKind.cover:
         return Image.file(
           File(artwork.value!),
           fit: BoxFit.cover,
           filterQuality: FilterQuality.medium,
+          // Decode at the pixels the tile actually shows: covers are
+          // screenshots or scans, and decoding them at full size is the
+          // wall's one big memory cost.
+          cacheWidth: (width * dpr).round(),
+          cacheHeight: (height * dpr).round(),
+          semanticLabel: 'Cover art for $name',
+          frameBuilder: _fadeIn,
           errorBuilder: (context, error, stack) => _letter(palette),
         );
       case ArtworkKind.icon:
@@ -350,6 +484,10 @@ class _Cover extends StatelessWidget {
               File(path),
               fit: BoxFit.contain,
               filterQuality: FilterQuality.medium,
+              cacheWidth: (width * dpr).round(),
+              cacheHeight: (height * dpr).round(),
+              semanticLabel: 'Icon for $name',
+              frameBuilder: _fadeIn,
               errorBuilder: (context, error, stack) => _letter(palette),
             ),
           ),
@@ -359,14 +497,45 @@ class _Cover extends StatelessWidget {
     }
   }
 
-  Widget _letter(AppPalette palette) => Center(
-    child: Text(
-      name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
-      style: TextStyle(
-        fontSize: compact ? 40 : 54,
-        fontWeight: FontWeight.w800,
-        color: palette.tileLetter,
+  /// Artwork fades in instead of popping: the wall resolves covers a few at a
+  /// time, and hard pops all over the grid read as flicker.
+  static Widget _fadeIn(
+    BuildContext context,
+    Widget child,
+    int? frame,
+    bool wasSynchronouslyLoaded,
+  ) {
+    if (wasSynchronouslyLoaded) return child;
+    return AnimatedOpacity(
+      opacity: frame == null ? 0 : 1,
+      duration: _motionDuration,
+      curve: _motionCurve,
+      child: child,
+    );
+  }
+
+  // The letter stands in for artwork; the tile's own Semantics label already
+  // names the game, so reading the initial aloud would only repeat it.
+  Widget _letter(AppPalette palette) => ExcludeSemantics(
+    child: Center(
+      child: Text(
+        name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
+        style: TextStyle(
+          fontSize: compact ? 40 : 54,
+          fontWeight: FontWeight.w800,
+          color: palette.tileLetter,
+        ),
       ),
     ),
   );
+}
+
+/// The tile's keyboard/gamepad vocabulary: select is what a tap does, launch
+/// is what a double-tap (or the gamepad's A button) does.
+class _SelectIntent extends Intent {
+  const _SelectIntent();
+}
+
+class _LaunchIntent extends Intent {
+  const _LaunchIntent();
 }

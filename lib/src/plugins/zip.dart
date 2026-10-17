@@ -47,15 +47,13 @@ void unpackZip(List<int> bytes, String target) {
     if (entry.isSpecial) {
       throw FormatException('the archive holds something that is not a file: ${entry.name}');
     }
-    total += entry.size;
-    if (total > maxPluginBytes) {
-      throw FormatException(
-        'the archive unpacks to more than ${maxPluginBytes ~/ (1024 * 1024)} MiB',
-      );
-    }
+    // The budget is what is left of the limit; what an entry claims is only
+    // believed once its bytes are counted on the way out of the inflater.
+    final content = _content(data, entry, maxPluginBytes - total);
+    total += content.length;
     final file = File(path);
     file.parent.createSync(recursive: true);
-    file.writeAsBytesSync(_content(data, entry));
+    file.writeAsBytesSync(content);
   }
 }
 
@@ -131,7 +129,12 @@ int _findEndOfCentralDirectory(Uint8List data) {
 }
 
 /// The bytes of [entry], inflated where it has to be.
-Uint8List _content(Uint8List data, _Entry entry) {
+///
+/// The inflater is fed in slices and its output counted as it arrives: an
+/// archive that lies about a size — kilobytes that inflate to gigabytes — is
+/// refused the moment it passes what it claimed, or what is left of [budget],
+/// rather than after the memory is gone.
+Uint8List _content(Uint8List data, _Entry entry, int budget) {
   if (entry.offset + 30 > data.length || _u32(data, entry.offset) != _localFileHeader) {
     throw const FormatException('the archive\'s index points at nothing');
   }
@@ -140,19 +143,69 @@ Uint8List _content(Uint8List data, _Entry entry) {
     throw const FormatException('the archive is truncated');
   }
   final raw = data.sublist(start, start + entry.compressed);
-  if (entry.method == 0) return raw;
-  final List<int> unpacked;
+  if (entry.method == 0) {
+    if (raw.length != entry.size) {
+      throw const FormatException('a file in the archive is not the size it claims');
+    }
+    if (raw.length > budget) throw _tooBig();
+    return raw;
+  }
+  if (entry.size > budget) throw _tooBig();
+  final sink = _InflateSink(entry.size);
+  final inflater = ZLibDecoder(raw: true).startChunkedConversion(sink);
   try {
-    unpacked = ZLibCodec(raw: true).decode(raw);
+    const slice = 64 * 1024;
+    for (var at = 0; at < raw.length; at += slice) {
+      final end = at + slice > raw.length ? raw.length : at + slice;
+      inflater.add(raw.sublist(at, end));
+    }
+    inflater.close();
+  } on _InflateOverflow {
+    throw const FormatException(
+      'a file in the archive inflates past the size it claims',
+    );
   } on Exception {
     // zlib reports bad data as a FormatException; anything else it throws is
     // no better a reason to trust the archive.
     throw const FormatException('a file in the archive is not deflated data');
   }
+  final unpacked = sink.bytes.takeBytes();
   if (unpacked.length != entry.size) {
     throw const FormatException('a file in the archive is not the size it claims');
   }
-  return unpacked is Uint8List ? unpacked : Uint8List.fromList(unpacked);
+  return unpacked;
+}
+
+/// The "unpacks to too much" complaint.
+FormatException _tooBig() => FormatException(
+  'the archive unpacks to more than ${maxPluginBytes ~/ (1024 * 1024)} MiB',
+);
+
+/// Counts inflated bytes as they leave zlib and balks the moment there are
+/// more than the entry claimed.
+///
+/// Throwing out of the sink stops the inflater in the middle of a slice, so a
+/// bomb is refused after kilobytes of output, not after gigabytes.
+class _InflateSink implements ChunkedConversionSink<List<int>> {
+  _InflateSink(this.claimed);
+
+  /// The size the archive's index states; no entry may inflate past it.
+  final int claimed;
+
+  final BytesBuilder bytes = BytesBuilder(copy: false);
+
+  @override
+  void add(List<int> chunk) {
+    bytes.add(chunk);
+    if (bytes.length > claimed) throw const _InflateOverflow();
+  }
+
+  @override
+  void close() {}
+}
+
+class _InflateOverflow implements Exception {
+  const _InflateOverflow();
 }
 
 /// [name] as a path inside [root], or a complaint.

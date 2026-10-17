@@ -4,7 +4,13 @@ import 'dart:typed_data';
 
 /// One file in a test archive.
 class Entry {
-  const Entry(this.name, this.content, {this.mode = 0x81a4, this.method = 8});
+  const Entry(
+    this.name,
+    this.content, {
+    this.mode = 0x81a4,
+    this.method = 8,
+    this.declaredSize,
+  });
 
   final String name;
   final String content;
@@ -14,6 +20,10 @@ class Entry {
 
   /// 8 is deflate, 0 is stored.
   final int method;
+
+  /// The uncompressed size the archive's index states, when it should lie:
+  /// the size a bomb hides behind.
+  final int? declaredSize;
 }
 
 /// A zip archive, built here so the reader and the installer can be shown the
@@ -26,6 +36,7 @@ Uint8List archive(List<Entry> files, {int flags = 0, int? centralFlags}) {
     final name = utf8.encode(file.name);
     final raw = utf8.encode(file.content);
     final data = file.method == 0 ? raw : ZLibCodec(raw: true).encode(raw);
+    final claimed = file.declaredSize ?? raw.length;
     final offset = out.length;
     out.add(_u32(0x04034b50));
     out.add(_u16(20));
@@ -35,7 +46,7 @@ Uint8List archive(List<Entry> files, {int flags = 0, int? centralFlags}) {
     out.add(_u16(0));
     out.add(_u32(0));
     out.add(_u32(data.length));
-    out.add(_u32(raw.length));
+    out.add(_u32(claimed));
     out.add(_u16(name.length));
     out.add(_u16(0));
     out.add(name);
@@ -50,7 +61,7 @@ Uint8List archive(List<Entry> files, {int flags = 0, int? centralFlags}) {
     central.add(_u16(0));
     central.add(_u32(0));
     central.add(_u32(data.length));
-    central.add(_u32(raw.length));
+    central.add(_u32(claimed));
     central.add(_u16(name.length));
     central.add(_u16(0));
     central.add(_u16(0));

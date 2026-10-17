@@ -31,6 +31,16 @@ class SteamGridDb {
 
   /// SteamGridDB rate limits per key; keep a polite gap between calls.
   static const Duration _minGap = Duration(milliseconds: 250);
+
+  /// How many redirects a request follows before it stops believing.
+  static const int _maxRedirects = 5;
+
+  /// The most a downloaded image may weigh.
+  static const int _maxImageBytes = 16 * 1024 * 1024;
+
+  /// The longest an image body may take; the connection timeout only covers
+  /// the handshake, not a server that drips bytes forever.
+  static const Duration _bodyTimeout = Duration(seconds: 30);
   DateTime _lastRequest = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Tail of the queue of requests that are still waiting for their turn.
@@ -148,32 +158,65 @@ class SteamGridDb {
 
   /// [authenticate] is off for the CDN: the key authenticates the API, and the
   /// image host neither needs nor asks for it.
+  ///
+  /// Redirects are re-issued by hand, and the key only rides along when the
+  /// redirect leads back to SteamGridDB itself: anywhere else gets a plain
+  /// request, so a redirect cannot talk the client into leaking the key.
   Future<HttpClientResponse> _request(Uri uri, {bool authenticate = true}) async {
     await _waitForTurn();
-    try {
-      final request = await _client.getUrl(uri);
-      if (authenticate) {
-        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${apiKey.trim()}');
+    var target = uri;
+    var sendKey = authenticate;
+    for (var redirects = 0;; redirects++) {
+      final HttpClientResponse response;
+      try {
+        final request = await _client.getUrl(target);
+        // Redirects are re-issued by hand: the key must not ride along to a
+        // host that is not SteamGridDB.
+        request.followRedirects = false;
+        if (sendKey) {
+          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${apiKey.trim()}');
+        }
+        request.headers.set(HttpHeaders.userAgentHeader, userAgent);
+        response = await request.close();
+      } on IOException catch (error) {
+        // A host that cannot be reached has to look like every other failure, or
+        // it walks past the callers that only handle SteamGridDbException.
+        throw _unreachable(error);
       }
-      request.headers.set(HttpHeaders.userAgentHeader, userAgent);
-      return await request.close();
-    } on IOException catch (error) {
-      // A host that cannot be reached has to look like every other failure, or
-      // it walks past the callers that only handle SteamGridDbException.
-      throw _unreachable(error);
+      if (!_isRedirect(response.statusCode)) return response;
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      await response.drain<void>();
+      if (location == null || redirects >= _maxRedirects) {
+        throw const SteamGridDbException('SteamGridDB will not stop redirecting.');
+      }
+      target = target.resolve(location);
+      sendKey = target.host == 'www.steamgriddb.com';
     }
   }
+
+  static bool _isRedirect(int status) =>
+      status == HttpStatus.movedPermanently ||
+      status == HttpStatus.found ||
+      status == HttpStatus.seeOther ||
+      status == HttpStatus.temporaryRedirect ||
+      status == HttpStatus.permanentRedirect;
 
   static SteamGridDbException _unreachable(IOException error) =>
       SteamGridDbException('SteamGridDB is unreachable: $error');
 
   /// The response body; a connection that dies halfway through reads as a
-  /// failure of the request, not as a socket error.
-  Future<List<int>> _body(HttpClientResponse response) async {
+  /// failure of the request, not as a socket error. [limit] refuses a body
+  /// that grows past it.
+  Future<List<int>> _body(HttpClientResponse response, {int? limit}) async {
     final builder = BytesBuilder(copy: false);
     try {
       await for (final chunk in response) {
         builder.add(chunk);
+        if (limit != null && builder.length > limit) {
+          throw SteamGridDbException(
+            'SteamGridDB sent more than ${limit ~/ (1024 * 1024)} MiB.',
+          );
+        }
       }
     } on IOException catch (error) {
       throw _unreachable(error);
@@ -187,7 +230,13 @@ class SteamGridDb {
       await response.drain<void>();
       return const [];
     }
-    return _body(response);
+    try {
+      return await _body(response, limit: _maxImageBytes).timeout(_bodyTimeout);
+    } on TimeoutException {
+      throw const SteamGridDbException(
+        'SteamGridDB took too long to send an image.',
+      );
+    }
   }
 
   Future<String> _readString(HttpClientResponse response) async =>

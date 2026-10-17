@@ -6,6 +6,7 @@ import '../plugins/bundled.dart';
 import '../plugins/catalog.dart' as catalogue;
 import '../plugins/plugin.dart';
 import '../state/library_controller.dart';
+import '../util/shell.dart';
 import 'accent_colors.dart';
 import 'theme.dart';
 
@@ -68,7 +69,7 @@ Future<ManualEntry?> showAddGameDialog(BuildContext context) {
             Navigator.of(context).pop(
               ManualEntry(
                 name: nameController.text.trim(),
-                command: commandController.text.trim().split(RegExp(r'\s+')),
+                command: splitShellWords(commandController.text.trim()),
                 cwd: cwd.isEmpty ? null : cwd,
               ),
             );
@@ -419,7 +420,7 @@ class _CatalogRow extends StatelessWidget {
               children: [
                 if (current == null)
                   FilledButton(
-                    onPressed: () => controller.installPlugin(entry),
+                    onPressed: () => _confirmInstall(context),
                     child: const Text('Install'),
                   )
                 else ...[
@@ -436,6 +437,66 @@ class _CatalogRow extends StatelessWidget {
               ],
             ),
     );
+  }
+
+  /// Ask before installing.
+  ///
+  /// A store plugin is code that runs unsandboxed on the host, so the first
+  /// install is never one-click. Updates keep [controller.installPlugin]
+  /// directly: the trust decision was made when the plugin was installed.
+  Future<void> _confirmInstall(BuildContext context) async {
+    final details = [
+      if (entry.description.isNotEmpty) entry.description,
+      [
+        if (entry.author.isNotEmpty) 'by ${entry.author}',
+        if (entry.version > 0) 'version ${entry.version}',
+      ].join(' · '),
+    ].where((line) => line.isNotEmpty).join('\n');
+    final install = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final palette = context.palette;
+        return AlertDialog(
+          backgroundColor: palette.surface,
+          title: Text('Install ${entry.name}?'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (details.isNotEmpty) ...[
+                  Text(
+                    details,
+                    style: TextStyle(fontSize: 12.5, color: palette.textDim),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Text(
+                  'Plugins run as programs on this computer, outside the '
+                  'flatpak sandbox, with the same access to your files as '
+                  'you. Install only plugins you trust.',
+                  style: TextStyle(fontSize: 12.5, color: palette.warning),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Install'),
+            ),
+          ],
+        );
+      },
+    );
+    if (install ?? false) {
+      await controller.installPlugin(entry);
+    }
   }
 }
 

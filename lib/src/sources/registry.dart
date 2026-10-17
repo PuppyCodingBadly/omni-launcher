@@ -1,6 +1,7 @@
 import '../config.dart';
 import '../model/game.dart';
 import 'appimage.dart';
+import 'bottles.dart';
 import 'desktop.dart';
 import 'epic.dart';
 import 'faugus.dart';
@@ -8,6 +9,7 @@ import 'flatpak.dart';
 import 'heroic.dart';
 import 'lutris.dart';
 import 'manual.dart';
+import 'prism.dart';
 import 'source.dart';
 import 'steam.dart';
 import 'steam_shortcuts.dart';
@@ -22,6 +24,8 @@ List<GameSource> buildSources() => [
   EpicSource(),
   LutrisSource(),
   FaugusSource(),
+  PrismSource(),
+  BottlesSource(),
   DesktopSource(),
 ];
 
@@ -71,7 +75,8 @@ List<Game> applyNameOverrides(List<Game> games, Map<String, String> overrides) {
 /// A shortcut gives the game Steam Input, the overlay and the play-time
 /// tracking, which is why RetroDECK is added to Steam in the first place. The
 /// flatpak key is the strongest match (`FlatpakAppID` in the shortcut); a name
-/// match covers everything else. A visible shortcut always beats a hidden one.
+/// match covers flatpak games without one. A visible shortcut always beats a
+/// hidden one.
 Future<List<Game>> preferSteamShortcuts(
   List<Game> games,
   List<SteamShortcut> shortcuts,
@@ -97,9 +102,21 @@ Future<List<Game>> preferSteamShortcuts(
 
   final result = <Game>[];
   for (final game in games) {
-    final shortcut = game.source == SourceKind.flatpak
-        ? byFlatpak[game.key] ?? byName[game.name.trim().toLowerCase()]
-        : byName[game.name.trim().toLowerCase()];
+    final nameKey = game.name.trim().toLowerCase();
+    SteamShortcut? shortcut;
+    if (game.source == SourceKind.flatpak) {
+      shortcut = byFlatpak[game.key] ?? byName[nameKey];
+    } else {
+      // A bare name match is only safe for flatpak games: two unrelated games
+      // can share a display name, and swapping the wrong one's command for
+      // `steam -applaunch` would launch a different game entirely. Anything
+      // else must also sit where the shortcut points (RetroDECK-style, where
+      // the file Steam launches is the install this source found).
+      final candidate = byName[nameKey];
+      if (candidate != null && _sharesInstallPath(candidate.exe, game.path)) {
+        shortcut = candidate;
+      }
+    }
     if (shortcut == null) {
       result.add(game);
       continue;
@@ -126,6 +143,19 @@ Future<List<Game>> preferSteamShortcuts(
     );
   }
   return result;
+}
+
+/// True when [exe] and [installPath] name the same file or one sits inside
+/// the other, compared on path-segment boundaries.
+bool _sharesInstallPath(String? exe, String? installPath) {
+  if (exe == null || installPath == null) return false;
+  String normalize(String path) => path.length > 1 && path.endsWith('/')
+      ? path.substring(0, path.length - 1)
+      : path;
+  final a = normalize(exe.trim());
+  final b = normalize(installPath.trim());
+  if (a.isEmpty || b.isEmpty) return false;
+  return a == b || a.startsWith('$b/') || b.startsWith('$a/');
 }
 
 /// Scan every (or the given) source; de-duplicate by game id and identity.
@@ -160,5 +190,5 @@ Future<List<Game>> discoverAll(
     }
   }
   final sorted = applyNameOverrides(sortGames(found.values), cfg.nameOverrides);
-  return preferSteamShortcuts(sorted, shortcuts ?? readSteamShortcuts());
+  return preferSteamShortcuts(sorted, shortcuts ?? await readSteamShortcuts());
 }

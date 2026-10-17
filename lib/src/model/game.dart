@@ -8,6 +8,8 @@ enum SourceKind {
   epic('epic', 'Epic Games Launcher'),
   lutris('lutris', 'Lutris'),
   faugus('faugus', 'Faugus'),
+  prism('prism', 'Prism Launcher'),
+  bottles('bottles', 'Bottles'),
   desktop('desktop', 'Other desktop apps');
 
   const SourceKind(this.id, this.label);
@@ -69,6 +71,13 @@ class Game {
 
   /// The subtitle, defaulting to the source label.
   String get displaySubtitle => subtitle ?? source.label;
+
+  /// [id] is unique across the library, so it is all equality needs.
+  @override
+  bool operator ==(Object other) => other is Game && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
 
   /// A copy with the given fields replaced; `id`, `key`, `command` and `extra`
   /// always carry over.
@@ -134,7 +143,9 @@ class Game {
       cover: cover is String ? cover : null,
       path: path is String ? path : null,
       subtitle: subtitle is String ? subtitle : null,
-      extra: extra is Map ? extra.cast<String, Object?>() : const {},
+      // A decoded JSON map stays mutable; hand out a copy nobody can mutate,
+      // so two games decoded from the same record share nothing.
+      extra: extra is Map ? Map.unmodifiable(extra.cast<String, Object?>()) : const {},
     );
   }
 }

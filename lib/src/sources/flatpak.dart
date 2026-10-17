@@ -26,10 +26,10 @@ String _name(Map<String, String> entry, String appId) {
 }
 
 /// `Icon` plus whether it is a theme name rather than an image file.
-(String?, bool) _icon(Map<String, String> entry) {
+Future<(String?, bool)> _icon(Map<String, String> entry) async {
   final raw = entry['Icon'];
   final icon = (raw == null || raw.isEmpty) ? null : raw;
-  if (icon != null && icon.startsWith('/') && File(icon).existsSync()) {
+  if (icon != null && icon.startsWith('/') && await File(icon).exists()) {
     return (icon, false);
   }
   return (icon, icon != null);
@@ -83,8 +83,8 @@ List<(String, Map<String, String>)> parseDesktopDump(String dump) {
 Future<List<(String, Map<String, String>)>> _desktopEntries() async {
   if (!Host.inFlatpak) {
     return [
-      for (final file in iterDesktopFiles(_exportDirs))
-        (file.uri.pathSegments.last, readDesktopFile(file.path)),
+      for (final file in await iterDesktopFiles(_exportDirs))
+        (file.uri.pathSegments.last, await readDesktopFile(file.path)),
     ];
   }
   const script =
@@ -122,7 +122,7 @@ class FlatpakSource extends GameSource {
       // A launcher is not a game, and this one is now a flatpak itself.
       if (appId == AppPaths.appId) continue;
       final entry = best[appId]!.$2;
-      final (icon, iconIsName) = _icon(entry);
+      final (icon, iconIsName) = await _icon(entry);
       games.add(
         Game(
           id: '${SourceKind.flatpak.id}:$appId',

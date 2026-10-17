@@ -96,15 +96,19 @@ class HeroicSource extends GameSource {
   @override
   Future<List<Game>> discover(AppConfig cfg) async {
     final heroic = which('heroic') != null || (await flatpakAppIds()).contains(heroicFlatpakId);
+    // A store's own CLI is the fallback when Heroic is absent, but only when
+    // it is actually installed; a game nobody can launch is noise.
+    final cliFound = <String, bool>{};
     final seen = <String>{};
     final games = <Game>[];
     for (final (store, path, cli) in installedFiles) {
-      for (final (key, entry) in _entries(loadJson(path))) {
+      for (final (key, entry) in _entries(await loadJson(path))) {
         if (seen.contains(key)) continue;
         final List<String> command;
         if (heroic) {
-          command = ['xdg-open', 'heroic://launch/$key'];
-        } else if (cli != null) {
+          command = ['xdg-open', 'heroic://launch/${Uri.encodeComponent(key)}'];
+        } else if (cli != null &&
+            cliFound.putIfAbsent(cli, () => which(cli) != null)) {
           command = [cli, 'launch', key];
         } else {
           continue;
@@ -113,7 +117,7 @@ class HeroicSource extends GameSource {
         final installPath = _or([entry['install_path'], entry['path']])?.toString() ?? '';
         final exists =
             installPath.isNotEmpty &&
-            FileSystemEntity.typeSync(installPath) != FileSystemEntityType.notFound;
+            await FileSystemEntity.type(installPath) != FileSystemEntityType.notFound;
         final name = _or([entry['title'], entry['app_title']])?.toString() ?? key;
         final extra = <String, Object?>{
           'store': store,

@@ -15,6 +15,10 @@ class PluginStore {
     _load();
   }
 
+  /// The on-disk shape this build writes. Older files are a bare map; they
+  /// still load, so a cache survived the upgrade.
+  static const int schemaVersion = 1;
+
   final String _path;
   final Map<String, PluginAnswer> _entries = <String, PluginAnswer>{};
 
@@ -37,7 +41,9 @@ class PluginStore {
     try {
       final parsed = jsonDecode(file.readAsStringSync());
       if (parsed is! Map) return;
-      decoded = parsed.cast<String, Object?>();
+      final versioned = parsed['answers'];
+      // The first format was the map itself, with no envelope.
+      decoded = (versioned is Map ? versioned : parsed).cast<String, Object?>();
     } on FileSystemException {
       return;
     } on FormatException {
@@ -53,11 +59,18 @@ class PluginStore {
     try {
       final file = File(_path);
       file.parent.createSync(recursive: true);
-      file.writeAsStringSync(
+      // Through a sibling file and a rename, so a crash halfway through a
+      // write cannot leave a half written answers file behind.
+      final temporary = File('$_path.tmp');
+      temporary.writeAsStringSync(
         jsonEncode({
-          for (final entry in _entries.entries) entry.key: entry.value.toJson(),
+          'version': schemaVersion,
+          'answers': {
+            for (final entry in _entries.entries) entry.key: entry.value.toJson(),
+          },
         }),
       );
+      temporary.renameSync(_path);
     } on FileSystemException {
       // The answers are a shortcut, never a reason to fail a lookup.
     }

@@ -108,7 +108,14 @@ Future<PluginAnswer> runPlugin(
   PluginQuery query, {
   Duration timeout = pluginTimeout,
 }) async {
-  final argv = Host.command(plugin.command, directory: plugin.dir);
+  // setsid puts the plugin in a session — and so a process group — of its
+  // own, so a timeout can kill everything it started, not just the plugin
+  // itself. It goes inside any sandbox wrapper: the group has to be made on
+  // the host, where the plugin runs.
+  final argv = Host.command(
+    ['setsid', ...plugin.command],
+    directory: plugin.dir,
+  );
   final Process process;
   try {
     process = await Process.start(
@@ -124,7 +131,9 @@ Future<PluginAnswer> runPlugin(
   // a lot before it exits would block on its own output.
   final out = _Pipe(
     process.stdout,
-    onOverflow: () => process.kill(ProcessSignal.sigkill),
+    // A flooding plugin is killed the same way a timed-out one is: a helper
+    // it forked does not get to stay behind and hold the pipes.
+    onOverflow: () => unawaited(_killGroup(process)),
   );
   final err = _Pipe(process.stderr);
   try {
@@ -138,7 +147,7 @@ Future<PluginAnswer> runPlugin(
   try {
     code = await process.exitCode.timeout(timeout);
   } on TimeoutException {
-    process.kill(ProcessSignal.sigkill);
+    await _killGroup(process);
     await process.exitCode;
     out.stop();
     err.stop();
@@ -182,6 +191,22 @@ Future<PluginAnswer> runPlugin(
     return PluginAnswer.failure('${plugin.name} found nothing for ${query.name}');
   }
   return parsed;
+}
+
+/// Kill [process] and whatever it left running.
+///
+/// setsid made the plugin the leader of its own process group, so the signal
+/// goes to the group: a plugin that forked a helper and stopped answering
+/// loses the helper too. When the group is gone already — or a sandbox
+/// renumbered the pid, so the group only exists on the host — the plugin
+/// itself is still killed on its own.
+Future<void> _killGroup(Process process) async {
+  try {
+    await Process.run('kill', ['-KILL', '-${process.pid}']);
+  } on ProcessException {
+    // No kill(1) on this machine: the plugin itself still has to go.
+  }
+  process.kill(ProcessSignal.sigkill);
 }
 
 /// The last line of a plugin's stderr: a traceback ends with the actual

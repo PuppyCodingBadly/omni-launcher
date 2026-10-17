@@ -1,5 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+
+import 'util/shell.dart';
 
 /// Which palette the window uses.
 enum AppThemeMode {
@@ -67,13 +70,18 @@ class AppConfig {
     this.coverFetch = true,
     this.showHidden = false,
     this.sidebarCollapsed = false,
+    List<String>? favorites,
+    this.sortMode = 'name',
+    this.windowWidth,
+    this.windowHeight,
   }) : hidden = hidden ?? <String>{},
        appimageDirs = appimageDirs ?? List<String>.from(defaultAppimageDirs),
        manual = manual ?? <ManualEntry>[],
        artOverrides = artOverrides ?? <String, String>{},
        autoArt = autoArt ?? <String, String>{},
        nameOverrides = nameOverrides ?? <String, String>{},
-       closeWithGame = closeWithGame ?? <String>{};
+       closeWithGame = closeWithGame ?? <String>{},
+       favorites = favorites ?? <String>[];
 
   static const List<String> defaultAppimageDirs = [
     '~/AppImages',
@@ -120,6 +128,23 @@ class AppConfig {
   /// Whether the source sidebar is collapsed to its icon rail.
   final bool sidebarCollapsed;
 
+  /// Game ids the user pinned as favourites.
+  final List<String> favorites;
+
+  /// Library ordering: one of [sortModes]; unknown values load as `name`.
+  final String sortMode;
+
+  /// Last window size, if the platform reported one; absent by default.
+  final double? windowWidth;
+  final double? windowHeight;
+
+  /// The values [sortMode] may take.
+  static const Set<String> sortModes = {'name', 'lastPlayed', 'mostPlayed'};
+
+  /// Schema version of the written file. A missing `version` is version 1;
+  /// bump only together with a migration in [load].
+  static const int schemaVersion = 1;
+
   static AppConfig load(String path) {
     final file = File(path);
     Map<String, Object?> data = const {};
@@ -132,7 +157,9 @@ class AppConfig {
       } on FileSystemException {
         data = const {};
       }
+      _restrictPermissions(path);
     }
+    final window = _window(data['window']);
     return AppConfig(
       hidden: _stringList(data['hidden'])?.toSet() ?? <String>{},
       appimageDirs:
@@ -149,8 +176,41 @@ class AppConfig {
       coverFetch: data['cover_fetch'] != false,
       showHidden: data['show_hidden'] == true,
       sidebarCollapsed: data['sidebar_collapsed'] == true,
+      favorites: _stringList(data['favorites']) ?? <String>[],
+      sortMode: _sortMode(data['sort']),
+      windowWidth: window.$1,
+      windowHeight: window.$2,
     );
   }
+
+  /// Best-effort `chmod 600`, POSIX only. The config holds the SteamGridDB
+  /// key, so it should be readable by the owner alone; [always] skips the
+  /// readability check (a freshly written file inherits the umask). Every
+  /// error is swallowed — a filesystem without POSIX modes is not a reason
+  /// to fail a load or a save.
+  static void _restrictPermissions(String path, {bool always = false}) {
+    if (!Platform.isLinux && !Platform.isMacOS) return;
+    try {
+      if (!always && (File(path).statSync().mode & 0x3F) == 0) return;
+      Process.runSync('chmod', ['600', path]);
+    } on Object {
+      // Best effort only.
+    }
+  }
+
+  /// `(width, height)` from the `window` map, either side `null` when absent
+  /// or not a number.
+  static (double?, double?) _window(Object? value) {
+    if (value is! Map) return (null, null);
+    return (_asDouble(value['width']), _asDouble(value['height']));
+  }
+
+  static double? _asDouble(Object? value) => value is num ? value.toDouble() : null;
+
+  /// A [sortModes] value; unknown or wrongly typed values fall back to
+  /// ordering by name, the way [_themeMode] falls back to dark.
+  static String _sortMode(Object? value) =>
+      value is String && sortModes.contains(value) ? value : 'name';
 
   /// `[str(item) for item in value]`, or `null` when [value] is not a list.
   ///
@@ -183,10 +243,23 @@ class AppConfig {
 
   static List<ManualEntry> _manualList(Object? value) {
     if (value is! List) return <ManualEntry>[];
-    return value
+    final entries = value
         .whereType<Map>()
         .map((entry) => ManualEntry.fromJson(entry.cast<String, Object?>()))
         .toList();
+    // The key is the game's identity; duplicates (two entries that share a
+    // name, say) would alias one game's state onto the other, so later
+    // duplicates get a suffix.
+    final seen = <String>{};
+    for (var i = 0; i < entries.length; i++) {
+      var key = entries[i].key;
+      var suffix = 2;
+      while (!seen.add(key)) {
+        key = '${entries[i].key}-${suffix++}';
+      }
+      if (key != entries[i].key) entries[i] = entries[i].copyWith(key: key);
+    }
+    return entries;
   }
 
   static AppThemeMode _themeMode(Object? value) =>
@@ -214,7 +287,8 @@ class AppConfig {
   }
 
   void save(String path) {
-    final payload = {
+    final payload = <String, Object?>{
+      'version': schemaVersion,
       'hidden': hidden.toList()..sort(),
       'appimage_dirs': appimageDirs,
       'manual': manual.map((m) => m.toJson()).toList(),
@@ -229,10 +303,22 @@ class AppConfig {
       'cover_fetch': coverFetch,
       'show_hidden': showHidden,
       'sidebar_collapsed': sidebarCollapsed,
+      'favorites': favorites,
+      'sort': sortMode,
+      if (windowWidth != null || windowHeight != null)
+        'window': {
+          if (windowWidth != null) 'width': windowWidth,
+          if (windowHeight != null) 'height': windowHeight,
+        },
     };
     final file = File(path);
     file.parent.createSync(recursive: true);
-    file.writeAsStringSync('${const JsonEncoder.withIndent('  ').convert(payload)}\n');
+    // Through a sibling file and a rename: a crash halfway through writing
+    // must not leave a half written config behind.
+    final temporary = File('$path.tmp');
+    temporary.writeAsStringSync('${const JsonEncoder.withIndent('  ').convert(payload)}\n');
+    temporary.renameSync(path);
+    _restrictPermissions(path, always: true);
   }
 
   /// Configured AppImage directories, with `~` and env vars expanded.
@@ -270,6 +356,10 @@ class AppConfig {
     bool? coverFetch,
     bool? showHidden,
     bool? sidebarCollapsed,
+    List<String>? favorites,
+    String? sortMode,
+    double? windowWidth,
+    double? windowHeight,
   }) => AppConfig(
     hidden: hidden ?? this.hidden,
     appimageDirs: appimageDirs ?? this.appimageDirs,
@@ -285,19 +375,31 @@ class AppConfig {
     coverFetch: coverFetch ?? this.coverFetch,
     showHidden: showHidden ?? this.showHidden,
     sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
+    favorites: favorites ?? this.favorites,
+    sortMode: sortMode ?? this.sortMode,
+    windowWidth: windowWidth ?? this.windowWidth,
+    windowHeight: windowHeight ?? this.windowHeight,
   );
 }
 
 class ManualEntry {
-  ManualEntry({required this.name, required this.command, this.cwd, this.icon});
+  ManualEntry({required this.name, required this.command, String? key, this.cwd, this.icon})
+    : key = key ?? generateKey(name);
 
   final String name;
   final List<String> command;
+
+  /// Stable identity behind the `manual:<key>` game id. The name is display
+  /// and may change; the key never does, so a rename keeps hidden state, art
+  /// and playtime attached to the game.
+  final String key;
+
   final String? cwd;
   final String? icon;
 
   Map<String, Object?> toJson() => {
     'name': name,
+    'key': key,
     'command': command,
     'cwd': cwd,
     'icon': icon,
@@ -307,20 +409,63 @@ class ManualEntry {
     final rawCommand = data['command'];
     final List<String> command;
     if (rawCommand is String) {
-      command = [rawCommand];
+      // Older hand-edited files wrote the command as one string.
+      command = splitShellWords(rawCommand);
     } else if (rawCommand is List) {
       command = rawCommand.map((item) => '$item').toList();
     } else {
       command = <String>[];
     }
     final rawName = data['name'] == null ? '' : '${data['name']}';
+    final name = rawName.isEmpty ? 'Untitled' : rawName;
+    final rawKey = data['key'];
     final cwd = data['cwd'];
     final icon = data['icon'];
     return ManualEntry(
-      name: rawName.isEmpty ? 'Untitled' : rawName,
+      name: name,
+      // Entries written before keys existed migrate to a key derived from the
+      // name; deriving (not generating) keeps the id stable across restarts.
+      key: rawKey is String && rawKey.isNotEmpty ? rawKey : deriveKey(name),
       command: command,
       cwd: cwd is String && cwd.isNotEmpty ? cwd : null,
       icon: icon is String && icon.isNotEmpty ? icon : null,
     );
+  }
+
+  ManualEntry copyWith({
+    String? name,
+    List<String>? command,
+    String? key,
+    String? cwd,
+    String? icon,
+  }) => ManualEntry(
+    name: name ?? this.name,
+    command: command ?? this.command,
+    key: key ?? this.key,
+    cwd: cwd ?? this.cwd,
+    icon: icon ?? this.icon,
+  );
+
+  static final Random _keyRandom = Random();
+
+  /// Lowercase slug of [name]: words of ASCII alphanumerics joined by `-`.
+  static String _slug(String name) {
+    final slug = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+    return slug.replaceAll(RegExp(r'^-+|-+$'), '');
+  }
+
+  /// A fresh key for a hand-added entry: a readable slug plus random hex, so
+  /// the id stays stable across renames and two entries with the same name
+  /// still get distinct keys.
+  static String generateKey(String name) {
+    final base = _slug(name);
+    final hex = _keyRandom.nextInt(0x1000000).toRadixString(16).padLeft(6, '0');
+    return '${base.isEmpty ? 'game' : base}-$hex';
+  }
+
+  /// The key an entry written before keys existed would have had.
+  static String deriveKey(String name) {
+    final slug = _slug(name);
+    return slug.isEmpty ? 'game' : slug;
   }
 }

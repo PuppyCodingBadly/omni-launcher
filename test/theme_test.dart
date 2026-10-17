@@ -465,6 +465,10 @@ void main() {
 
       expect(tileArtwork(), findsNothing);
       expect(find.text('A'), findsOneWidget);
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
 
     testWidgets('the picker reports a failed pick and stays usable', (tester) async {
@@ -574,6 +578,8 @@ void main() {
       dir = Directory.systemTemp.createTempSync('omni-theme');
       configPath = '${dir.path}/config.json';
       controller = LibraryController(configPath: configPath, config: AppConfig());
+      // Notices expire on a timer; a live controller must not outlive the test.
+      addTearDown(controller.dispose);
     });
 
     tearDown(() => dir.deleteSync(recursive: true));
@@ -683,6 +689,10 @@ void main() {
       expect(notice.left, greaterThan(counts.right));
       expect(notice.right, greaterThan(1500));
       expect(tester.takeException(), isNull);
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
 
     testWidgets('the accent swatches switch the accent and mark the active one', (

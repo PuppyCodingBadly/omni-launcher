@@ -6,6 +6,18 @@ import 'package:omni_launcher/src/plugins/zip.dart';
 
 import 'zip_fixture.dart';
 
+/// Whether this host can run python3, so a test that needs it is a visible
+/// skip rather than a silent pass.
+final bool hasPython3 = _detectPython3();
+
+bool _detectPython3() {
+  try {
+    return Process.runSync('python3', ['--version']).exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
+}
+
 void main() {
   late Directory dir;
   late String target;
@@ -40,33 +52,32 @@ void main() {
     expect(File('$target/plugin.json').readAsStringSync(), '{}');
   });
 
-  test('an archive made elsewhere unpacks', () async {
-    // The reader is shown a real archive, not one this file wrote: python3's
-    // zipfile decides the layout, so a misunderstanding of the format cannot
-    // cancel itself out.
-    final script = '''
+  test(
+    'an archive made elsewhere unpacks',
+    () async {
+      // The reader is shown a real archive, not one this file wrote: python3's
+      // zipfile decides the layout, so a misunderstanding of the format cannot
+      // cancel itself out.
+      final script = '''
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as archive:
     archive.writestr('plugin.json', '{"id":"outside"}')
     archive.writestr('nested/dir/run.py', 'print("outside")\\n')
 ''';
-    final built = '${dir.path}/outside.zip';
-    final ProcessResult result;
-    try {
-      result = await Process.run('python3', ['-c', script, built]);
-    } on ProcessException {
-      return; // no python3 here: the fixtures above still cover the reader
-    }
-    expect(result.exitCode, 0, reason: '${result.stderr}');
+      final built = '${dir.path}/outside.zip';
+      final result = await Process.run('python3', ['-c', script, built]);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
 
-    unpackZip(File(built).readAsBytesSync(), target);
+      unpackZip(File(built).readAsBytesSync(), target);
 
-    expect(File('$target/plugin.json').readAsStringSync(), '{"id":"outside"}');
-    expect(
-      File('$target/nested/dir/run.py').readAsStringSync(),
-      'print("outside")\n',
-    );
-  });
+      expect(File('$target/plugin.json').readAsStringSync(), '{"id":"outside"}');
+      expect(
+        File('$target/nested/dir/run.py').readAsStringSync(),
+        'print("outside")\n',
+      );
+    },
+    skip: !hasPython3 ? 'no python3 on this host' : false,
+  );
 
   test('a file that climbs out of the folder is refused', () {
     expect(
@@ -111,6 +122,31 @@ with zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as archive:
     final big = 'x' * (maxPluginBytes + 1);
     expect(
       () => unpackZip(archive([Entry('plugin.json', big)]), target),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('a bomb that lies about its size is refused before it inflates', () {
+    // A few kilobytes of deflate claiming to hold 100 bytes, actually holding
+    // twice the limit: the inflater is cut at the claim, so the check never
+    // sees more than a slice of it.
+    final bomb = 'x' * (maxPluginBytes * 2);
+    expect(
+      () => unpackZip(
+        archive([Entry('plugin.json', bomb, declaredSize: 100)]),
+        target,
+      ),
+      throwsA(isA<FormatException>()),
+    );
+    expect(File('$target/plugin.json').existsSync(), isFalse);
+  });
+
+  test('a stored file that is not the size it claims is refused', () {
+    expect(
+      () => unpackZip(
+        archive([Entry('plugin.json', '{}', method: 0, declaredSize: 100)]),
+        target,
+      ),
       throwsA(isA<FormatException>()),
     );
   });

@@ -47,19 +47,20 @@ finish-args:
   - --filesystem=~/.var/app/com.heroicgameslauncher.hgl:ro
   - --filesystem=~/.var/app/io.github.Faugus.faugus-launcher:ro
   # The desktop entries that advertise games, and the folders AppImages are
-  # looked for in by default (those need write access: an AppImage that is not
-  # executable yet is made so).
+  # looked for in by default: read-only, because an AppImage that is not
+  # executable yet is chmodded on the host (see Launcher.ensureExecutable,
+  # which goes through flatpak-spawn --host).
   - --filesystem=~/.local/share/applications:ro
-  - --filesystem=~/AppImages
-  - --filesystem=~/Applications
-  - --filesystem=~/AppImage
-  - --filesystem=~/Games
-  - --filesystem=~/Downloads
-  - --filesystem=~/.local/bin
+  - --filesystem=~/AppImages:ro
+  - --filesystem=~/Applications:ro
+  - --filesystem=~/AppImage:ro
+  - --filesystem=~/Games:ro
+  - --filesystem=~/Downloads:ro
+  - --filesystem=~/.local/bin:ro
   # Steam libraries and AppImages on other drives, and one of the default
   # AppImage folders.
-  - --filesystem=/mnt
-  - --filesystem=/run/media
+  - --filesystem=/mnt:ro
+  - --filesystem=/run/media:ro
   - --filesystem=/opt:ro
   # The host's own desktop entries and icons, which is where the games that
   # are not flatpaks advertise themselves.

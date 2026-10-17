@@ -1,26 +1,35 @@
+import 'dart:convert';
 import 'dart:io';
 
 import '../host.dart';
 
 /// Run a command and return stdout, or the empty string on any failure.
+///
+/// `Process.start` rather than `Process.run`, because a timeout has to kill
+/// the child: a timed-out `Process.run` keeps it running.
 Future<String> runCapture(
   List<String> argv, {
   Duration timeout = const Duration(seconds: 10),
 }) async {
   try {
     final host = Host.command(argv);
-    final result = await Process.run(host.first, host.sublist(1)).timeout(timeout);
-    if (result.exitCode != 0) return '';
-    return result.stdout is String ? result.stdout as String : '';
+    final process = await Process.start(host.first, host.sublist(1));
+    final out = StringBuffer();
+    final reading = process.stdout.transform(utf8.decoder).forEach(out.write);
+    // stderr is drained rather than read, so a chatty command cannot stall on
+    // a full pipe.
+    final draining = process.stderr.drain<void>();
+    final code = await process.exitCode.timeout(timeout, onTimeout: () {
+      process.kill(ProcessSignal.sigkill);
+      return -1;
+    });
+    if (code != 0) return '';
+    await reading;
+    await draining;
+    return out.toString();
   } on ProcessException {
     return '';
-  } on TimeoutException {
-    return '';
   }
-}
-
-class TimeoutException implements Exception {
-  const TimeoutException();
 }
 
 /// Fields of `/proc/<pid>/stat` from the state field onwards, or null when the

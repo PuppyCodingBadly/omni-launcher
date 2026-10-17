@@ -6,7 +6,8 @@
       "description": "How long the game is: main story, main + extra and completionist, from howlongtobeat.com.",
       "author": "PuppyCodingBadly",
       "version": 1,
-      "file": "howlongtobeat.zip"
+      "file": "howlongtobeat.zip",
+      "sha256": "e9d268c7493479e1cd0a849cf17d9f48ec8ae5f2ea105a6b0ff7dbacfc17ddfb"
     }
   ]
 }

@@ -46,11 +46,15 @@ void main() {
   test('touch never moves time backwards and skips the write', () {
     store.begin('steam:1', start);
     store.touch('steam:1', start.add(const Duration(minutes: 20)));
-    final before = File(path).lastModifiedSync();
+    final before = File(path).readAsBytesSync();
     store.touch('steam:1', start.add(const Duration(minutes: 5)));
     store.touch('steam:1', start.add(const Duration(minutes: 20)));
     expect(store.totalFor('steam:1'), const Duration(minutes: 20));
-    expect(File(path).lastModifiedSync(), before);
+    // No rewrite happened: the file still holds exactly the earlier bytes.
+    expect(File(path).readAsBytesSync(), before);
+    final reopened = PlaytimeStore(path: path);
+    expect(reopened.isOpen('steam:1'), isTrue);
+    expect(reopened.totalFor('steam:1'), const Duration(minutes: 20));
   });
 
   test('a session left open by a crash closes at the last tick', () {
@@ -112,6 +116,25 @@ void main() {
     expect(loaded.totalFor('steam:3'), const Duration(seconds: 120));
     expect(loaded.totalFor('steam:4'), Duration.zero);
     expect(loaded.lastPlayedFor('steam:4'), isNull);
+  });
+
+  test('a pre-version file without a version field still loads', () {
+    File(path).writeAsStringSync(
+      jsonEncode({
+        'steam:1': {'total': 60, 'played': start.millisecondsSinceEpoch},
+      }),
+    );
+    final loaded = PlaytimeStore(path: path);
+    expect(loaded.totalFor('steam:1'), const Duration(minutes: 1));
+    expect(loaded.lastPlayedFor('steam:1'), start);
+  });
+
+  test('saving writes a schema version and leaves no temporary file', () {
+    store.begin('steam:1', start);
+    final saved = jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
+    expect(saved['version'], 1);
+    expect(saved['steam:1'], isA<Map>());
+    expect(File('$path.tmp').existsSync(), isFalse);
   });
 
   test('a missing file starts empty and the first session creates it', () {

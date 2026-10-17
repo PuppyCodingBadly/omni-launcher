@@ -284,6 +284,10 @@ void main() {
 
       expect(AppConfig.load(configPath).nameOverrides, {alpha.id: 'Beta'});
       expect(controller.games.single.name, 'Beta');
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
   });
 
@@ -342,6 +346,10 @@ void main() {
       expect(AppConfig.load(configPath).nameOverrides, {alpha.id: 'Beta'});
       expect(controller.games.single.name, 'Beta');
       expect(controller.notice, 'Renamed to Beta');
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
   });
 }

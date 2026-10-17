@@ -33,16 +33,16 @@ String _stem(String name) => name.endsWith('.desktop')
     : name;
 
 /// Identity of the game behind the entry, so other sources can win.
-String? _dedupeKey(Map<String, String> entry) {
+Future<String?> _dedupeKey(Map<String, String> entry) async {
   final execLine = entry['Exec'] ?? '';
   final match = _steamRunGame.firstMatch(execLine);
   if (match != null) return 'steam:${match.group(1)}';
   for (final token in desktopExecArgv(execLine)) {
     if (!token.startsWith('/')) continue;
     final file = File(token);
-    if (!file.existsSync()) continue;
+    if (!await file.exists()) continue;
     try {
-      return 'path:${file.resolveSymbolicLinksSync()}';
+      return 'path:${await file.resolveSymbolicLinks()}';
     } on FileSystemException {
       return 'path:$token';
     }
@@ -58,10 +58,10 @@ class DesktopSource extends GameSource {
   @override
   Future<List<Game>> discover(AppConfig cfg) async {
     final games = <Game>[];
-    for (final file in iterDesktopFiles(_desktopDirs)) {
+    for (final file in await iterDesktopFiles(_desktopDirs)) {
       final name = file.path.split('/').last;
       if (_isLauncherEntry(name) || isFlatpakExport(file.path)) continue;
-      final entry = readDesktopFile(file.path);
+      final entry = await readDesktopFile(file.path);
       if (entry.isEmpty || !desktopCategories(entry).contains('Game')) continue;
       if (_isTrue(entry, 'NoDisplay') ||
           _isTrue(entry, 'Hidden') ||
@@ -72,11 +72,13 @@ class DesktopSource extends GameSource {
       if (command.isEmpty) continue;
       final icon = (entry['Icon'] ?? '').isEmpty ? null : entry['Icon'];
       var iconIsName = true;
-      if (icon != null && icon.startsWith('/') && File(icon).existsSync()) {
+      if (icon != null &&
+          icon.startsWith('/') &&
+          await File(icon).exists()) {
         iconIsName = false;
       }
       final extra = <String, Object?>{};
-      final dedupe = _dedupeKey(entry);
+      final dedupe = await _dedupeKey(entry);
       if (dedupe != null) extra['dedupe'] = dedupe;
       games.add(
         Game(

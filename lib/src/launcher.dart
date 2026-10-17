@@ -31,6 +31,9 @@ class Launcher {
   }
 
   /// AppImages downloaded through a browser lose their exec bit.
+  ///
+  /// The chmod runs on the host: the sandbox's own view of the file may be a
+  /// read-only mount.
   static void ensureExecutable(String program, {String? cwd}) {
     final path = _programPath(program, cwd);
     if (path == null) return;
@@ -39,7 +42,8 @@ class Launcher {
     final mode = file.statSync().mode;
     if (mode & 0x49 != 0) return; // any of the three exec bits
     try {
-      if (Process.runSync('chmod', ['+x', path]).exitCode == 0) {
+      final host = Host.command(['chmod', '+x', path]);
+      if (Process.runSync(host.first, host.sublist(1)).exitCode == 0) {
         log('chmod +x $path');
       }
     } on ProcessException {
@@ -47,10 +51,38 @@ class Launcher {
     }
   }
 
+  /// [command] with a leading `~` (or `~/`) expanded to the host's home, and
+  /// `$VAR`/`${VAR}` replaced from the environment.
+  ///
+  /// The launch line quotes every word and a shell does not expand either
+  /// inside quotes, so the expansion has to happen here, before quoting. A
+  /// variable that is not set stays as written: the command still reaches the
+  /// shell exactly as the user typed it, rather than losing the text.
+  static List<String> expandPaths(List<String> command) => [
+    for (final word in command) _expandWord(word),
+  ];
+
+  static String _expandWord(String word) {
+    var expanded = word;
+    if (expanded == '~') {
+      expanded = AppPaths.home;
+    } else if (expanded.startsWith('~/')) {
+      expanded = '${AppPaths.home}${expanded.substring(1)}';
+    }
+    return expanded.replaceAllMapped(
+      RegExp(r'\$(?:([A-Za-z_]\w*)|\{([A-Za-z_]\w*)\})'),
+      (match) {
+        final name = match.group(1) ?? match.group(2)!;
+        return Platform.environment[name] ?? match.group(0)!;
+      },
+    );
+  }
+
   /// Where [program] lives, or `null` when that cannot be told from here.
   ///
-  /// A bare name is looked up on `PATH`, and `~`/`$VAR` are expanded by the
-  /// shell rather than by us, so neither has a path of its own.
+  /// A bare name is looked up on `PATH`. `~` and defined `$VAR`s are expanded
+  /// by [expandPaths] before a launch gets here; an unset variable does not
+  /// have a path of its own either.
   static String? _programPath(String program, String? cwd) {
     if (!program.contains('/')) return null;
     if (program.startsWith('~') || program.contains(r'$')) return null;
@@ -73,7 +105,8 @@ class Launcher {
     if (program.isEmpty) return null;
     if (program.contains('/')) {
       final path = _programPath(program, cwd);
-      if (path == null) return program; // the shell expands this one itself
+      // No path to check: pass it through as written.
+      if (path == null) return program;
       return Host.runnable(path) ? path : null;
     }
     // Without a PATH the shell falls back to its own default, which we cannot
@@ -88,13 +121,14 @@ class Launcher {
       throw StateError('${game.name}: no launch command known');
     }
     final cwd = game.cwd != null && Directory(game.cwd!).existsSync() ? game.cwd : null;
-    ensureExecutable(game.command.first, cwd: cwd);
-    if (resolveProgram(game.command, cwd: cwd) == null) {
+    final command = expandPaths(game.command);
+    ensureExecutable(command.first, cwd: cwd);
+    if (resolveProgram(command, cwd: cwd) == null) {
       throw StateError('${game.name}: command not found: ${game.command.first}');
     }
     AppPaths.ensureDirs();
     // `exec` keeps the game's pid, the redirection keeps its output in the log.
-    final script = 'exec ${quoteCommand(game.command)} >> ${quoteCommand([logPath])} 2>&1';
+    final script = 'exec ${quoteCommand(command)} >> ${quoteCommand([logPath])} 2>&1';
     final host = Host.command(['sh', '-c', script]);
     final process = await Process.start(
       host.first,

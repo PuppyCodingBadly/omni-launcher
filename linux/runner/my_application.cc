@@ -11,6 +11,7 @@ struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
   FlMethodChannel* theme_channel;
+  FlMethodChannel* window_channel;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -43,8 +44,52 @@ static void theme_method_call_cb(FlMethodChannel* channel,
   fl_method_call_respond_not_implemented(method_call, nullptr);
 }
 
-static void theme_channel_view_destroy(gpointer data) {
+// The channel's user_data (view or window) is released with the channel.
+static void channel_user_data_destroy(gpointer data) {
   g_object_unref(data);
+}
+
+// Dart sends sizes as doubles; GTK wants ints.
+static gint fl_value_as_int(FlValue* value) {
+  return fl_value_get_type(value) == FL_VALUE_TYPE_INT
+             ? (gint)fl_value_get_int(value)
+             : (gint)fl_value_get_float(value);
+}
+
+// Window size channel: Dart restores the size it remembered at startup and
+// could ask for the current one before saving it again.
+static void window_method_call_cb(FlMethodChannel* channel,
+                                  FlMethodCall* method_call,
+                                  gpointer user_data) {
+  GtkWindow* window = GTK_WINDOW(user_data);
+  const gchar* name = fl_method_call_get_name(method_call);
+  if (g_strcmp0(name, "getSize") == 0) {
+    gint width = 0, height = 0;
+    gtk_window_get_size(window, &width, &height);
+    g_autoptr(FlValue) result = fl_value_new_map();
+    fl_value_set_string_take(result, "width", fl_value_new_int(width));
+    fl_value_set_string_take(result, "height", fl_value_new_int(height));
+    fl_method_call_respond_success(method_call, result, nullptr);
+    return;
+  }
+  if (g_strcmp0(name, "setSize") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    if (fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* width_value = fl_value_lookup_string(args, "width");
+      FlValue* height_value = fl_value_lookup_string(args, "height");
+      if (width_value != nullptr && height_value != nullptr) {
+        gint width = fl_value_as_int(width_value);
+        gint height = fl_value_as_int(height_value);
+        // Resize now, and remember it as the default for a window that has
+        // not been resized yet.
+        gtk_window_set_default_size(window, width, height);
+        gtk_window_resize(window, width, height);
+        fl_method_call_respond_success(method_call, nullptr, nullptr);
+        return;
+      }
+    }
+  }
+  fl_method_call_respond_not_implemented(method_call, nullptr);
 }
 
 // Implements GApplication::activate.
@@ -105,7 +150,13 @@ static void my_application_activate(GApplication* application) {
       "omni_launcher/theme", FL_METHOD_CODEC(fl_standard_method_codec_new()));
   fl_method_channel_set_method_call_handler(
       self->theme_channel, theme_method_call_cb, g_object_ref(view),
-      theme_channel_view_destroy);
+      channel_user_data_destroy);
+  self->window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "omni_launcher/window", FL_METHOD_CODEC(fl_standard_method_codec_new()));
+  fl_method_channel_set_method_call_handler(
+      self->window_channel, window_method_call_cb, g_object_ref(window),
+      channel_user_data_destroy);
 
   // Show the window when Flutter renders.
   // Requires the view to be realized so we can start rendering.
@@ -162,6 +213,7 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->theme_channel);
+  g_clear_object(&self->window_channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

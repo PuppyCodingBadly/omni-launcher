@@ -159,6 +159,10 @@ class PlaytimeStore {
     if (changed) _save();
   }
 
+  /// Schema version of the written file. A missing `version` is version 1;
+  /// bump only together with a migration in [_load].
+  static const int schemaVersion = 1;
+
   void _load() {
     final file = File(_path);
     if (!file.existsSync()) return;
@@ -173,6 +177,7 @@ class PlaytimeStore {
       return;
     }
     for (final entry in decoded.entries) {
+      if (entry.key == 'version') continue;
       final value = entry.value;
       if (value is! Map) continue;
       final playtime = GamePlaytime.fromJson(value.cast<String, Object?>());
@@ -184,10 +189,15 @@ class PlaytimeStore {
     try {
       final file = File(_path);
       file.parent.createSync(recursive: true);
-      final payload = {
+      final payload = <String, Object?>{
+        'version': schemaVersion,
         for (final entry in _entries.entries) entry.key: entry.value.toJson(),
       };
-      file.writeAsStringSync(jsonEncode(payload));
+      // Through a sibling file and a rename: a crash halfway through writing
+      // must not leave a half written history behind.
+      final temporary = File('$_path.tmp');
+      temporary.writeAsStringSync(jsonEncode(payload));
+      temporary.renameSync(_path);
     } on FileSystemException {
       // Playtime is history, never a reason to fail a launch.
     }

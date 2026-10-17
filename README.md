@@ -59,7 +59,7 @@ AppImage folders, hidden games and hand-added games.
 
 ```sh
 flatpak install --user --from \
-  https://github.com/PuppyCodingBadly/OmniLauncher/releases/latest/download/io.github.PuppyCodingBadly.OmniLauncher.flatpakref
+  https://github.com/PuppyCodingBadly/omni-launcher/releases/latest/download/io.github.PuppyCodingBadly.OmniLauncher.flatpakref
 ```
 
 That installs from the project's flatpak repository, so `flatpak update` picks
@@ -77,7 +77,7 @@ pkg-config, libgtk-3-dev). On an immutable distribution, build inside a
 container that has those:
 
 ```sh
-git clone https://github.com/PuppyCodingBadly/OmniLauncher.git
+git clone https://github.com/PuppyCodingBadly/omni-launcher.git
 cd omni-launcher
 flutter build linux --release
 ./dev.sh              # runs the build from this checkout, nothing installed
@@ -92,8 +92,13 @@ checkout is touched.
 ## Use
 
 Launch "Omni Launcher" from your app grid. Click a tile to select it, double
-click (or the Play button on hover) to start the game. `Ctrl+F` search,
-`Ctrl+R` rescan, `Esc` close the details panel.
+click (or the Play button on hover) to start the game; with a tile focused,
+`Enter` launches it and `Space` selects it. `Ctrl+F` search, `Ctrl+R` rescan,
+`Esc` close the details panel.
+
+The star in a game's detail panel pins it as a favorite: favorites sort first
+on the wall and keep a star on their cover. The same pin is in each tile's
+actions menu.
 
 The sidebar filters by source and folds to an icon rail with the chevron in its
 header: the same filters, each with its label and count in the tooltip. It
@@ -214,7 +219,7 @@ detail panel, with the button that asks it about the game you have selected.
 and the bin beside it removes the plugin's folder. The catalogue is read from
 
 ```
-https://raw.githubusercontent.com/PuppyCodingBadly/OmniLauncher/main/plugins/index.json
+https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/plugins/index.json
 ```
 
 and each entry names a `.zip` beside it, so the list and the archives it points
@@ -273,8 +278,8 @@ The permissions it asks for, and why:
 | `~/.steam:ro`, `~/.local/share/Steam:ro`, `~/.config/lutris:ro`, `~/.local/share/lutris:ro`, `~/.config/heroic:ro`, `~/.config/legendary:ro`, `~/.config/nile:ro`, `~/.local/share/faugus-launcher:ro`, `~/.local/share/com.epicgames.eglv2:ro` | the launchers whose libraries it reads — read-only, because a game is started on the host, not from in here |
 | `~/.var/app/{com.valvesoftware.Steam,net.lutris.Lutris,com.heroicgameslauncher.hgl,io.github.Faugus.faugus-launcher}:ro` | the same launchers, installed as flatpaks |
 | `~/.local/share/applications:ro` | the desktop entries that advertise games |
-| `~/AppImages`, `~/Applications`, `~/AppImage`, `~/Games`, `~/Downloads`, `~/.local/bin` | the folders AppImages are looked for in by default, writable because an AppImage that is not executable yet is made so |
-| `/mnt`, `/run/media` | Steam libraries and AppImage folders on other drives |
+| `~/AppImages:ro`, `~/Applications:ro`, `~/AppImage:ro`, `~/Games:ro`, `~/Downloads:ro`, `~/.local/bin:ro` | the folders AppImages are looked for in by default — read-only, because an AppImage that is not executable yet is chmodded on the host side |
+| `/mnt:ro`, `/run/media:ro` | Steam libraries and AppImage folders on other drives |
 | `/opt:ro` | the last of the default AppImage folders |
 | `host-os:ro` | the host's own desktop entries and icons, where the games that are not flatpaks advertise themselves |
 | `--talk-name=org.freedesktop.Flatpak` | launching a game means running the host's `steam`/`flatpak`/`xdg-open`/`lutris` through `flatpak-spawn --host` |
@@ -284,6 +289,11 @@ The permissions it asks for, and why:
 Not `--filesystem=home`: an AppImage folder outside the list above is not
 reachable from inside the flatpak, which is the price of asking for the
 narrowest set of paths that still finds everything a default install has.
+
+One honest caveat: `--talk-name=org.freedesktop.Flatpak` plus
+`flatpak-spawn --host` means the sandbox is filesystem namespacing, not a
+security boundary for what the launcher deliberately runs — a game, a plugin,
+or the AppImage it just chmodded all execute on the host as you.
 
 Sharing it with someone else: send them the `.flatpak` file, serve
 `flatpak/repo` over the network and hand over a `.flatpakref` whose `Url=`

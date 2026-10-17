@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,19 +21,37 @@ class DetailPanel extends StatelessWidget {
     super.key,
     required this.controller,
     required this.game,
+    this.width = defaultWidth,
   });
 
-  static const double width = 360;
+  /// The width the panel wants when the window has room for it.
+  static const double defaultWidth = 360;
+
+  /// The panel never takes more than this fraction of the room it is offered,
+  /// so a small window keeps the wall wider than the panel.
+  static const double _widthFraction = 0.42;
 
   final LibraryController controller;
   final Game game;
 
+  /// The width to use when there is room for it; a narrow window shrinks the
+  /// panel below this on its own, and the page may hand a smaller one in.
+  final double width;
+
   @override
   Widget build(BuildContext context) {
     final hidden = controller.config.isHidden(game.id);
+    final favorite = controller.isFavorite(game.id);
     final artwork = controller.covers.resolve(game);
+    // The page's row lets the panel pick its own width, so the room a narrow
+    // window offers is read from the MediaQuery rather than the constraints;
+    // the page can also hand a smaller [width] in when it knows better.
+    final resolvedWidth = math.min(
+      width,
+      MediaQuery.sizeOf(context).width * _widthFraction,
+    );
     return Container(
-      width: width,
+      width: resolvedWidth,
       color: context.palette.sidebar,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -40,6 +59,15 @@ class DetailPanel extends StatelessWidget {
           Row(
             children: [
               const Spacer(),
+              IconButton(
+                tooltip: favorite ? 'Unpin favorite' : 'Pin as favorite',
+                icon: Icon(
+                  favorite ? Icons.star_rounded : Icons.star_border_rounded,
+                  size: 20,
+                  color: favorite ? context.palette.accent : context.palette.textDim,
+                ),
+                onPressed: () => controller.toggleFavorite(game.id),
+              ),
               _actionsMenu(context, hidden),
               Padding(
                 padding: const EdgeInsets.only(right: 6),
@@ -214,6 +242,7 @@ class DetailPanel extends StatelessWidget {
   }
 
   Widget _preview(BuildContext context, Artwork artwork) {
+    final palette = context.palette;
     final path = artwork.kind == ArtworkKind.cover
         ? artwork.value
         : (artwork.kind == ArtworkKind.icon
@@ -227,24 +256,74 @@ class DetailPanel extends StatelessWidget {
         // The poster's own shape: a wide box would crop the art the tile shows
         // (and a square one is what this launcher just got rid of).
         aspectRatio: 2 / 3,
-        child: Container(
-          color: context.palette.surface,
-          child: path == null
-              ? Center(
-                  child: Text(
-                    game.name.isEmpty ? '?' : game.name.substring(0, 1).toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 72,
-                      fontWeight: FontWeight.w800,
-                      color: context.palette.previewLetter,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final dpr = MediaQuery.devicePixelRatioOf(context);
+            return Container(
+              color: palette.surface,
+              child: path == null
+                  // The panel's heading names the game already; the initial
+                  // would only repeat it.
+                  ? ExcludeSemantics(
+                      child: Center(
+                        child: Text(
+                          game.name.isEmpty
+                              ? '?'
+                              : game.name.substring(0, 1).toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 72,
+                            fontWeight: FontWeight.w800,
+                            color: palette.previewLetter,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.file(
+                          File(path),
+                          fit: BoxFit.cover,
+                          // Decode at the pixels the preview shows, like the
+                          // tile does.
+                          cacheWidth: (constraints.maxWidth * dpr).round(),
+                          cacheHeight: (constraints.maxHeight * dpr).round(),
+                          semanticLabel: 'Cover art for ${game.name}',
+                          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                            // Artwork fades in instead of popping.
+                            if (wasSynchronouslyLoaded) return child;
+                            return AnimatedOpacity(
+                              opacity: frame == null ? 0 : 1,
+                              duration: const Duration(milliseconds: 150),
+                              curve: Curves.easeOutCubic,
+                              child: child,
+                            );
+                          },
+                          errorBuilder: (context, error, stack) =>
+                              const SizedBox.shrink(),
+                        ),
+                        // The art settles into the panel's surface at the
+                        // bottom, so the name and chips under a busy cover
+                        // keep their footing.
+                        IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  palette.surface.withValues(alpha: 0),
+                                  palette.surface.withValues(alpha: 0.55),
+                                ],
+                                stops: const [0.55, 1],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                )
-              : Image.file(
-                  File(path),
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stack) => const SizedBox.shrink(),
-                ),
+            );
+          },
         ),
       ),
     );

@@ -161,7 +161,7 @@ void main() {
 
       await controller.launch(game);
 
-      expect(controller.notice, contains('Could not launch'));
+      expect(controller.failure, contains('Could not launch'));
       expect(controller.playtimeOf(game.id), Duration.zero);
       expect(controller.lastPlayedFor(game.id), isNull);
       expect(File(playtimePath).existsSync(), isFalse);
@@ -282,6 +282,10 @@ void main() {
 
       expect(tester.widget<SwitchListTile>(row).value, isFalse);
       expect(AppConfig.load(configPath).closesWithGame(game.id), isFalse);
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
   });
 

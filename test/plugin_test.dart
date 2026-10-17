@@ -18,6 +18,18 @@ import 'package:omni_launcher/src/ui/theme.dart';
 
 import 'zip_fixture.dart';
 
+/// Whether this host can run python3, so a test that needs it is a visible
+/// skip rather than a silent pass.
+final bool hasPython3 = _detectPython3();
+
+bool _detectPython3() {
+  try {
+    return Process.runSync('python3', ['--version']).exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
+}
+
 Game game(String id, String name, SourceKind source) => Game(
   id: id,
   key: id.split(':').last,
@@ -54,6 +66,20 @@ Future<void> settleWhile(WidgetTester tester, bool Function() busy) async {
       () => Future<void>.delayed(const Duration(milliseconds: 5)),
     );
     await tester.pump(const Duration(milliseconds: 20));
+  }
+}
+
+/// The archive's SHA-256, the same way the launcher computes it: the
+/// catalogue's checksum has to be the real one, or the install it lists is
+/// refused for the wrong reason.
+String sha256Of(List<int> bytes) {
+  final folder = Directory.systemTemp.createTempSync('omni-sum');
+  try {
+    final file = File('${folder.path}/archive.zip')..writeAsBytesSync(bytes);
+    final result = Process.runSync('sha256sum', [file.path]);
+    return '${result.stdout}'.split(RegExp(r'\s+')).first;
+  } finally {
+    folder.deleteSync(recursive: true);
   }
 }
 
@@ -96,6 +122,7 @@ UrlReader memoryStore({
           'author': 'Someone',
           'version': version,
           'file': '$id.zip',
+          'sha256': sha256Of(zip),
         },
       ],
     }),
@@ -111,6 +138,7 @@ Future<HttpServer> storeServer({
   int version = 1,
   String description = 'Answers with a fixed time.',
   List<Entry>? files,
+  String? sha256,
 }) async {
   final manifest = jsonEncode({
     'id': id,
@@ -139,6 +167,7 @@ Future<HttpServer> storeServer({
           'author': 'Someone',
           'version': version,
           'file': '$id.zip',
+          'sha256': sha256 ?? sha256Of(zip),
         },
       ],
     }),
@@ -389,6 +418,25 @@ void main() {
       expect(answer.error, contains('did not answer within'));
     });
 
+    test('a process the plugin leaves behind is stopped with it', () async {
+      final marker = '${dir.path}/survivor';
+      // The child outlives the plugin's own timeout by design: only killing
+      // the whole process group keeps it from touching the disk.
+      final plugin = pluginWith(
+        'cat > /dev/null\n(sleep 1; touch "$marker") &\nsleep 30\n',
+      );
+
+      final answer = await runPlugin(
+        plugin,
+        PluginQuery.byName('Foo'),
+        timeout: const Duration(milliseconds: 400),
+      );
+
+      expect(answer.ok, isFalse);
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      expect(File(marker).existsSync(), isFalse);
+    });
+
     test('a plugin that floods its output is stopped', () async {
       final plugin = pluginWith('cat > /dev/null\nyes omni-launcher\n');
 
@@ -592,6 +640,7 @@ void main() {
       expect(entry.author, 'Someone');
       expect(entry.version, 4);
       expect(entry.url.toString(), 'http://127.0.0.1:${server.port}/answer.zip');
+      expect(entry.sha256, matches(RegExp(r'^[0-9a-f]{64}$')));
     });
 
     test('an entry that makes no sense is left out', () async {
@@ -602,9 +651,12 @@ void main() {
           utf8.encode(
             jsonEncode({
               'plugins': [
-                {'name': 'No id', 'file': 'x.zip'},
-                {'id': 'Not An Id', 'name': 'X', 'file': 'x.zip'},
-                {'id': 'fine', 'name': 'Fine', 'file': 'fine.zip'},
+                {'name': 'No id', 'file': 'x.zip', 'sha256': '0' * 64},
+                {'id': 'Not An Id', 'name': 'X', 'file': 'x.zip', 'sha256': '0' * 64},
+                // An entry without a checksum cannot be verified, so it is
+                // not offered either.
+                {'id': 'no-hash', 'name': 'X', 'file': 'x.zip'},
+                {'id': 'fine', 'name': 'Fine', 'file': 'fine.zip', 'sha256': '0' * 64},
               ],
             }),
           ),
@@ -634,6 +686,86 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('an archive whose checksum does not match the catalogue is refused', () async {
+      final server = await storeServer(
+        id: 'answer',
+        name: 'Answer',
+        sha256: '0' * 64,
+      );
+      final controller = build();
+      addTearDown(controller.dispose);
+
+      await controller.installPlugin(await entryFrom(server));
+
+      expect(controller.failure, contains('checksum'));
+      expect(Directory('${dir.path}/plugins/answer').existsSync(), isFalse);
+      expect(
+        File('${dir.path}/plugins/.answer.new').existsSync(),
+        isFalse,
+      );
+    });
+
+    test('a plain http address away from the loopback is refused', () async {
+      await expectLater(
+        readUrl(Uri.parse('http://example.com/index.json'), limit: 1024),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (error) => error.message,
+            'message',
+            contains('https'),
+          ),
+        ),
+      );
+    });
+
+    test('a redirect to plain http is refused', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        request.response.statusCode = HttpStatus.found;
+        request.response.headers.set(
+          HttpHeaders.locationHeader,
+          'http://example.com/stolen.zip',
+        );
+        await request.response.close();
+      });
+
+      await expectLater(
+        readUrl(
+          Uri.parse('http://127.0.0.1:${server.port}/index.json'),
+          limit: 1024,
+        ),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (error) => error.message,
+            'message',
+            contains('https'),
+          ),
+        ),
+      );
+    });
+
+    test('a redirect on the loopback is followed', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        if (request.uri.path == '/moved.json') {
+          request.response.statusCode = HttpStatus.found;
+          request.response.headers.set(HttpHeaders.locationHeader, '/here.json');
+        } else {
+          request.response.add(utf8.encode('found it'));
+        }
+        await request.response.close();
+      });
+
+      final body = await readUrl(
+        Uri.parse('http://127.0.0.1:${server.port}/moved.json'),
+        limit: 1024,
+      );
+
+      expect(utf8.decode(body), 'found it');
     });
 
     test('installing unpacks the archive into the plugin folder', () async {
@@ -791,6 +923,10 @@ void main() {
       expect(find.text('MAIN STORY'), findsOneWidget);
       expect(find.text('54h 32m'), findsOneWidget);
       expect(find.text('Open the page'), findsOneWidget);
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
 
     testWidgets('the settings page installs what the store offers', (tester) async {
@@ -825,8 +961,15 @@ void main() {
       await tester.ensureVisible(find.text('Install'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Install'));
+      // A store plugin runs unsandboxed, so the install asks first; the
+      // dialog's own Install is the second match, the row's button is still
+      // in the tree behind it.
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Install').last);
       await tester.pump();
       await settleWhile(tester, () => controller.isPluginBusy('beats'));
+      // The dialog's pop animation needs real frames to leave the tree.
+      await tester.pumpAndSettle();
 
       // The plugin is unpacked, and the launcher is already using it.
       expect(File('${dir.path}/plugins/beats/run.sh').existsSync(), isTrue);
@@ -851,6 +994,40 @@ void main() {
         'howlongtobeat',
       ]);
       expect(find.text('Install'), findsOneWidget);
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
+    });
+  });
+
+  group('the answer cache', () {
+    test('is versioned, atomic, and reads the old bare map', () {
+      final dir = Directory.systemTemp.createTempSync('omni-answers');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/answers.json';
+
+      // The first format was the answer map itself, with no envelope.
+      File(path).writeAsStringSync(
+        jsonEncode({
+          'plugin/game': const PluginAnswer(
+            fields: [PluginField(label: 'Main', value: '1h')],
+          ).toJson(),
+        }),
+      );
+      final store = PluginStore(path: path);
+      expect(store.answer('plugin', 'game')?.fields.single.value, '1h');
+
+      store.put(
+        'plugin',
+        'other',
+        const PluginAnswer(fields: [PluginField(label: 'Main', value: '2h')]),
+      );
+      final decoded = jsonDecode(File(path).readAsStringSync()) as Map;
+      expect(decoded['version'], PluginStore.schemaVersion);
+      expect(decoded['answers'], isA<Map>());
+      expect(File('$path.tmp').existsSync(), isFalse);
+      expect(PluginStore(path: path).answer('plugin', 'other')?.fields.single.value, '2h');
     });
   });
 
@@ -880,18 +1057,17 @@ void main() {
       }
     });
 
-    test('the HowLongToBeat plugin is valid python', () async {
-      final ProcessResult result;
-      try {
-        result = await Process.run('python3', [
+    test(
+      'the HowLongToBeat plugin is valid python',
+      () async {
+        final result = await Process.run('python3', [
           '-c',
           'import ast, sys; ast.parse(open(sys.argv[1]).read())',
           'plugins/howlongtobeat/hltb.py',
         ]);
-      } on ProcessException {
-        return; // the plugin needs python3 on the host anyway
-      }
-      expect(result.exitCode, 0, reason: '${result.stderr}');
-    });
+        expect(result.exitCode, 0, reason: '${result.stderr}');
+      },
+      skip: !hasPython3 ? 'no python3 on this host' : false,
+    );
   });
 }
