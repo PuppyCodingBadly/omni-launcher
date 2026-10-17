@@ -38,23 +38,30 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The pin below is checked against the tag's history; a shallow
+          # checkout does not have it.
+          fetch-depth: 0
 
       # The generated manifest builds a pinned commit of the repo, not this
-      # checkout, so a release cut from a tag whose manifest still pins an
-      # older commit would ship the wrong code. Cutting a release means
-      # checking out the tagged commit and regenerating the manifest first:
-      #   flatpak-flutter/flatpak-flutter.py flatpak-flutter.yml
-      # (flatpak-flutter takes no commit argument; it pins whatever the
-      # checkout points at, so run it at the tag and commit the result before
-      # pushing the tag.)
+      # checkout, so a release cut from a tag that does not contain that commit
+      # would ship the wrong code. The manifest cannot pin its own commit —
+      # amending it to name itself changes the hash it would have to name — so
+      # a release is: regenerate the manifest at the code commit, commit that
+      # as part of the release, and tag the commit carrying it. The pin then
+      # names an ancestor of the tag.
       - name: Check the pinned commit
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           PINNED=$(grep -m1 -E '^[[:space:]]+commit:' io.github.PuppyCodingBadly.OmniLauncher.yml | sed -E 's/.*commit:[[:space:]]*//; s/["'"'"']//g')
-          if [ "$PINNED" != "${{ github.sha }}" ]; then
-            echo "Manifest pins $PINNED but this tag is ${{ github.sha }}."
-            echo "Regenerate the manifest at the tagged commit: flatpak-flutter.py flatpak-flutter.yml"
+          if ! git merge-base --is-ancestor "$PINNED" "${{ github.sha }}"; then
+            echo "Manifest pins $PINNED, which is not in this tag's history (${{ github.sha }})."
+            echo "Regenerate the manifest at the code commit and tag the commit that carries it:"
+            echo "  flatpak-flutter.py flatpak-flutter.yml"
             exit 1
+          fi
+          if [ "$PINNED" != "${{ github.sha }}" ]; then
+            echo "Pinning $PINNED, an ancestor of this tag: the manifest cannot name its own commit."
           fi
 
       # The store hands out the zips and the index in plugins/, so they have to

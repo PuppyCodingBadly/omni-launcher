@@ -18,9 +18,10 @@
 # changes are ignored unless they were pushed and the manifest was regenerated
 # at that commit:
 #   flatpak-flutter/flatpak-flutter.py flatpak-flutter.yml
-# Cutting a release likewise requires regenerating the manifest at the tagged
-# commit (and committing the result) before pushing the tag; the CI workflow
-# refuses to build a tag whose pinned commit does not match.
+# Cutting a release likewise means regenerating the manifest at the release
+# commit, committing that, and tagging the commit that carries it; the manifest
+# cannot name its own commit, so the CI workflow only requires the pin to sit in
+# the tag's history.
 set -eu
 
 SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
