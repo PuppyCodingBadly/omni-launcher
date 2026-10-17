@@ -74,7 +74,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/PuppyCodingBadly/omni-launcher.git
-        commit: de0c46b8228ddae8fc4b3fa97b517d99083ae6af
+        commit: 4fc64f68cd4121880252180aea385be25c18a54c
       - generated/sources/pubspec.json
     modules:
       - generated/modules/flutter-sdk-3.47.7.json
