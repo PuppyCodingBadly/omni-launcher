@@ -23,7 +23,20 @@ jobs:
       - name: Analyze
         run: flutter analyze
       - name: Test
-        run: flutter test
+        run: |
+          set +e
+          flutter test --reporter expanded 2>&1 | tee test-output.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # The log itself needs a signed-in reader; a check annotation does
+            # not, so the failing tests are copied there.
+            grep -E '^[0-9]{2}:[0-9]{2} \+[0-9]+ -[0-9]+' test-output.log |
+              tail -20 |
+              while IFS= read -r line; do
+                echo "::error title=Test failure::$line"
+              done
+          fi
+          exit "$status"
       - name: Validate the metainfo
         run: |
           sudo apt-get update
