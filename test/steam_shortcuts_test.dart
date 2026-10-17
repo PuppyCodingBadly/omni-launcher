@@ -197,7 +197,13 @@ void main() {
       final games = await preferSteamShortcuts([game()], [shortcut]);
       expect(games, hasLength(1));
       final result = games.single;
-      expect(result.command, ['/usr/bin/steam', '-applaunch', '$retroDeckUnsignedId']);
+      // The prefix is resolved from the machine (steam on PATH, or the flatpak
+      // when that is the only one installed), so only the launch form is
+      // asserted here.
+      expect(
+        result.command.sublist(result.command.length - 2),
+        ['-applaunch', '$retroDeckUnsignedId'],
+      );
       expect(result.extra['launchedViaSteam'], isTrue);
       expect(result.extra['steamShortcut'], retroDeckUnsignedId);
       // Identity and presentation must not move.

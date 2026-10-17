@@ -334,7 +334,10 @@ void main() {
     });
 
     test('a process is described while it lives and gone afterwards', () async {
-      final process = await Process.start('sh', ['-c', 'sleep 30']);
+      // `sleep` itself, not through a shell: some shells keep the command as
+      // a child and some exec it, and this test is about a process without
+      // children.
+      final process = await Process.start('sleep', ['30']);
       addTearDown(() => process.kill(ProcessSignal.sigkill));
 
       expect(processRunning(process.pid), isTrue);

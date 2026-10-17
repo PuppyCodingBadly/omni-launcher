@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../host.dart';
 import '../model/game.dart';
+import '../util/proc.dart';
 import 'plugin.dart';
 
 /// How long a plugin may take before it is killed.
@@ -204,7 +205,13 @@ Future<void> _killGroup(Process process) async {
   try {
     await Process.run('kill', ['-KILL', '-${process.pid}']);
   } on ProcessException {
-    // No kill(1) on this machine: the plugin itself still has to go.
+    // No kill(1) on this machine: the sweep below still has the plugin.
+  }
+  // The group signal can be missing or refused — a sandbox that renumbered the
+  // pid, a PATH without kill(1) — so the process tree is walked as well.
+  // Children first: once the plugin is gone they are reparented out of reach.
+  for (final pid in descendants(process.pid)) {
+    Process.killPid(pid, ProcessSignal.sigkill);
   }
   process.kill(ProcessSignal.sigkill);
 }
