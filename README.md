@@ -17,8 +17,10 @@ wall first, details on demand.
 | Epic Games Launcher | the native launcher's data root | `xdg-open com.epicgames.launcher://apps/…` |
 | Lutris | `~/.config/lutris/games/*.yml` | `lutris lutris:rungameid/<id>` |
 | Faugus | Faugus' `games.json` (flatpak or native) | `faugus-launcher --game <title>` |
+| Prism Launcher | the `instances/*/instance.cfg` of a native or flatpak install | `prismlauncher -l <instance>` |
+| Bottles | each bottle's `library.yml` (native or flatpak) | `bottles-cli run -b <bottle> -p <program>` |
 | Desktop entries | `*.desktop` with `Categories=Game` outside flatpak exports | `gtk-launch <file>` |
-| By hand | the `manual` list in the config | your command |
+| By hand | the `manual` list in the config | your command, with `~` and `$VAR` expanded |
 
 ## What it does beyond launching
 
@@ -32,6 +34,12 @@ wall first, details on demand.
   launched through Steam, which is what gives them Steam Input and the overlay.
 * **Playtime and last played**, per game. Only time that was actually observed
   is counted, so a launcher that dies mid-game cannot invent hours.
+* **A wall you can sort and walk.** Order it by name, recently played or most
+  played; favorites stay first whichever you pick. Arrow keys or a gamepad's
+  D-pad step one tile sideways and one row up or down, `Enter` (or A) launches
+  the focused tile and `Space` (or B) selects it.
+* **Bulk hide.** The checklist button marks games instead of opening them, and
+  hides every marked one at once.
 * **Recently played**, on a shelf above the wall: the last ten games you
   started, newest first, each with how much and how recently you played it.
   The shelf follows the wall's filters and steps aside while you search.
@@ -46,7 +54,8 @@ wall first, details on demand.
 * **Hide** entries you never launch, **close the launcher with the game** for
   launchers that outlive their game, and add games by hand.
 * **Appearance**: System / Dark / Light, plus an accent colour from the GNOME
-  basic palette. The window's title bar follows the palette too.
+  basic palette. The window's title bar follows the palette too, and the window
+  reopens at the size it was last resized to.
 
 ![Settings](docs/screenshots/settings.jpg)
 
@@ -93,8 +102,19 @@ checkout is touched.
 
 Launch "Omni Launcher" from your app grid. Click a tile to select it, double
 click (or the Play button on hover) to start the game; with a tile focused,
-`Enter` launches it and `Space` selects it. `Ctrl+F` search, `Ctrl+R` rescan,
-`Esc` close the details panel.
+`Enter` (or a gamepad's A) launches it and `Space` (or B) selects it. The arrow
+keys and a D-pad walk the wall, one tile sideways and one row up or down, and
+the tile the keyboard or gamepad is on lifts the way a hovered one does.
+`Ctrl+F` search, `Ctrl+R` rescan, `Esc` close the details panel.
+
+A rescan asked for while one is already running joins it rather than starting a
+second; a source that throws is named in the status bar and the rest of the
+library still arrives.
+
+The sort button in the header orders the wall by name, recently played or most
+played. Whichever is picked, favorites stay in front. The checklist beside it
+is selection mode: taps mark games instead of opening them, and one button
+hides every marked game.
 
 The star in a game's detail panel pins it as a favorite: favorites sort first
 on the wall and keep a star on their cover. The same pin is in each tile's
@@ -115,7 +135,7 @@ section with the button that asks it about this game, and what it answered.
 
 | Path | Contents |
 | --- | --- |
-| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames |
+| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, window size |
 | `~/.cache/omnilauncher-flutter/games.json` | last scan, for an instant start |
 | `~/.cache/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |
@@ -124,8 +144,14 @@ section with the button that asks it about this game, and what it answered.
 | `~/.local/share/omnilauncher-flutter/plugins/` | the plugins themselves, one folder each |
 
 Nothing is uploaded anywhere. The launcher's own network use is cover art:
-Steam's CDN, and SteamGridDB when you set a key. A plugin does whatever its
-author wrote, which is why you get to see what you are running.
+Steam's CDN, and SteamGridDB when you set a key — plus the plugin catalogue and
+any plugin you install from it. A plugin does whatever its author wrote, which
+is why you get to see what you are running.
+
+The config and the scan cache are written through a sibling temporary file and
+a rename, so a crash halfway through writing leaves the previous file intact.
+Both carry a version number, and a file an older build wrote still loads. The
+config is `chmod 600`, because it holds the SteamGridDB key.
 
 The flatpak keeps its files in those same places: it uses the host's XDG
 folders rather than the sandbox's own, so a native build and the flatpak share
@@ -223,7 +249,10 @@ https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/plugins/in
 ```
 
 and each entry names a `.zip` beside it, so the list and the archives it points
-at always come from the same commit. A plugin that is only on your machine —
+at always come from the same commit. Each entry also carries the archive's
+SHA-256: an install refuses an archive that does not match it. The catalogue
+and the archives are fetched over https only — a redirect to plain http is
+refused like the address itself. A plugin that is only on your machine —
 one you wrote, or one you dropped in by hand — is listed under the catalogue as
 *installed here, and not in the list*.
 
@@ -297,10 +326,13 @@ or the AppImage it just chmodded all execute on the host as you.
 
 Sharing it with someone else: send them the `.flatpak` file, serve
 `flatpak/repo` over the network and hand over a `.flatpakref` whose `Url=`
-points at you, or push a `v*` tag, and `.github/workflows/flatpak.yml` builds
+points at you, or push a `v*` tag, and `.github/workflows/flatpak.yml` runs
+`flutter analyze`, `flutter test`, validates the AppStream metadata and checks
+that `plugins/` still matches the sources it was built from before it builds
 the bundle, publishes the repository and the landing page in `site/` to
 `gh-pages`, and attaches the bundle plus the generated `.flatpakref` to the
-release.
+release. A tag whose generated manifest still pins an earlier commit is
+refused, rather than released as the wrong code.
 
 ## License
 
