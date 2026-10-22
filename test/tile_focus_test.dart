@@ -9,6 +9,7 @@ import 'package:omni_launcher/src/model/game.dart';
 import 'package:omni_launcher/src/state/library_controller.dart';
 import 'package:omni_launcher/src/state/playtime_store.dart';
 import 'package:omni_launcher/src/ui/game_tile.dart';
+import 'package:omni_launcher/src/ui/library_page.dart';
 import 'package:omni_launcher/src/ui/theme.dart';
 
 const Game alpha = Game(
@@ -42,7 +43,8 @@ void main() {
 
     setUp(() {
       dir = Directory.systemTemp.createTempSync('omni-tile-focus');
-      File('${dir.path}/games.json').writeAsStringSync(jsonEncode([alpha.toJson()]));
+      File('${dir.path}/games.json')
+          .writeAsStringSync(jsonEncode([alpha.toJson()]));
       controller = _LaunchSpy(
         configPath: '${dir.path}/config.json',
         cachePath: '${dir.path}/games.json',
@@ -155,5 +157,66 @@ void main() {
       await tester.pump();
       expect(controller.selected?.id, alpha.id);
     });
+
+    testWidgets(
+      'an arrow walk past the built viewport scrolls the wall and moves focus',
+      (tester) async {
+        // A wall far taller than the window: the grid builds only the rows
+        // on screen, so the walk below has to bring the destination in.
+        controller.games = [
+          for (var index = 0; index < 40; index++)
+            Game(
+              id: 'flatpak:g$index',
+              key: 'g$index',
+              name: 'Game ${index.toString().padLeft(2, '0')}',
+              source: SourceKind.flatpak,
+              command: const ['true'],
+            ),
+        ];
+
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(900, 600);
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.dark,
+            home: LibraryPage(controller: controller),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final wall = find.descendant(
+          of: find.byType(GridView),
+          matching: find.byType(Scrollable),
+        );
+        expect(wall, findsOneWidget);
+        double offset() => tester.state<ScrollableState>(wall).position.pixels;
+        expect(offset(), 0);
+
+        // Only the first rows exist; the walk goes well past them.
+        final builtBefore = tester
+            .widgetList<GameTile>(find.byType(GameTile))
+            .length;
+
+        for (var step = 0; step < 12; step++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.pumpAndSettle();
+        }
+
+        // The walk reached a tile that was not built when it started...
+        final focused = FocusManager.instance.primaryFocus;
+        expect(focused, isNotNull);
+        final focusedTile = tester
+            .widgetList<GameTile>(find.byType(GameTile))
+            .singleWhere((tile) => identical(tile.focusNode, focused));
+        final focusedIndex = controller.visibleGames.indexWhere(
+          (game) => game.id == focusedTile.game.id,
+        );
+        expect(focusedIndex, greaterThan(builtBefore - 1));
+        // ...and the wall scrolled to bring it in.
+        expect(offset(), greaterThan(0));
+      },
+    );
   });
 }

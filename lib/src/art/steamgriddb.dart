@@ -15,7 +15,9 @@ class SteamGridDb {
     HttpClient? client,
     this.baseUrl = defaultBaseUrl,
     this.userAgent = 'OmniLauncher/1.0',
-  }) : _client = client ?? HttpClient()..connectionTimeout = const Duration(seconds: 10);
+    this.bodyTimeout = const Duration(seconds: 30),
+  }) : _client = client ?? HttpClient()
+         ..connectionTimeout = const Duration(seconds: 10);
 
   static const String defaultBaseUrl = 'https://www.steamgriddb.com/api/v2';
 
@@ -38,9 +40,13 @@ class SteamGridDb {
   /// The most a downloaded image may weigh.
   static const int _maxImageBytes = 16 * 1024 * 1024;
 
-  /// The longest an image body may take; the connection timeout only covers
-  /// the handshake, not a server that drips bytes forever.
-  static const Duration _bodyTimeout = Duration(seconds: 30);
+  /// The most an API answer may weigh; real answers are kilobytes.
+  static const int _maxJsonBytes = 4 * 1024 * 1024;
+
+  /// The longest a response may take — headers and each stretch of body.
+  /// The connection timeout only covers the handshake, not a server that
+  /// connects and then says nothing, or one that drips bytes forever.
+  final Duration bodyTimeout;
   DateTime _lastRequest = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Tail of the queue of requests that are still waiting for their turn.
@@ -50,7 +56,9 @@ class SteamGridDb {
 
   /// Games matching [term], best match first.
   Future<List<SgdbGame>> searchGames(String term) async {
-    final data = await _get('/search/autocomplete/${Uri.encodeComponent(term)}');
+    final data = await _get(
+      '/search/autocomplete/${Uri.encodeComponent(term)}',
+    );
     return data
         .whereType<Map>()
         .map((entry) => SgdbGame.fromJson(entry.cast<String, Object?>()))
@@ -59,10 +67,12 @@ class SteamGridDb {
   }
 
   /// Grids for a Steam app id (no name matching needed).
-  Future<List<SgdbGrid>> gridsForSteamApp(int appId) => _grids('/grids/steam/$appId');
+  Future<List<SgdbGrid>> gridsForSteamApp(int appId) =>
+      _grids('/grids/steam/$appId');
 
   /// Grids for a SteamGridDB game id.
-  Future<List<SgdbGrid>> gridsForGame(int gameId) => _grids('/grids/game/$gameId');
+  Future<List<SgdbGrid>> gridsForGame(int gameId) =>
+      _grids('/grids/game/$gameId');
 
   /// Grids for a game found by name; empty when nothing matches.
   Future<List<SgdbGrid>> gridsForName(String name) async {
@@ -74,12 +84,34 @@ class SteamGridDb {
   /// Download [grid] to [targetPath]; returns the path on success.
   Future<String?> downloadGrid(SgdbGrid grid, String targetPath) async {
     final target = File(targetPath);
-    if (target.existsSync()) return target.path;
+    if (target.existsSync()) {
+      if (target.lengthSync() > 0) return target.path;
+      // A zero or truncated cache file is no artwork; drop it so the grid
+      // is fetched again instead of being shown as a broken image forever.
+      try {
+        target.deleteSync();
+      } on FileSystemException {
+        // Another run of the launcher got there first; a retry refetches.
+      }
+    }
     try {
       final bytes = await _fetchBytes(grid.url);
       if (bytes.isEmpty) return null;
       target.parent.createSync(recursive: true);
-      target.writeAsBytesSync(bytes);
+      // Write to a temp file and rename, so a reader never sees a
+      // half-written image.
+      final temp = File('$targetPath.tmp');
+      try {
+        await temp.writeAsBytes(bytes, flush: true);
+        await temp.rename(targetPath);
+      } on IOException {
+        try {
+          await temp.delete();
+        } on IOException {
+          // The write may have failed before the temp file existed.
+        }
+        return null;
+      }
       return target.path;
     } on IOException {
       return null;
@@ -111,23 +143,27 @@ class SteamGridDb {
     }
     final response = await _request(Uri.parse('$baseUrl$path'));
     if (response.statusCode == 401 || response.statusCode == 403) {
-      await response.drain<void>();
+      await _discard(response);
       throw const SteamGridDbException('SteamGridDB rejected the API key.');
     }
     if (response.statusCode == 404) {
-      await response.drain<void>();
+      await _discard(response);
       return const [];
     }
     if (response.statusCode != 200) {
-      await response.drain<void>();
-      throw SteamGridDbException('SteamGridDB returned HTTP ${response.statusCode}.');
+      await _discard(response);
+      throw SteamGridDbException(
+        'SteamGridDB returned HTTP ${response.statusCode}.',
+      );
     }
     final body = await _readString(response);
     Object? decoded;
     try {
       decoded = jsonDecode(body);
     } on FormatException {
-      throw const SteamGridDbException('SteamGridDB sent an unreadable response.');
+      throw const SteamGridDbException(
+        'SteamGridDB sent an unreadable response.',
+      );
     }
     if (decoded is! Map || decoded['success'] != true) {
       throw const SteamGridDbException('SteamGridDB reported a failure.');
@@ -162,11 +198,15 @@ class SteamGridDb {
   /// Redirects are re-issued by hand, and the key only rides along when the
   /// redirect leads back to SteamGridDB itself: anywhere else gets a plain
   /// request, so a redirect cannot talk the client into leaking the key.
-  Future<HttpClientResponse> _request(Uri uri, {bool authenticate = true}) async {
+  Future<HttpClientResponse> _request(
+    Uri uri, {
+    bool authenticate = true,
+  }) async {
     await _waitForTurn();
     var target = uri;
     var sendKey = authenticate;
-    for (var redirects = 0;; redirects++) {
+    for (var redirects = 0; ; redirects++) {
+      _requireSecure(target);
       final HttpClientResponse response;
       try {
         final request = await _client.getUrl(target);
@@ -174,10 +214,17 @@ class SteamGridDb {
         // host that is not SteamGridDB.
         request.followRedirects = false;
         if (sendKey) {
-          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${apiKey.trim()}');
+          request.headers.set(
+            HttpHeaders.authorizationHeader,
+            'Bearer ${apiKey.trim()}',
+          );
         }
         request.headers.set(HttpHeaders.userAgentHeader, userAgent);
-        response = await request.close();
+        response = await request.close().timeout(bodyTimeout);
+      } on TimeoutException {
+        throw const SteamGridDbException(
+          'SteamGridDB took too long to answer.',
+        );
       } on IOException catch (error) {
         // A host that cannot be reached has to look like every other failure, or
         // it walks past the callers that only handle SteamGridDbException.
@@ -185,12 +232,15 @@ class SteamGridDb {
       }
       if (!_isRedirect(response.statusCode)) return response;
       final location = response.headers.value(HttpHeaders.locationHeader);
-      await response.drain<void>();
+      await _discard(response);
       if (location == null || redirects >= _maxRedirects) {
-        throw const SteamGridDbException('SteamGridDB will not stop redirecting.');
+        throw const SteamGridDbException(
+          'SteamGridDB will not stop redirecting.',
+        );
       }
       target = target.resolve(location);
-      sendKey = target.host == 'www.steamgriddb.com';
+      sendKey =
+          target.scheme == 'https' && target.host == 'www.steamgriddb.com';
     }
   }
 
@@ -210,7 +260,9 @@ class SteamGridDb {
   Future<List<int>> _body(HttpClientResponse response, {int? limit}) async {
     final builder = BytesBuilder(copy: false);
     try {
-      await for (final chunk in response) {
+      // A stream timeout cancels the read; a future timeout would leave the
+      // abandoned response consuming bytes and a connection.
+      await for (final chunk in response.timeout(bodyTimeout)) {
         builder.add(chunk);
         if (limit != null && builder.length > limit) {
           throw SteamGridDbException(
@@ -218,29 +270,47 @@ class SteamGridDb {
           );
         }
       }
+    } on TimeoutException {
+      throw const SteamGridDbException('SteamGridDB took too long to answer.');
     } on IOException catch (error) {
       throw _unreachable(error);
     }
     return builder.takeBytes();
   }
 
-  Future<List<int>> _fetchBytes(String url) async {
-    final response = await _request(Uri.parse(url), authenticate: false);
-    if (response.statusCode != 200) {
-      await response.drain<void>();
-      return const [];
-    }
+  /// Throw away a response body that will not be read, without letting a
+  /// stalled one hang the request.
+  Future<void> _discard(HttpClientResponse response) async {
     try {
-      return await _body(response, limit: _maxImageBytes).timeout(_bodyTimeout);
+      await response.drain<void>().timeout(bodyTimeout);
     } on TimeoutException {
-      throw const SteamGridDbException(
-        'SteamGridDB took too long to send an image.',
-      );
+      throw const SteamGridDbException('SteamGridDB took too long to answer.');
     }
   }
 
-  Future<String> _readString(HttpClientResponse response) async =>
-      utf8.decode(await _body(response), allowMalformed: true);
+  Future<List<int>> _fetchBytes(String url) async {
+    final response = await _request(Uri.parse(url), authenticate: false);
+    if (response.statusCode != 200) {
+      await _discard(response);
+      return const [];
+    }
+    return _body(response, limit: _maxImageBytes);
+  }
+
+  Future<String> _readString(HttpClientResponse response) async => utf8.decode(
+    await _body(response, limit: _maxJsonBytes),
+    allowMalformed: true,
+  );
+
+  /// Refuse a plain-http URL away from this machine: the API key and the art
+  /// it fetches must not travel in clear text. Tests serve loopback over http.
+  static void _requireSecure(Uri uri) {
+    if (uri.scheme == 'https') return;
+    final loopback =
+        uri.host == 'localhost' || uri.host == '127.0.0.1' || uri.host == '::1';
+    if (uri.scheme == 'http' && loopback) return;
+    throw SteamGridDbException('SteamGridDB needs an https address: $uri');
+  }
 
   void close() => _client.close(force: true);
 }
@@ -299,7 +369,9 @@ class SgdbGrid {
     final dot = url.lastIndexOf('.');
     if (dot > 0) {
       final suffix = url.substring(dot).toLowerCase();
-      if (suffix == '.png' || suffix == '.jpg' || suffix == '.jpeg') return suffix;
+      if (suffix == '.png' || suffix == '.jpg' || suffix == '.jpeg') {
+        return suffix;
+      }
     }
     return '.jpg';
   }
@@ -317,7 +389,9 @@ class SgdbGrid {
       height: data['height'] is int ? data['height'] as int : null,
       style: data['style'] as String?,
       mime: data['mime'] as String?,
-      author: data['author'] is Map ? (data['author'] as Map)['name'] as String? : null,
+      author: data['author'] is Map
+          ? (data['author'] as Map)['name'] as String?
+          : null,
     );
   }
 }

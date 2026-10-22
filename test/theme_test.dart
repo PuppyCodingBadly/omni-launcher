@@ -49,8 +49,14 @@ class _Harness extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: controller,
     builder: (context, _) => MaterialApp(
-      theme: AppTheme.themeFor(Brightness.light, controller.config.accent.color),
-      darkTheme: AppTheme.themeFor(Brightness.dark, controller.config.accent.color),
+      theme: AppTheme.themeFor(
+        Brightness.light,
+        controller.config.accent.color,
+      ),
+      darkTheme: AppTheme.themeFor(
+        Brightness.dark,
+        controller.config.accent.color,
+      ),
       themeMode: materialThemeMode(controller.config.themeMode),
       home: Builder(
         builder: (context) => ColoredBox(
@@ -83,11 +89,7 @@ class _AppHarness extends StatelessWidget {
 
 /// A controller that records what the UI asked the artwork layer for.
 class _RecordingController extends LibraryController {
-  _RecordingController({
-    super.configPath,
-    super.cachePath,
-    super.config,
-  });
+  _RecordingController({super.configPath, super.cachePath, super.config});
 
   /// Game ids the tiles asked for a cover.
   final List<String> fetched = <String>[];
@@ -112,7 +114,10 @@ class _RecordingController extends LibraryController {
 double coverHeight(WidgetTester tester) => tester
     .getSize(
       find
-          .descendant(of: find.byType(GameTile), matching: find.byType(AnimatedContainer))
+          .descendant(
+            of: find.byType(GameTile),
+            matching: find.byType(AnimatedContainer),
+          )
           .first,
     )
     .height;
@@ -130,7 +135,11 @@ class _FailingArtController extends LibraryController {
 
   @override
   Future<List<SgdbGrid>> searchArt(Game game) async => const [
-    SgdbGrid(id: 7, url: 'https://cdn.example/grid/7.png', thumb: 'https://cdn.example/thumb/7.png'),
+    SgdbGrid(
+      id: 7,
+      url: 'https://cdn.example/grid/7.png',
+      thumb: 'https://cdn.example/thumb/7.png',
+    ),
   ];
 
   @override
@@ -153,10 +162,8 @@ const Game alphaGame = Game(
 );
 
 /// The artwork image inside the first tile, when it has one.
-Finder tileArtwork() => find.descendant(
-  of: find.byType(GameTile),
-  matching: find.byType(Image),
-);
+Finder tileArtwork() =>
+    find.descendant(of: find.byType(GameTile), matching: find.byType(Image));
 
 Game game(String id, String name, SourceKind source) => Game(
   id: id,
@@ -255,7 +262,14 @@ void main() {
 
     test('lerp moves between the two palettes', () {
       final half = AppPalette.dark.lerp(AppPalette.light, 0.5);
-      expect(half.background, Color.lerp(AppPalette.dark.background, AppPalette.light.background, 0.5));
+      expect(
+        half.background,
+        Color.lerp(
+          AppPalette.dark.background,
+          AppPalette.light.background,
+          0.5,
+        ),
+      );
       expect(half.scrim.length, 3);
       expect(half.shadowHoverAlpha, closeTo(0.325, 1e-9));
       expect(AppPalette.dark.lerp(null, 0.5), AppPalette.dark);
@@ -309,9 +323,15 @@ void main() {
           );
           final theme = AppTheme.themeFor(brightness, entry.value);
           expect(theme.colorScheme.primary, entry.value, reason: reason);
-          expect(theme.scaffoldBackgroundColor, palette.background, reason: reason);
           expect(
-            theme.filledButtonTheme.style?.foregroundColor?.resolve(<WidgetState>{}),
+            theme.scaffoldBackgroundColor,
+            palette.background,
+            reason: reason,
+          );
+          expect(
+            theme.filledButtonTheme.style?.foregroundColor?.resolve(
+              <WidgetState>{},
+            ),
             palette.onAccent,
             reason: reason,
           );
@@ -321,14 +341,26 @@ void main() {
 
     test('a pale accent gets dark button labels', () {
       const yellow = Color(0xFFE5A50A);
-      expect(AppPalette.forMode(Brightness.dark, yellow).onAccent, Colors.black);
-      expect(AppPalette.forMode(Brightness.light, yellow).onAccent, Colors.black);
-      expect(AppPalette.forMode(Brightness.dark, AppPalette.dark.accent).onAccent, Colors.white);
+      expect(
+        AppPalette.forMode(Brightness.dark, yellow).onAccent,
+        Colors.black,
+      );
+      expect(
+        AppPalette.forMode(Brightness.light, yellow).onAccent,
+        Colors.black,
+      );
+      expect(
+        AppPalette.forMode(Brightness.dark, AppPalette.dark.accent).onAccent,
+        Colors.white,
+      );
     });
 
     test('themeFor memoizes per mode and accent', () {
       const blue = Color(0xFF3584E4);
-      expect(AppTheme.themeFor(Brightness.dark, blue), same(AppTheme.themeFor(Brightness.dark, blue)));
+      expect(
+        AppTheme.themeFor(Brightness.dark, blue),
+        same(AppTheme.themeFor(Brightness.dark, blue)),
+      );
       expect(
         AppTheme.themeFor(Brightness.light, blue),
         isNot(same(AppTheme.themeFor(Brightness.dark, blue))),
@@ -380,7 +412,9 @@ void main() {
       dir.deleteSync(recursive: true);
     });
 
-    testWidgets('the wall stays portrait, whatever the window shape', (tester) async {
+    testWidgets('the wall stays portrait, whatever the window shape', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(1600, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -443,14 +477,20 @@ void main() {
       playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
     );
 
-    testWidgets('a tile follows artwork pinned for the same game', (tester) async {
+    testWidgets('a tile follows artwork pinned for the same game', (
+      tester,
+    ) async {
       final art = File('${dir.path}/picked.png')
         ..writeAsBytesSync(base64Decode(onePixelPng));
-      final controller = controllerWith(
-        AppConfig(appimageDirs: const [], artOverrides: {alphaGame.id: art.path}),
-      )
-        ..games = [alphaGame]
-        ..status = LibraryStatus.ready;
+      final controller =
+          controllerWith(
+              AppConfig(
+                appimageDirs: const [],
+                artOverrides: {alphaGame.id: art.path},
+              ),
+            )
+            ..games = [alphaGame]
+            ..status = LibraryStatus.ready;
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_AppHarness(controller: controller));
@@ -471,7 +511,9 @@ void main() {
       controller.notice = null;
     });
 
-    testWidgets('the picker reports a failed pick and stays usable', (tester) async {
+    testWidgets('the picker reports a failed pick and stays usable', (
+      tester,
+    ) async {
       final controller = _FailingArtController(
         configPath: configPath,
         cachePath: cachePath,
@@ -487,7 +529,8 @@ void main() {
             builder: (context) => Scaffold(
               body: Center(
                 child: TextButton(
-                  onPressed: () => showArtPicker(context, controller, alphaGame),
+                  onPressed: () =>
+                      showArtPicker(context, controller, alphaGame),
                   child: const Text('open'),
                 ),
               ),
@@ -515,7 +558,9 @@ void main() {
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
 
-    testWidgets('the picker shows candidates in the portrait cells it pins', (tester) async {
+    testWidgets('the picker shows candidates in the portrait cells it pins', (
+      tester,
+    ) async {
       final controller = _FailingArtController(
         configPath: configPath,
         cachePath: cachePath,
@@ -531,7 +576,8 @@ void main() {
             builder: (context) => Scaffold(
               body: Center(
                 child: TextButton(
-                  onPressed: () => showArtPicker(context, controller, alphaGame),
+                  onPressed: () =>
+                      showArtPicker(context, controller, alphaGame),
                   child: const Text('open'),
                 ),
               ),
@@ -545,7 +591,12 @@ void main() {
       // The cell has the shape the wall draws, so a pick looks like the tile
       // it lands on.
       final cell = tester.getSize(
-        find.descendant(of: find.byType(GridView), matching: find.byType(InkWell)).first,
+        find
+            .descendant(
+              of: find.byType(GridView),
+              matching: find.byType(InkWell),
+            )
+            .first,
       );
       expect(cell.width / cell.height, closeTo(2 / 3, 0.01));
     });
@@ -577,7 +628,10 @@ void main() {
     setUp(() {
       dir = Directory.systemTemp.createTempSync('omni-theme');
       configPath = '${dir.path}/config.json';
-      controller = LibraryController(configPath: configPath, config: AppConfig());
+      controller = LibraryController(
+        configPath: configPath,
+        config: AppConfig(),
+      );
       // Notices expire on a timer; a live controller must not outlive the test.
       addTearDown(controller.dispose);
     });
@@ -610,7 +664,9 @@ void main() {
       expect(probedBackground(tester), AppPalette.dark.background);
     });
 
-    testWidgets('the library follows the controller through the shell', (tester) async {
+    testWidgets('the library follows the controller through the shell', (
+      tester,
+    ) async {
       controller.games = [game('flatpak:alpha', 'Alpha', SourceKind.flatpak)];
       controller.status = LibraryStatus.ready;
       await tester.pumpWidget(_AppHarness(controller: controller));
@@ -632,11 +688,14 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the accent choice reaches the theme through the shell', (tester) async {
+    testWidgets('the accent choice reaches the theme through the shell', (
+      tester,
+    ) async {
       await tester.pumpWidget(_Harness(controller: controller));
       await tester.pumpAndSettle();
 
-      ThemeData shown() => Theme.of(tester.element(find.byKey(const ValueKey('probe'))));
+      ThemeData shown() =>
+          Theme.of(tester.element(find.byKey(const ValueKey('probe'))));
       expect(shown().colorScheme.primary, AppAccent.brand.color);
 
       controller.setAccentColor(AppAccent.teal);
@@ -651,7 +710,9 @@ void main() {
       );
     });
 
-    testWidgets('the status bar survives a long notice in a narrow window', (tester) async {
+    testWidgets('the status bar survives a long notice in a narrow window', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(1000, 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -695,60 +756,80 @@ void main() {
       controller.notice = null;
     });
 
-    testWidgets('the accent swatches switch the accent and mark the active one', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(theme: AppTheme.light, home: SettingsView(controller: controller)),
-      );
+    testWidgets(
+      'the accent swatches switch the accent and mark the active one',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light,
+            home: SettingsView(controller: controller),
+          ),
+        );
 
-      BoxDecoration swatch(String label) => tester
-          .widget<Container>(
-            find.descendant(of: find.byTooltip(label), matching: find.byType(Container)),
-          )
-          .decoration! as BoxDecoration;
+        BoxDecoration swatch(String label) =>
+            tester
+                    .widget<Container>(
+                      find.descendant(
+                        of: find.byTooltip(label),
+                        matching: find.byType(Container),
+                      ),
+                    )
+                    .decoration!
+                as BoxDecoration;
 
-      Finder tick(String label) =>
-          find.descendant(of: find.byTooltip(label), matching: find.byIcon(Icons.check));
+        Finder tick(String label) => find.descendant(
+          of: find.byTooltip(label),
+          matching: find.byIcon(Icons.check),
+        );
 
-      // One circle per choice, in the accent's own colour.
-      for (final accent in AppAccent.values) {
-        expect(swatch(accent.label).color, accent.color, reason: accent.label);
-      }
-      expect(find.text('Accent: Default'), findsOneWidget);
-      expect(tick('Default'), findsOneWidget);
-      expect(tick('Blue'), findsNothing);
-      // The active one is ringed, the others keep a hairline outline.
-      expect((swatch('Default').border! as Border).top.width, 3);
-      expect((swatch('Blue').border! as Border).top.width, 1);
+        // One circle per choice, in the accent's own colour.
+        for (final accent in AppAccent.values) {
+          expect(
+            swatch(accent.label).color,
+            accent.color,
+            reason: accent.label,
+          );
+        }
+        expect(find.text('Accent: Default'), findsOneWidget);
+        expect(tick('Default'), findsOneWidget);
+        expect(tick('Blue'), findsNothing);
+        // The active one is ringed, the others keep a hairline outline.
+        expect((swatch('Default').border! as Border).top.width, 3);
+        expect((swatch('Blue').border! as Border).top.width, 1);
 
-      await tester.tap(find.byTooltip('Blue'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Blue'));
+        await tester.pumpAndSettle();
 
-      expect(controller.config.accent, AppAccent.blue);
-      expect(find.text('Accent: Blue'), findsOneWidget);
-      expect(tick('Blue'), findsOneWidget);
-      expect(tick('Default'), findsNothing);
-      expect((swatch('Blue').border! as Border).top.width, 3);
-      expect(AppConfig.load(configPath).accentColor, 'blue');
-    });
+        expect(controller.config.accent, AppAccent.blue);
+        expect(find.text('Accent: Blue'), findsOneWidget);
+        expect(tick('Blue'), findsOneWidget);
+        expect(tick('Default'), findsNothing);
+        expect((swatch('Blue').border! as Border).top.width, 3);
+        expect(AppConfig.load(configPath).accentColor, 'blue');
+      },
+    );
 
     testWidgets('the swatch ring and tick read in both themes', (tester) async {
       for (final theme in [AppTheme.dark, AppTheme.light]) {
         await tester.pumpWidget(
-          MaterialApp(theme: theme, home: SettingsView(controller: controller)),
+          MaterialApp(
+            theme: theme,
+            home: SettingsView(controller: controller),
+          ),
         );
         // `AnimatedTheme` lerps between the two palettes; wait for it to land.
         await tester.pumpAndSettle();
         final palette = theme.extension<AppPalette>()!;
-        final box = tester
-            .widget<Container>(
-              find.descendant(
-                of: find.byTooltip('Default'),
-                matching: find.byType(Container),
-              ),
-            )
-            .decoration! as BoxDecoration;
+        final box =
+            tester
+                    .widget<Container>(
+                      find.descendant(
+                        of: find.byTooltip('Default'),
+                        matching: find.byType(Container),
+                      ),
+                    )
+                    .decoration!
+                as BoxDecoration;
         expect((box.border! as Border).top.color, palette.text);
         final check = tester.widget<Icon>(
           find.descendant(
@@ -771,27 +852,28 @@ void main() {
       );
 
       final segmented = find.byType(SegmentedButton<AppThemeMode>);
-      expect(
-        tester.widget<SegmentedButton<AppThemeMode>>(segmented).selected,
-        {AppThemeMode.dark},
-      );
+      expect(tester.widget<SegmentedButton<AppThemeMode>>(segmented).selected, {
+        AppThemeMode.dark,
+      });
       expect(find.text('Appearance: Dark'), findsOneWidget);
 
       await tester.tap(find.text('Light'));
       await tester.pumpAndSettle();
 
       expect(controller.config.themeMode, AppThemeMode.light);
-      expect(
-        tester.widget<SegmentedButton<AppThemeMode>>(segmented).selected,
-        {AppThemeMode.light},
-      );
+      expect(tester.widget<SegmentedButton<AppThemeMode>>(segmented).selected, {
+        AppThemeMode.light,
+      });
       expect(find.text('Appearance: Light'), findsOneWidget);
       expect(AppConfig.load(configPath).themeMode, AppThemeMode.light);
     });
 
     testWidgets('the settings switches follow the controller', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(theme: AppTheme.dark, home: SettingsView(controller: controller)),
+        MaterialApp(
+          theme: AppTheme.dark,
+          home: SettingsView(controller: controller),
+        ),
       );
 
       final tile = find.widgetWithText(SwitchListTile, 'Show hidden games');
@@ -808,7 +890,10 @@ void main() {
     testWidgets('removing an AppImage folder drops the row', (tester) async {
       controller.setAppimageDirs(['~/Games', '/opt']);
       await tester.pumpWidget(
-        MaterialApp(theme: AppTheme.dark, home: SettingsView(controller: controller)),
+        MaterialApp(
+          theme: AppTheme.dark,
+          home: SettingsView(controller: controller),
+        ),
       );
 
       await tester.scrollUntilVisible(

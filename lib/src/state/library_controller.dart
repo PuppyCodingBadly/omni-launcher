@@ -36,6 +36,7 @@ class LibraryController extends ChangeNotifier {
     catalogue.UrlReader? pluginReader,
     Duration? pollInterval,
     Duration? noticeDuration,
+    Duration? artSaveDelay,
     List<GameSource>? sources,
   }) : _configPath = configPath ?? AppPaths.configFile,
        _cachePath = cachePath ?? AppPaths.cacheFile,
@@ -44,6 +45,7 @@ class LibraryController extends ChangeNotifier {
        _pluginReader = pluginReader ?? catalogue.readUrl,
        _pollInterval = pollInterval ?? const Duration(seconds: 5),
        _noticeDuration = noticeDuration ?? const Duration(seconds: 6),
+       _artSaveDelay = artSaveDelay ?? const Duration(seconds: 2),
        // The parameter keeps its public name: tests inject sources through it.
        // ignore: prefer_initializing_formals
        _sources = sources,
@@ -76,6 +78,21 @@ class LibraryController extends ChangeNotifier {
   /// How long a [notice] stays before it clears itself. Tests shorten it.
   final Duration _noticeDuration;
 
+  /// How long automatic-artwork config changes accumulate before they are
+  /// written; a scan can add many at once, and each write is the whole file.
+  final Duration _artSaveDelay;
+
+  /// Set by [dispose]: async work still in flight must not notify afterwards.
+  bool _disposed = false;
+
+  /// [notifyListeners], unless the controller was disposed while the work
+  /// that is notifying was still in flight. Synchronous callers keep plain
+  /// `notifyListeners()`; this guard is for the post-`await` paths.
+  void _notify() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
   /// The sources a rescan asks; the ones on this machine, unless a test
   /// handed in a fixed set (mirrors `discoverAll`'s own seam).
   final List<GameSource>? _sources;
@@ -90,7 +107,12 @@ class LibraryController extends ChangeNotifier {
   final CoverStore covers;
 
   /// Artwork fetches in flight, by game id.
-  final Map<String, Future<Artwork?>> _artFetches = <String, Future<Artwork?>>{};
+  final Map<String, Future<Artwork?>> _artFetches =
+      <String, Future<Artwork?>>{};
+
+  /// Debounce for automatic-artwork config writes; see [_scheduleArtSave].
+  Timer? _artSaveTimer;
+  bool _artSavePending = false;
 
   /// What the plugins said, per plugin and game.
   final PluginStore pluginAnswers;
@@ -156,14 +178,15 @@ class LibraryController extends ChangeNotifier {
     _notice = value;
     _noticeTimer?.cancel();
     _noticeTimer = null;
-    if (value == null) return;
+    // After dispose the clear would fire into a dead controller.
+    if (value == null || _disposed) return;
     _noticeTimer = Timer(_noticeDuration, () {
       _noticeTimer = null;
       // A newer notice reschedules instead, so what fires here is only ever
       // the clear for a notice still showing.
       if (_notice == null) return;
       _notice = null;
-      notifyListeners();
+      _notify();
     });
   }
 
@@ -177,18 +200,23 @@ class LibraryController extends ChangeNotifier {
   /// Favourites come first; inside each group the order is [sortMode].
   List<Game> get visibleGames {
     final needle = query.trim().toLowerCase();
+    // One set for the whole pass: [config.favorites] is a list, and the loop
+    // asks once per game.
+    final favoriteIds = config.favorites.toSet();
     final favorites = <Game>[];
     final rest = <Game>[];
     for (final game in games) {
       if (!config.showHidden && config.isHidden(game.id)) continue;
-      if (sourceFilter.isNotEmpty && !sourceFilter.contains(game.source)) continue;
+      if (sourceFilter.isNotEmpty && !sourceFilter.contains(game.source)) {
+        continue;
+      }
       if (needle.isNotEmpty &&
           !game.name.toLowerCase().contains(needle) &&
           !game.id.toLowerCase().contains(needle) &&
           !game.displaySubtitle.toLowerCase().contains(needle)) {
         continue;
       }
-      (isFavorite(game.id) ? favorites : rest).add(game);
+      (favoriteIds.contains(game.id) ? favorites : rest).add(game);
     }
     return [..._ordered(favorites), ..._ordered(rest)];
   }
@@ -221,9 +249,14 @@ class LibraryController extends ChangeNotifier {
   List<Game> _ordered(List<Game> matched) {
     switch (config.sortMode) {
       case 'lastPlayed':
+        // One store lookup per game, memoized for the sort, instead of two
+        // per comparison.
+        final lastPlayed = <String, DateTime?>{
+          for (final game in matched) game.id: playtime.lastPlayedFor(game.id),
+        };
         matched.sort((a, b) {
-          final at = playtime.lastPlayedFor(a.id);
-          final bt = playtime.lastPlayedFor(b.id);
+          final at = lastPlayed[a.id];
+          final bt = lastPlayed[b.id];
           if (at == null) return bt == null ? _byName(a, b) : 1;
           if (bt == null) return -1;
           final byPlayed = bt.compareTo(at);
@@ -231,8 +264,11 @@ class LibraryController extends ChangeNotifier {
         });
         return matched;
       case 'mostPlayed':
+        final totals = <String, Duration>{
+          for (final game in matched) game.id: playtime.totalFor(game.id),
+        };
         matched.sort((a, b) {
-          final byTime = playtime.totalFor(b.id).compareTo(playtime.totalFor(a.id));
+          final byTime = totals[b.id]!.compareTo(totals[a.id]!);
           return byTime != 0 ? byTime : _byName(a, b);
         });
         return matched;
@@ -263,11 +299,12 @@ class LibraryController extends ChangeNotifier {
   ///
   /// Only games still in the library can appear: playtime outlives a game that
   /// was uninstalled or a source that went away, and the history keeps those
-  /// ids. The wall's own rules ([visibleGames]) apply on top, so the shelf
-  /// never offers a cover the wall itself would hide.
-  List<Game> recentlyPlayed({int limit = recentLimit}) {
+  /// ids. The wall's own rules apply on top, so the shelf never offers a cover
+  /// the wall itself would hide: [visible] is the already-computed visible
+  /// list when the caller has one, and [visibleGames] otherwise.
+  List<Game> recentlyPlayed({int limit = recentLimit, List<Game>? visible}) {
     final played = <(DateTime, Game)>[
-      for (final game in visibleGames)
+      for (final game in visible ?? visibleGames)
         if (playtime.lastPlayedFor(game.id) case final at?) (at, game),
     ];
     played.sort((a, b) => b.$1.compareTo(a.$1));
@@ -350,7 +387,7 @@ class LibraryController extends ChangeNotifier {
     // The selection survives a scan by id; a game the scan no longer offers
     // is gone, and so is its selection.
     selected = selected == null ? null : _findById(selected!.id);
-    notifyListeners();
+    _notify();
   }
 
   Game? _findById(String id) {
@@ -415,13 +452,16 @@ class LibraryController extends ChangeNotifier {
     int? pid;
     try {
       pid = await Launcher.launch(game);
+      // A launch that works clears an earlier failure (say a scan report),
+      // so it does not resurface once the transient notice fades.
+      failure = null;
       notice = 'Launched ${game.name}';
     } catch (error) {
       failure = 'Could not launch ${game.name}: $error';
     }
     // A launch that failed has nothing to record.
     if (pid != null) _watchSession(game.id, pid, startedAt);
-    notifyListeners();
+    _notify();
   }
 
   /// Total time played, from closed sessions plus the open one.
@@ -451,7 +491,10 @@ class LibraryController extends ChangeNotifier {
     required bool sawDescendants,
     required int quietTicks,
   }) =>
-      closeWithGame && alive && sawDescendants && quietTicks >= closeAfterQuietTicks;
+      closeWithGame &&
+      alive &&
+      sawDescendants &&
+      quietTicks >= closeAfterQuietTicks;
 
   /// Follow a launched game's pid so its session ends when the game does.
   ///
@@ -474,8 +517,13 @@ class LibraryController extends ChangeNotifier {
     var asked = false;
     _sessions[gameId] = Timer.periodic(_pollInterval, (timer) {
       final now = DateTime.now();
-      final alive = processRunning(pid) &&
-          (startTick == null || processStartTime(pid) == startTick);
+      // One read of /proc/<pid>/stat answers both questions: alive, and still
+      // the process we started (a recycled pid gets a new start time).
+      final snapshot = processSnapshot(pid);
+      final alive =
+          snapshot != null &&
+          snapshot.running &&
+          (startTick == null || snapshot.startTime == startTick);
       if (!alive) {
         timer.cancel();
         _sessions.remove(gameId);
@@ -517,16 +565,22 @@ class LibraryController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     for (final timer in _sessions.values) {
       timer.cancel();
     }
     _sessions.clear();
     _noticeTimer?.cancel();
+    // A debounced automatic-art write must not be lost with the window.
+    _flushArtSave();
+    covers.close();
     super.dispose();
   }
 
   Future<void> openFolder(Game game) async {
-    final target = game.path ?? (game.command.isNotEmpty ? _parentOf(game.command.first) : null);
+    final target =
+        game.path ??
+        (game.command.isNotEmpty ? _parentOf(game.command.first) : null);
     if (target == null || !Directory(target).existsSync()) {
       failure = '${game.name}: no folder known';
       notifyListeners();
@@ -534,11 +588,12 @@ class LibraryController extends ChangeNotifier {
     }
     try {
       await Launcher.openFolder(target);
+      failure = null;
       notice = 'Opened $target';
     } catch (error) {
       failure = 'Could not open $target: $error';
     }
-    notifyListeners();
+    _notify();
   }
 
   static String? _parentOf(String path) {
@@ -566,23 +621,76 @@ class LibraryController extends ChangeNotifier {
     return fetch;
   }
 
+  /// How long an automatic SteamGridDB lookup that found nothing is believed
+  /// before the game is asked about again — comparable to [CoverStore]'s
+  /// 30-day Steam missing marker: artwork can appear long after release.
+  static const Duration sgdbMissTtl = Duration(days: 30);
+
   Future<Artwork?> _fetchCoverArt(Game game) async {
     if (covers.overrideFor(game) != null) return null;
     if (covers.autoArtFor(game) != null) return null;
     final steam = await covers.fetchSteamCover(game);
     if (steam != null) return steam;
     if (!(covers.settings.sgdbEnabled && covers.settings.sgdbAuto)) return null;
+    final miss = config.sgdbMisses[game.id];
+    if (miss != null &&
+        DateTime.now().millisecondsSinceEpoch - miss <
+            sgdbMissTtl.inMilliseconds) {
+      // This game was asked about recently and had nothing; asking again
+      // every run would only cost the API quota.
+      return null;
+    }
     try {
       final grids = await covers.searchArt(game);
-      if (grids.isEmpty) return null;
+      if (grids.isEmpty) {
+        _applyAutoArt(
+          sgdbMisses: {
+            ...config.sgdbMisses,
+            game.id: DateTime.now().millisecondsSinceEpoch,
+          },
+        );
+        return null;
+      }
       final path = await covers.downloadArt(game, grids.first);
       if (path == null) return null;
-      _apply(config.copyWith(autoArt: {...config.autoArt, game.id: path}));
+      final misses = {...config.sgdbMisses}..remove(game.id);
+      _applyAutoArt(
+        autoArt: {...config.autoArt, game.id: path},
+        sgdbMisses: misses,
+      );
       return Artwork(ArtworkKind.cover, value: path);
     } on SteamGridDbException catch (error) {
       failure = '${game.name}: $error';
       return null;
     }
+  }
+
+  /// Fold automatic-artwork changes (a fetched pick or a remembered miss)
+  /// into [config] and schedule the write.
+  ///
+  /// A scan can add many entries at once and each save writes the whole
+  /// file, so the write is debounced: a burst costs one write once it
+  /// settles, and [dispose] flushes whatever is still pending. Any other
+  /// config change saves everything at once, which clears the pending write
+  /// (see [_apply]).
+  void _applyAutoArt({
+    Map<String, String>? autoArt,
+    Map<String, int>? sgdbMisses,
+  }) {
+    config = config.copyWith(autoArt: autoArt, sgdbMisses: sgdbMisses);
+    covers.settings = ArtSettings.from(config);
+    _artSavePending = true;
+    _artSaveTimer?.cancel();
+    _artSaveTimer = Timer(_artSaveDelay, _flushArtSave);
+  }
+
+  /// Write the config now when automatic-artwork changes are waiting.
+  void _flushArtSave() {
+    _artSaveTimer?.cancel();
+    _artSaveTimer = null;
+    if (!_artSavePending) return;
+    _artSavePending = false;
+    config.save(_configPath);
   }
 
   /// Candidates for the art picker; sets [failure] when the lookup fails.
@@ -591,7 +699,7 @@ class LibraryController extends ChangeNotifier {
       return await covers.searchArt(game);
     } on SteamGridDbException catch (error) {
       failure = '${game.name}: $error';
-      notifyListeners();
+      _notify();
       return const [];
     }
   }
@@ -612,12 +720,15 @@ class LibraryController extends ChangeNotifier {
       failure = problem == null
           ? '${game.name}: artwork download failed'
           : '${game.name}: $problem';
-      notifyListeners();
+      _notify();
       return false;
     }
-    _apply(config.copyWith(artOverrides: {...config.artOverrides, game.id: path}));
+    _apply(
+      config.copyWith(artOverrides: {...config.artOverrides, game.id: path}),
+    );
+    failure = null;
     notice = 'Artwork for ${game.name} set';
-    notifyListeners();
+    _notify();
     return true;
   }
 
@@ -659,7 +770,7 @@ class LibraryController extends ChangeNotifier {
       _pluginDir,
       onError: (_, error) => failure = 'Plugins: $error',
     );
-    notifyListeners();
+    _notify();
   }
 
   /// Read the plugin store's catalogue.
@@ -673,7 +784,7 @@ class LibraryController extends ChangeNotifier {
       catalogFailure = error.message;
     }
     catalogLoading = false;
-    notifyListeners();
+    _notify();
   }
 
   /// Whether [pluginId] is being installed or removed right now.
@@ -688,7 +799,11 @@ class LibraryController extends ChangeNotifier {
     notice = 'Installing ${entry.name}…';
     notifyListeners();
     try {
-      await catalogue.installPlugin(entry, dir: _pluginDir, read: _pluginReader);
+      await catalogue.installPlugin(
+        entry,
+        dir: _pluginDir,
+        read: _pluginReader,
+      );
       notice = 'Installed ${entry.name}';
     } on catalogue.PluginStoreException catch (error) {
       failure = '${entry.name}: ${error.message}';
@@ -697,7 +812,7 @@ class LibraryController extends ChangeNotifier {
     }
     _pluginBusy.remove(entry.id);
     await reloadPlugins();
-    notifyListeners();
+    _notify();
   }
 
   /// Remove the installed [plugin].
@@ -715,7 +830,7 @@ class LibraryController extends ChangeNotifier {
     }
     _pluginBusy.remove(plugin.id);
     await reloadPlugins();
-    notifyListeners();
+    _notify();
   }
 
   /// The loaded plugin with [id], if there is one.
@@ -748,6 +863,7 @@ class LibraryController extends ChangeNotifier {
       final answer = await askPlugin(plugin, query);
       pluginAnswers.put(plugin.id, query.id, answer);
       if (answer.ok) {
+        failure = null;
         notice = '${plugin.name} answered for ${query.name}';
       } else {
         failure = answer.error;
@@ -759,7 +875,7 @@ class LibraryController extends ChangeNotifier {
     } finally {
       _lookingUp.remove(key);
     }
-    notifyListeners();
+    _notify();
   }
 
   /// The round trip [lookUp] makes, split out so a test can make it fail.
@@ -772,7 +888,7 @@ class LibraryController extends ChangeNotifier {
       await Launcher.openUrl(url);
     } catch (error) {
       failure = 'Could not open $url: $error';
-      notifyListeners();
+      _notify();
     }
   }
 
@@ -782,6 +898,11 @@ class LibraryController extends ChangeNotifier {
     config = next;
     covers.settings = ArtSettings.from(next);
     next.save(_configPath);
+    // The save just wrote everything, including any automatic-art burst that
+    // was still waiting for its debounce.
+    _artSaveTimer?.cancel();
+    _artSaveTimer = null;
+    _artSavePending = false;
   }
 
   void setHidden(Game game, {required bool hidden}) {
@@ -838,15 +959,15 @@ class LibraryController extends ChangeNotifier {
       ids.remove(gameId);
     }
     _apply(config.copyWith(closeWithGame: ids));
-    notice = value
-        ? 'Launcher closes with the game'
-        : 'Launcher stays open';
+    notice = value ? 'Launcher closes with the game' : 'Launcher stays open';
     notifyListeners();
   }
 
   void setSteamgriddbKey(String value) {
     _apply(config.copyWith(steamgriddbKey: value.trim()));
-    notice = value.trim().isEmpty ? 'SteamGridDB key cleared' : 'SteamGridDB key saved';
+    notice = value.trim().isEmpty
+        ? 'SteamGridDB key cleared'
+        : 'SteamGridDB key saved';
     notifyListeners();
   }
 
@@ -864,7 +985,11 @@ class LibraryController extends ChangeNotifier {
     _apply(config.copyWith(windowWidth: width, windowHeight: height));
   }
 
-  Future<void> addManual(String name, List<String> command, {String? cwd}) async {
+  Future<void> addManual(
+    String name,
+    List<String> command, {
+    String? cwd,
+  }) async {
     // The name is the entry's identity (the game id is `manual:<name>`), so a
     // second entry under the same name would never reach the library and could
     // only be removed together with the first one.
@@ -879,7 +1004,7 @@ class LibraryController extends ChangeNotifier {
     _apply(config.copyWith(manual: manual));
     await rescan();
     notice = 'Added $name';
-    notifyListeners();
+    _notify();
   }
 
   Future<void> removeManual(String name) async {
@@ -890,7 +1015,7 @@ class LibraryController extends ChangeNotifier {
     );
     await rescan();
     notice = 'Removed $name';
-    notifyListeners();
+    _notify();
   }
 
   // --------------------------------------------------------------- cache

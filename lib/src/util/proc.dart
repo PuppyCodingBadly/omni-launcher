@@ -14,18 +14,44 @@ Future<String> runCapture(
   try {
     final host = Host.command(argv);
     final process = await Process.start(host.first, host.sublist(1));
+    // Nothing is ever written to the child: closing stdin keeps a command
+    // that reads it, or waits for its end, from stalling the capture.
+    try {
+      await process.stdin.close();
+    } on Object {
+      // A child that already exited took its end of the pipe with it.
+    }
     final out = StringBuffer();
     final reading = process.stdout.transform(utf8.decoder).forEach(out.write);
     // stderr is drained rather than read, so a chatty command cannot stall on
     // a full pipe.
     final draining = process.stderr.drain<void>();
-    final code = await process.exitCode.timeout(timeout, onTimeout: () {
-      process.kill(ProcessSignal.sigkill);
-      return -1;
-    });
-    if (code != 0) return '';
-    await reading;
-    await draining;
+    var timedOut = false;
+    final code = await process.exitCode.timeout(
+      timeout,
+      onTimeout: () {
+        timedOut = true;
+        process.kill(ProcessSignal.sigkill);
+        return -1;
+      },
+    );
+    if (timedOut || code != 0) {
+      // A descendant can hold the pipes after the direct child is gone — a
+      // backgrounded shell command, or flatpak-spawn's host-side process. The
+      // capture has already given up; waiting on those pipes would make the
+      // timeout meaningless.
+      reading.ignore();
+      draining.ignore();
+      return '';
+    }
+    // A successful run closes its pipes; awaiting them here keeps the capture
+    // from returning before the last output arrived.
+    try {
+      await reading;
+      await draining;
+    } on Object {
+      return '';
+    }
     return out.toString();
   } on ProcessException {
     return '';
@@ -73,6 +99,35 @@ int? parentPid(int pid) {
   final fields = _statFields(pid);
   if (fields == null) return null;
   return int.tryParse(fields[1]);
+}
+
+/// One read of a process: whether it is live and when it started.
+///
+/// Both facts come from a single `/proc/<pid>/stat` read, so a caller that
+/// needs the two together never races a recycled pid between two reads.
+class ProcessSnapshot {
+  const ProcessSnapshot({required this.running, required this.startTime});
+
+  /// Whether the process is live. A zombie is not.
+  final bool running;
+
+  /// When the process started, in clock ticks since boot; null when the stat
+  /// was too short to tell. Together with the pid this identifies a process:
+  /// a recycled pid gets a new start time, so a caller can tell the process
+  /// it started from a stranger.
+  final int? startTime;
+}
+
+/// A snapshot of [pid] from one read of its `/proc/<pid>/stat`, or null when
+/// the process is gone.
+ProcessSnapshot? processSnapshot(int pid) {
+  final fields = _statFields(pid);
+  if (fields == null) return null;
+  final state = fields.first;
+  return ProcessSnapshot(
+    running: state != 'Z' && state != 'X',
+    startTime: fields.length >= 20 ? int.tryParse(fields[19]) : null,
+  );
 }
 
 /// Everything running below [pid] (not [pid] itself).
@@ -153,7 +208,12 @@ Future<Set<String>> flatpakAppIds() async {
   final cached = _flatpakAppIds;
   if (cached != null) return cached;
   if (which('flatpak') == null) return _flatpakAppIds = <String>{};
-  final out = await runCapture(['flatpak', 'list', '--app', '--columns=application']);
+  final out = await runCapture([
+    'flatpak',
+    'list',
+    '--app',
+    '--columns=application',
+  ]);
   final ids = out
       .split('\n')
       .map((line) => line.trim())

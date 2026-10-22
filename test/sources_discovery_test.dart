@@ -62,98 +62,102 @@ void libraryFolders(String root, List<String> libraries) {
 
 void main() {
   group('SteamSource', () {
-    test('discovers installed games across two libraries, one symlinked',
-        () async {
-      final dir = tempDir('omni-steam');
-      final root = '${dir.path}/steam';
-      final libA = '${dir.path}/libA';
-      final libB = '${dir.path}/libB';
-      Directory(libA).createSync(recursive: true);
-      Directory(libB).createSync(recursive: true);
-      // The second library is listed through a symlink, the way a moved
-      // library commonly is.
-      Link('${dir.path}/libB-link').createSync(libB);
-      libraryFolders(root, [libA, '${dir.path}/libB-link']);
+    test(
+      'discovers installed games across two libraries, one symlinked',
+      () async {
+        final dir = tempDir('omni-steam');
+        final root = '${dir.path}/steam';
+        final libA = '${dir.path}/libA';
+        final libB = '${dir.path}/libB';
+        Directory(libA).createSync(recursive: true);
+        Directory(libB).createSync(recursive: true);
+        // The second library is listed through a symlink, the way a moved
+        // library commonly is.
+        Link('${dir.path}/libB-link').createSync(libB);
+        libraryFolders(root, [libA, '${dir.path}/libB-link']);
 
-      appManifest(
-        libA,
-        111,
-        name: 'Test Game Alpha',
-        stateFlags: '4',
-        installdir: 'Alpha',
-      );
-      // StateFlags 2 lacks the fully-installed bit: not a playable game yet.
-      appManifest(libA, 222, name: 'Test Game Pending', stateFlags: '2');
-      // Tooling entries are not games, however installed they claim to be.
-      appManifest(libA, 333, name: 'SteamVR', stateFlags: '4');
-      appManifest(
-        libB,
-        444,
-        name: 'Test Game Beta',
-        stateFlags: '4',
-        installdir: 'Beta',
-      );
+        appManifest(
+          libA,
+          111,
+          name: 'Test Game Alpha',
+          stateFlags: '4',
+          installdir: 'Alpha',
+        );
+        // StateFlags 2 lacks the fully-installed bit: not a playable game yet.
+        appManifest(libA, 222, name: 'Test Game Pending', stateFlags: '2');
+        // Tooling entries are not games, however installed they claim to be.
+        appManifest(libA, 333, name: 'SteamVR', stateFlags: '4');
+        appManifest(
+          libB,
+          444,
+          name: 'Test Game Beta',
+          stateFlags: '4',
+          installdir: 'Beta',
+        );
 
-      // `~/.steam/steam` style: a second root that is just a link to the
-      // first must not double the games.
-      Link('${dir.path}/steam-link').createSync(root);
+        // `~/.steam/steam` style: a second root that is just a link to the
+        // first must not double the games.
+        Link('${dir.path}/steam-link').createSync(root);
 
-      final games = await SteamSource(
-        roots: [root, '${dir.path}/steam-link', '${dir.path}/no-such-root'],
-      ).discover(AppConfig());
+        final games = await SteamSource(
+          roots: [root, '${dir.path}/steam-link', '${dir.path}/no-such-root'],
+        ).discover(AppConfig());
 
-      expect(games.map((game) => game.id), ['steam:111', 'steam:444']);
+        expect(games.map((game) => game.id), ['steam:111', 'steam:444']);
 
-      final alpha = games[0];
-      expect(alpha.key, '111');
-      expect(alpha.name, 'Test Game Alpha');
-      expect(alpha.source, SourceKind.steam);
-      expect(alpha.subtitle, 'Steam');
-      expect(alpha.path, '$libA/steamapps/common/Alpha');
-      expect(alpha.extra, {'appid': '111', 'size': 2048, 'library': libA});
-      // The argv tail asks Steam to start the appid, whichever launcher
-      // prefix (native steam, flatpak) the host offers.
-      expect(alpha.command.sublist(alpha.command.length - 2), [
-        '-applaunch',
-        '111',
-      ]);
+        final alpha = games[0];
+        expect(alpha.key, '111');
+        expect(alpha.name, 'Test Game Alpha');
+        expect(alpha.source, SourceKind.steam);
+        expect(alpha.subtitle, 'Steam');
+        expect(alpha.path, '$libA/steamapps/common/Alpha');
+        expect(alpha.extra, {'appid': '111', 'size': 2048, 'library': libA});
+        // The argv tail asks Steam to start the appid, whichever launcher
+        // prefix (native steam, flatpak) the host offers.
+        expect(alpha.command.sublist(alpha.command.length - 2), [
+          '-applaunch',
+          '111',
+        ]);
 
-      final beta = games[1];
-      expect(beta.id, 'steam:444');
-      expect(beta.name, 'Test Game Beta');
-      // The library is reported at the path libraryfolders.vdf gave, not the
-      // resolved one.
-      expect(beta.path, '${dir.path}/libB-link/steamapps/common/Beta');
-      expect(beta.command.sublist(beta.command.length - 2), [
-        '-applaunch',
-        '444',
-      ]);
-    });
+        final beta = games[1];
+        expect(beta.id, 'steam:444');
+        expect(beta.name, 'Test Game Beta');
+        // The library is reported at the path libraryfolders.vdf gave, not the
+        // resolved one.
+        expect(beta.path, '${dir.path}/libB-link/steamapps/common/Beta');
+        expect(beta.command.sublist(beta.command.length - 2), [
+          '-applaunch',
+          '444',
+        ]);
+      },
+    );
 
-    test('a flatpak-style sandbox root scans with no libraryfolders.vdf',
-        () async {
-      final dir = tempDir('omni-steam-flatpak');
-      final root =
-          '${dir.path}/.var/app/com.valvesoftware.Steam/.local/share/Steam';
-      appManifest(
-        root,
-        555,
-        name: 'Test Game Gamma',
-        stateFlags: '4',
-        installdir: 'Gamma',
-      );
+    test(
+      'a flatpak-style sandbox root scans with no libraryfolders.vdf',
+      () async {
+        final dir = tempDir('omni-steam-flatpak');
+        final root =
+            '${dir.path}/.var/app/com.valvesoftware.Steam/.local/share/Steam';
+        appManifest(
+          root,
+          555,
+          name: 'Test Game Gamma',
+          stateFlags: '4',
+          installdir: 'Gamma',
+        );
 
-      final games = await SteamSource(roots: [root]).discover(AppConfig());
+        final games = await SteamSource(roots: [root]).discover(AppConfig());
 
-      expect(games, hasLength(1));
-      expect(games.single.id, 'steam:555');
-      expect(games.single.name, 'Test Game Gamma');
-      expect(games.single.path, '$root/steamapps/common/Gamma');
-      expect(games.single.command.sublist(games.single.command.length - 2), [
-        '-applaunch',
-        '555',
-      ]);
-    });
+        expect(games, hasLength(1));
+        expect(games.single.id, 'steam:555');
+        expect(games.single.name, 'Test Game Gamma');
+        expect(games.single.path, '$root/steamapps/common/Gamma');
+        expect(games.single.command.sublist(games.single.command.length - 2), [
+          '-applaunch',
+          '555',
+        ]);
+      },
+    );
   });
 
   group('DesktopSource', () {
@@ -226,8 +230,33 @@ Categories=Game;
       expect(plain.extra.containsKey('dedupe'), isFalse);
     });
 
-    test('entries launch through gtk-launch when the host offers it',
-        () async {
+    test(
+      'an entry wrapping an AppImage shares the AppImage dedupe key',
+      () async {
+        // The desktop source must key the wrapped file exactly like the
+        // AppImage source does: the resolved symlink when that works, the
+        // absolute path as fallback, so the two never split into duplicates.
+        final gamesDir = Directory('$mount/games')..createSync();
+        final appimage = File('${gamesDir.path}/Wrapped.AppImage')
+          ..writeAsBytesSync([0]);
+        final bin = Directory('$mount/bin')..createSync();
+        Link('${bin.path}/wrapped').createSync(appimage.path);
+        entry('testgame-wrapped', '${bin.path}/wrapped');
+        entry('testgame-direct', appimage.path);
+
+        final games = await fixtures();
+        expect(games, hasLength(2));
+        // Both entries own the same file the AppImage source would report.
+        for (final name in ['testgame-wrapped', 'testgame-direct']) {
+          expect(
+            games['$name.desktop']!.extra['dedupe'],
+            'path:${appimage.absolute.path}',
+          );
+        }
+      },
+    );
+
+    test('entries launch through gtk-launch when the host offers it', () async {
       final bin = Directory('$mount/usr/bin')..createSync();
       File('${bin.path}/gtk-launch').writeAsStringSync('#!/bin/sh\n');
       Process.runSync('chmod', ['755', '${bin.path}/gtk-launch']);
@@ -261,7 +290,9 @@ Categories=Game;
           'steam://rungameid/12345',
         ]);
         // Field codes are dropped from the Exec line.
-        expect(games['testgame-plain.desktop']!.command, ['/nonexistent/omnitest-run']);
+        expect(games['testgame-plain.desktop']!.command, [
+          '/nonexistent/omnitest-run',
+        ]);
       } else {
         // A real gtk-launch on the host wins over the fixture mount.
         expect(games['testgame-steam.desktop']!.command, [

@@ -94,22 +94,35 @@ Future<List<SteamShortcut>> _readShortcutsFile(File file) async {
     final appId = entry['appid'];
     if (appId is! int) continue;
     final name =
-        _text(entry['appname']) ?? _text(entry['AppName']) ?? _text(entry['name']);
+        _text(entry['appname']) ??
+        _text(entry['AppName']) ??
+        _text(entry['name']);
     if (name == null || name.trim().isEmpty) continue;
     shortcuts.add(
       SteamShortcut(
         // Steam stores the id as a signed 32-bit int; -applaunch wants it unsigned.
         appId: appId & 0xFFFFFFFF,
         name: name,
-        exe: _text(entry['exe']) ?? _text(entry['Exe']),
-        startDir: _text(entry['StartDir']),
+        exe: _unquote(_text(entry['exe']) ?? _text(entry['Exe'])),
+        startDir: _unquote(_text(entry['StartDir'])),
         launchOptions: _text(entry['LaunchOptions']),
-        flatpakAppId: _text(entry['FlatpakAppID']) ?? _text(entry['FlatpakAppId']),
+        flatpakAppId:
+            _text(entry['FlatpakAppID']) ?? _text(entry['FlatpakAppId']),
         hidden: _isTrue(entry['IsHidden']),
       ),
     );
   }
   return shortcuts;
+}
+
+/// Valve wraps `exe` and `StartDir` in double quotes; strip one surrounding
+/// pair so the value path-matches what the other sources discover.
+String? _unquote(String? value) {
+  if (value == null || value.length < 2) return value;
+  if (value.startsWith('"') && value.endsWith('"')) {
+    return value.substring(1, value.length - 1);
+  }
+  return value;
 }
 
 String? _text(Object? value) {
@@ -137,7 +150,10 @@ Map<String, Object?> parseBinaryVdf(List<int> bytes) {
       index = bytes.length;
       return null;
     }
-    final value = utf8.decode(bytes.sublist(start, index), allowMalformed: true);
+    final value = utf8.decode(
+      bytes.sublist(start, index),
+      allowMalformed: true,
+    );
     index++; // skip the NUL terminator
     return value;
   }

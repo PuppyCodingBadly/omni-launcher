@@ -80,28 +80,31 @@ void main() {
       expect(game.extra, {'instance': '1.20.1'});
     });
 
-    test('discovers a flatpak instance, launched through flatpak run', () async {
-      final dir = tempDir('omni-prism-flatpak');
-      final flatpak =
-          '${dir.path}/.var/app/$prismFlatpakId/data/PrismLauncher';
-      final file = File('$flatpak/instances/Fabric/instance.cfg')
-        ..createSync(recursive: true);
-      file.writeAsStringSync('name=Fabric 1.21\n');
+    test(
+      'discovers a flatpak instance, launched through flatpak run',
+      () async {
+        final dir = tempDir('omni-prism-flatpak');
+        final flatpak =
+            '${dir.path}/.var/app/$prismFlatpakId/data/PrismLauncher';
+        final file = File('$flatpak/instances/Fabric/instance.cfg')
+          ..createSync(recursive: true);
+        file.writeAsStringSync('name=Fabric 1.21\n');
 
-      final games = await PrismSource(
-        roots: ['$flatpak/instances'],
-        command: ['flatpak', 'run', prismFlatpakId],
-      ).discover(AppConfig());
+        final games = await PrismSource(
+          roots: ['$flatpak/instances'],
+          command: ['flatpak', 'run', prismFlatpakId],
+        ).discover(AppConfig());
 
-      expect(games, hasLength(1));
-      expect(games.single.command, [
-        'flatpak',
-        'run',
-        'org.prismlauncher.PrismLauncher',
-        '-l',
-        'Fabric',
-      ]);
-    });
+        expect(games, hasLength(1));
+        expect(games.single.command, [
+          'flatpak',
+          'run',
+          'org.prismlauncher.PrismLauncher',
+          '-l',
+          'Fabric',
+        ]);
+      },
+    );
 
     test('missing and unnamed instances are skipped, not fatal', () async {
       final dir = tempDir('omni-prism-missing');
@@ -157,34 +160,37 @@ abc-123:
   });
 
   group('BottlesSource', () {
-    test('discovers native library entries, launched via bottles-cli', () async {
-      final dir = tempDir('omni-bottles-native');
-      final root = bottle(dir, 'gaming', '''
+    test(
+      'discovers native library entries, launched via bottles-cli',
+      () async {
+        final dir = tempDir('omni-bottles-native');
+        final root = bottle(dir, 'gaming', '''
 - bottle: gaming
   name: Cool Game
   id: abc-123
 ''');
 
-      final games = await BottlesSource(
-        roots: [root],
-        command: ['bottles-cli'],
-      ).discover(AppConfig());
+        final games = await BottlesSource(
+          roots: [root],
+          command: ['bottles-cli'],
+        ).discover(AppConfig());
 
-      expect(games, hasLength(1));
-      final game = games.single;
-      expect(game.id, 'bottles:gaming/abc-123');
-      expect(game.name, 'Cool Game');
-      expect(game.source, SourceKind.bottles);
-      expect(game.command, [
-        'bottles-cli',
-        'run',
-        '-b',
-        'gaming',
-        '-p',
-        'Cool Game',
-      ]);
-      expect(game.extra, {'bottle': 'gaming', 'program': 'Cool Game'});
-    });
+        expect(games, hasLength(1));
+        final game = games.single;
+        expect(game.id, 'bottles:gaming/abc-123');
+        expect(game.name, 'Cool Game');
+        expect(game.source, SourceKind.bottles);
+        expect(game.command, [
+          'bottles-cli',
+          'run',
+          '-b',
+          'gaming',
+          '-p',
+          'Cool Game',
+        ]);
+        expect(game.extra, {'bottle': 'gaming', 'program': 'Cool Game'});
+      },
+    );
 
     test('discovers flatpak entries, launched through flatpak run', () async {
       final dir = tempDir('omni-bottles-flatpak');
@@ -200,12 +206,7 @@ entry-1:
 
       final games = await BottlesSource(
         roots: ['$flatpak/bottles'],
-        command: [
-          'flatpak',
-          'run',
-          '--command=bottles-cli',
-          bottlesFlatpakId,
-        ],
+        command: ['flatpak', 'run', '--command=bottles-cli', bottlesFlatpakId],
       ).discover(AppConfig());
 
       expect(games, hasLength(1));

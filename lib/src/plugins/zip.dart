@@ -45,7 +45,9 @@ void unpackZip(List<int> bytes, String target) {
       continue;
     }
     if (entry.isSpecial) {
-      throw FormatException('the archive holds something that is not a file: ${entry.name}');
+      throw FormatException(
+        'the archive holds something that is not a file: ${entry.name}',
+      );
     }
     // The budget is what is left of the limit; what an entry claims is only
     // believed once its bytes are counted on the way out of the inflater.
@@ -71,7 +73,9 @@ List<_Entry> _centralDirectory(Uint8List data) {
     throw const FormatException('the archive is zip64, which is not supported');
   }
   if (count > maxPluginEntries) {
-    throw FormatException('the archive holds more than $maxPluginEntries files');
+    throw FormatException(
+      'the archive holds more than $maxPluginEntries files',
+    );
   }
   if (offset + size > data.length) {
     throw const FormatException('the archive is truncated');
@@ -92,11 +96,18 @@ List<_Entry> _centralDirectory(Uint8List data) {
     final commentLength = _u16(data, cursor + 32);
     final mode = _u32(data, cursor + 38) >> 16;
     final local = _u32(data, cursor + 42);
+    // The entry's own lengths must fit in what is left of the archive, or the
+    // name read below would run off the end of the data.
+    if (cursor + 46 + nameLength + extraLength + commentLength > data.length) {
+      throw const FormatException('the archive\'s index of files is damaged');
+    }
     if (flags & 0x1 != 0) {
       throw const FormatException('the archive is encrypted');
     }
     if (method != 0 && method != 8) {
-      throw FormatException('the archive is compressed in a way this cannot read (method $method)');
+      throw FormatException(
+        'the archive is compressed in a way this cannot read (method $method)',
+      );
     }
     final raw = data.sublist(cursor + 46, cursor + 46 + nameLength);
     final name = flags & 0x800 != 0 ? utf8.decode(raw) : latin1.decode(raw);
@@ -121,7 +132,9 @@ List<_Entry> _centralDirectory(Uint8List data) {
 
 /// Where the end of central directory record starts.
 int _findEndOfCentralDirectory(Uint8List data) {
-  final earliest = data.length - 22 - 0xffff < 0 ? 0 : data.length - 22 - 0xffff;
+  final earliest = data.length - 22 - 0xffff < 0
+      ? 0
+      : data.length - 22 - 0xffff;
   for (var cursor = data.length - 22; cursor >= earliest; cursor--) {
     if (_u32(data, cursor) == _endOfCentralDirectory) return cursor;
   }
@@ -135,17 +148,24 @@ int _findEndOfCentralDirectory(Uint8List data) {
 /// refused the moment it passes what it claimed, or what is left of [budget],
 /// rather than after the memory is gone.
 Uint8List _content(Uint8List data, _Entry entry, int budget) {
-  if (entry.offset + 30 > data.length || _u32(data, entry.offset) != _localFileHeader) {
+  if (entry.offset + 30 > data.length ||
+      _u32(data, entry.offset) != _localFileHeader) {
     throw const FormatException('the archive\'s index points at nothing');
   }
-  final start = entry.offset + 30 + _u16(data, entry.offset + 26) + _u16(data, entry.offset + 28);
+  final start =
+      entry.offset +
+      30 +
+      _u16(data, entry.offset + 26) +
+      _u16(data, entry.offset + 28);
   if (start + entry.compressed > data.length) {
     throw const FormatException('the archive is truncated');
   }
   final raw = data.sublist(start, start + entry.compressed);
   if (entry.method == 0) {
     if (raw.length != entry.size) {
-      throw const FormatException('a file in the archive is not the size it claims');
+      throw const FormatException(
+        'a file in the archive is not the size it claims',
+      );
     }
     if (raw.length > budget) throw _tooBig();
     return raw;
@@ -171,7 +191,9 @@ Uint8List _content(Uint8List data, _Entry entry, int budget) {
   }
   final unpacked = sink.bytes.takeBytes();
   if (unpacked.length != entry.size) {
-    throw const FormatException('a file in the archive is not the size it claims');
+    throw const FormatException(
+      'a file in the archive is not the size it claims',
+    );
   }
   return unpacked;
 }
@@ -258,5 +280,6 @@ class _Entry {
   bool get isDirectory => name.endsWith('/') || mode & 0xf000 == 0x4000;
 
   /// True for a symlink, a device or a fifo: none of which a plugin needs.
-  bool get isSpecial => mode & 0xf000 != 0 && mode & 0xf000 != 0x8000 && !isDirectory;
+  bool get isSpecial =>
+      mode & 0xf000 != 0 && mode & 0xf000 != 0x8000 && !isDirectory;
 }

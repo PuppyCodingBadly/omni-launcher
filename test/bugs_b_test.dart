@@ -21,13 +21,14 @@ import 'package:omni_launcher/src/ui/library_page.dart';
 import 'package:omni_launcher/src/ui/theme.dart';
 import 'package:omni_launcher/src/util/proc.dart';
 
-Game game(String id, String name, SourceKind source, {List<String>? command}) => Game(
-  id: id,
-  key: id.split(':').last,
-  name: name,
-  source: source,
-  command: command ?? const ['true'],
-);
+Game game(String id, String name, SourceKind source, {List<String>? command}) =>
+    Game(
+      id: id,
+      key: id.split(':').last,
+      name: name,
+      source: source,
+      command: command ?? const ['true'],
+    );
 
 Game steamGame(String appid) => Game(
   id: 'steam:$appid',
@@ -72,7 +73,11 @@ class ArtSpy extends LibraryController {
 }
 
 /// The page in a window of [width]x[height] logical pixels.
-Future<void> pumpPage(WidgetTester tester, LibraryController controller, Size size) async {
+Future<void> pumpPage(
+  WidgetTester tester,
+  LibraryController controller,
+  Size size,
+) async {
   await resizeWindow(tester, size);
   await tester.pumpWidget(
     MaterialApp(
@@ -194,62 +199,78 @@ void main() {
       expect(controller.games, isEmpty);
     });
 
-    test('the cache is written beside the target and renamed into place', () async {
-      final controller = LibraryController(
-        configPath: configPath(),
-        cachePath: cachePath(),
-        config: AppConfig(appimageDirs: const []),
-      );
-      await controller.load();
+    test(
+      'the cache is written beside the target and renamed into place',
+      () async {
+        final controller = LibraryController(
+          configPath: configPath(),
+          cachePath: cachePath(),
+          config: AppConfig(appimageDirs: const []),
+        );
+        await controller.load();
 
-      final file = File(cachePath());
-      expect(file.existsSync(), isTrue);
-      final decoded = jsonDecode(file.readAsStringSync()) as Map;
-      expect(decoded['version'], LibraryController.cacheVersion);
-      expect(
-        (decoded['games'] as List).map((entry) => (entry as Map)['id']).toList(),
-        controller.games.map((entry) => entry.id).toList(),
-      );
-      // No half written leftover next to the cache.
-      expect(File('${cachePath()}.tmp').existsSync(), isFalse);
-    });
+        final file = File(cachePath());
+        expect(file.existsSync(), isTrue);
+        final decoded = jsonDecode(file.readAsStringSync()) as Map;
+        expect(decoded['version'], LibraryController.cacheVersion);
+        expect(
+          (decoded['games'] as List)
+              .map((entry) => (entry as Map)['id'])
+              .toList(),
+          controller.games.map((entry) => entry.id).toList(),
+        );
+        // No half written leftover next to the cache.
+        expect(File('${cachePath()}.tmp').existsSync(), isFalse);
+      },
+    );
   });
 
   group('manual entries', () {
-    test('adding a name twice replaces the entry instead of hiding it', () async {
-      final controller = LibraryController(
-        configPath: '${dir.path}/config.json',
-        cachePath: '${dir.path}/games.json',
-        playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
-        config: AppConfig(appimageDirs: const []),
-      );
+    test(
+      'adding a name twice replaces the entry instead of hiding it',
+      () async {
+        final controller = LibraryController(
+          configPath: '${dir.path}/config.json',
+          cachePath: '${dir.path}/games.json',
+          playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+          config: AppConfig(appimageDirs: const []),
+        );
 
-      await controller.addManual('Solitair', const ['old-runner']);
-      await controller.addManual('Solitair', const ['new-runner'], cwd: '/tmp');
+        await controller.addManual('Solitair', const ['old-runner']);
+        await controller.addManual('Solitair', const [
+          'new-runner',
+        ], cwd: '/tmp');
 
-      expect(controller.config.manual, hasLength(1));
-      expect(AppConfig.load('${dir.path}/config.json').manual.single.command, [
-        'new-runner',
-      ]);
+        expect(controller.config.manual, hasLength(1));
+        expect(
+          AppConfig.load('${dir.path}/config.json').manual.single.command,
+          ['new-runner'],
+        );
 
-      final manual = controller.games.where((entry) => entry.source == SourceKind.manual);
-      expect(manual, hasLength(1));
-      expect(manual.single.command, ['new-runner']);
+        final manual = controller.games.where(
+          (entry) => entry.source == SourceKind.manual,
+        );
+        expect(manual, hasLength(1));
+        expect(manual.single.command, ['new-runner']);
 
-      await controller.removeManual('Solitair');
-      expect(controller.config.manual, isEmpty);
-      expect(
-        controller.games.where((entry) => entry.source == SourceKind.manual),
-        isEmpty,
-      );
-    });
+        await controller.removeManual('Solitair');
+        expect(controller.config.manual, isEmpty);
+        expect(
+          controller.games.where((entry) => entry.source == SourceKind.manual),
+          isEmpty,
+        );
+      },
+    );
   });
 
   group('launching', () {
     test('the program is resolved the way the shell would', () {
       expect(Launcher.resolveProgram(const ['/bin/sh']), '/bin/sh');
       expect(Launcher.resolveProgram(const ['sh']), which('sh'));
-      expect(Launcher.resolveProgram(const ['definitely-not-a-program-xyz']), isNull);
+      expect(
+        Launcher.resolveProgram(const ['definitely-not-a-program-xyz']),
+        isNull,
+      );
       expect(Launcher.resolveProgram(const ['/no/such/path/at/all']), isNull);
       expect(Launcher.resolveProgram(const []), isNull);
       expect(Launcher.resolveProgram(const ['/tmp']), isNull);
@@ -261,7 +282,10 @@ void main() {
       expect(Launcher.resolveProgram([plain.path]), plain.path);
 
       // A relative command belongs to the game's own folder, not to ours.
-      expect(Launcher.resolveProgram(const ['./run.sh'], cwd: dir.path), isNull);
+      expect(
+        Launcher.resolveProgram(const ['./run.sh'], cwd: dir.path),
+        isNull,
+      );
       expect(
         Launcher.resolveProgram(['./not-executable'], cwd: dir.path),
         '${dir.path}/./not-executable',
@@ -269,8 +293,14 @@ void main() {
       // `~` and defined variables are expanded before a launch; [resolveProgram]
       // itself receives what the caller passes, so neither is resolved or
       // refused here.
-      expect(Launcher.resolveProgram(const ['~/nowhere-at-all']), '~/nowhere-at-all');
-      expect(Launcher.resolveProgram(const [r'$HOME/nowhere']), r'$HOME/nowhere');
+      expect(
+        Launcher.resolveProgram(const ['~/nowhere-at-all']),
+        '~/nowhere-at-all',
+      );
+      expect(
+        Launcher.resolveProgram(const [r'$HOME/nowhere']),
+        r'$HOME/nowhere',
+      );
     });
 
     test('a sandboxed launch finds the host\'s own programs', () {
@@ -284,7 +314,8 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsStringSync('#!/bin/sh\n');
       Process.runSync('chmod', ['+x', real.path]);
-      Link('${bin.path}/omni-test-runner').createSync('/usr/lib/omni-test/runner');
+      Link('${bin.path}/omni-test-runner')
+          .createSync('/usr/lib/omni-test/runner');
 
       Host.setInFlatpakForTest(true);
       Host.setMountForTest('${dir.path}/mount');
@@ -314,15 +345,18 @@ void main() {
       expect(which('omni-test-gone'), isNull);
     });
 
-    test('a missing binary fails the launch instead of reporting success', () async {
-      final missing = game(
-        'manual:gone',
-        'Gone',
-        SourceKind.manual,
-        command: const ['definitely-not-a-program-xyz'],
-      );
-      await expectLater(Launcher.launch(missing), throwsA(isA<StateError>()));
-    });
+    test(
+      'a missing binary fails the launch instead of reporting success',
+      () async {
+        final missing = game(
+          'manual:gone',
+          'Gone',
+          SourceKind.manual,
+          command: const ['definitely-not-a-program-xyz'],
+        );
+        await expectLater(Launcher.launch(missing), throwsA(isA<StateError>()));
+      },
+    );
 
     test('the library reports the failure to the user', () async {
       final controller = LibraryController(
@@ -345,17 +379,15 @@ void main() {
 
     test('expandPaths expands tilde and defined variables', () {
       final home = Platform.environment['HOME']!;
-      final expanded = Launcher.expandPaths(
-        const [
-          '~/Games/x',
-          '-flag',
-          r'$HOME/nowhere',
-          '~',
-          r'$OMNI_TEST_UNSET_VARIABLE',
-          r'${HOME}/y',
-          'a~b',
-        ],
-      );
+      final expanded = Launcher.expandPaths(const [
+        '~/Games/x',
+        '-flag',
+        r'$HOME/nowhere',
+        '~',
+        r'$OMNI_TEST_UNSET_VARIABLE',
+        r'${HOME}/y',
+        'a~b',
+      ]);
       expect(expanded, [
         '${AppPaths.home}/Games/x',
         '-flag',
@@ -375,7 +407,14 @@ void main() {
         'manual:tilde',
         'Tilde',
         SourceKind.manual,
-        command: ['sh', '-c', 'printf %s "\$2" > "\$1"', 'x', out.path, '~/Games/x'],
+        command: [
+          'sh',
+          '-c',
+          'printf %s "\$2" > "\$1"',
+          'x',
+          out.path,
+          '~/Games/x',
+        ],
       );
 
       await Launcher.launch(tilded);
@@ -400,14 +439,15 @@ void main() {
   });
 
   group('cover art', () {
-    CoverStore storeWith({bool steamCovers = true, bool sgdbAuto = false}) => CoverStore(
-      settings: ArtSettings(
-        steamCovers: steamCovers,
-        sgdbKey: sgdbAuto ? 'key' : '',
-        sgdbAuto: sgdbAuto,
-      ),
-      coverDir: '${dir.path}/covers',
-    );
+    CoverStore storeWith({bool steamCovers = true, bool sgdbAuto = false}) =>
+        CoverStore(
+          settings: ArtSettings(
+            steamCovers: steamCovers,
+            sgdbKey: sgdbAuto ? 'key' : '',
+            sgdbAuto: sgdbAuto,
+          ),
+          coverDir: '${dir.path}/covers',
+        );
 
     test('a cover remembered as missing is not pending', () {
       final store = storeWith();
@@ -439,7 +479,8 @@ void main() {
     });
 
     test('the first resolve prunes SteamGridDB art no game points at', () {
-      final covers = Directory('${dir.path}/covers')..createSync(recursive: true);
+      final covers = Directory('${dir.path}/covers')
+        ..createSync(recursive: true);
       File('${covers.path}/sgdb_steam_1_1.png').writeAsBytesSync([1]);
       File('${covers.path}/steam_1.jpg').writeAsBytesSync([1]);
       final kept = File('${covers.path}/sgdb_steam_2_2.png')
@@ -463,7 +504,10 @@ void main() {
       Directory('${dir.path}/covers').createSync(recursive: true);
       expect(store.resolve(game).kind, ArtworkKind.letter);
 
-      File('${dir.path}/covers/steam_900090009.jpg').writeAsBytesSync([1]);
+      // Big enough to pass the truncated-cache check: a real capsule, not a
+      // download that died halfway.
+      File('${dir.path}/covers/steam_900090009.jpg')
+          .writeAsBytesSync(List<int>.filled(8192, 7));
 
       final artwork = store.resolve(game);
       expect(artwork.kind, ArtworkKind.cover);
@@ -478,77 +522,235 @@ void main() {
       expect(await store.fetchSteamCover(steamGame('900090009')), isNull);
     });
 
-    test('SteamGridDB art is still looked for when only the CDN is missing', () {
-      final store = storeWith(sgdbAuto: true);
-      Directory('${dir.path}/covers').createSync(recursive: true);
-      File('${dir.path}/covers/steam_900090009.missing').writeAsStringSync('');
-      expect(store.resolve(steamGame('900090009')).pending, isTrue);
-    });
+    test(
+      'SteamGridDB art is still looked for when only the CDN is missing',
+      () {
+        final store = storeWith(sgdbAuto: true);
+        Directory('${dir.path}/covers').createSync(recursive: true);
+        File('${dir.path}/covers/steam_900090009.missing')
+            .writeAsStringSync('');
+        expect(store.resolve(steamGame('900090009')).pending, isTrue);
+      },
+    );
 
     test('games the Steam CDN never covers are not pending either', () {
-      expect(storeWith().resolve(game('flatpak:x', 'X', SourceKind.flatpak)).pending, isFalse);
       expect(
-        storeWith(steamCovers: false, sgdbAuto: true)
-            .resolve(game('flatpak:x', 'X', SourceKind.flatpak))
-            .pending,
+        storeWith().resolve(game('flatpak:x', 'X', SourceKind.flatpak)).pending,
+        isFalse,
+      );
+      expect(
+        storeWith(
+          steamCovers: false,
+          sgdbAuto: true,
+        ).resolve(game('flatpak:x', 'X', SourceKind.flatpak)).pending,
         isTrue,
       );
     });
 
-    test('a grid of missing covers does not open a connection per tile', () async {
-      const tiles = 12;
-      var active = 0;
-      var peak = 0;
-      final gates = <Completer<void>>[];
+    test(
+      'a grid of missing covers does not open a connection per tile',
+      () async {
+        const tiles = 12;
+        var active = 0;
+        var peak = 0;
+        final gates = <Completer<void>>[];
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((request) async {
+          active++;
+          if (active > peak) peak = active;
+          final gate = Completer<void>();
+          gates.add(gate);
+          await gate.future;
+          request.response
+            ..headers.contentType = ContentType.binary
+            ..add(List<int>.filled(8192, 7));
+          await request.response.close();
+          active--;
+        });
+
+        final store = CoverStore(
+          settings: const ArtSettings(),
+          coverDir: '${dir.path}/covers',
+          cdnBase: 'http://127.0.0.1:${server.port}',
+        );
+        var completed = 0;
+        final downloads = [
+          for (var i = 0; i < tiles; i++)
+            store.fetchSteamCover(steamGame('${900000 + i}')).then((artwork) {
+              completed++;
+              return artwork;
+            }),
+        ];
+
+        // Let the tiles reach the server; the rest has to wait for a free slot.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(gates, hasLength(4));
+        expect(peak, 4);
+
+        var guard = 0;
+        while (completed < tiles && guard++ < 500) {
+          for (final gate in [...gates]) {
+            if (!gate.isCompleted) gate.complete();
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        final results = await Future.wait(downloads);
+        await server.close(force: true);
+
+        expect(completed, tiles);
+        expect(results.whereType<Artwork>(), hasLength(tiles));
+        expect(peak, 4);
+        // The capsules were cached as they arrived.
+        expect(
+          File('${dir.path}/covers/steam_900000.jpg').existsSync(),
+          isTrue,
+        );
+      },
+    );
+
+    test('a connection failure writes no missing marker, a 404 does', () async {
+      // Offline: a port nothing listens on, so connecting is refused.
+      final offline = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final offlineUrl = 'http://127.0.0.1:${offline.port}';
+      await offline.close(force: true);
+      final offlineStore = CoverStore(
+        settings: const ArtSettings(),
+        coverDir: '${dir.path}/covers',
+        cdnBase: offlineUrl,
+      );
+
+      expect(await offlineStore.fetchSteamCover(steamGame('900201')), isNull);
+      offlineStore.close();
+
+      // No answer is not a "no capsule": the fetch has to be tried again.
+      expect(
+        File('${dir.path}/covers/steam_900201.missing').existsSync(),
+        isFalse,
+      );
+
+      // A 404 is an answer: the capsule is known not to exist.
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((request) async {
-        active++;
-        if (active > peak) peak = active;
-        final gate = Completer<void>();
-        gates.add(gate);
-        await gate.future;
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+      });
+      final answeredStore = CoverStore(
+        settings: const ArtSettings(),
+        coverDir: '${dir.path}/covers',
+        cdnBase: 'http://127.0.0.1:${server.port}',
+      );
+
+      expect(await answeredStore.fetchSteamCover(steamGame('900202')), isNull);
+      answeredStore.close();
+      await server.close(force: true);
+
+      expect(
+        File('${dir.path}/covers/steam_900202.missing').existsSync(),
+        isTrue,
+      );
+      expect(answeredStore.resolve(steamGame('900202')).pending, isFalse);
+    });
+
+    test('a truncated cached capsule is fetched again', () async {
+      Directory('${dir.path}/covers').createSync(recursive: true);
+      final cached = File('${dir.path}/covers/steam_900203.jpg')
+        // Too small to be a real capsule: a download that died halfway.
+        ..writeAsBytesSync([1, 2, 3]);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
         request.response
           ..headers.contentType = ContentType.binary
           ..add(List<int>.filled(8192, 7));
         await request.response.close();
-        active--;
       });
-
       final store = CoverStore(
         settings: const ArtSettings(),
         coverDir: '${dir.path}/covers',
         cdnBase: 'http://127.0.0.1:${server.port}',
       );
-      var completed = 0;
-      final downloads = [
-        for (var i = 0; i < tiles; i++)
-          store.fetchSteamCover(steamGame('${900000 + i}')).then((artwork) {
-            completed++;
-            return artwork;
-          }),
-      ];
 
-      // Let the tiles reach the server; the rest has to wait for a free slot.
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(gates, hasLength(4));
-      expect(peak, 4);
-
-      var guard = 0;
-      while (completed < tiles && guard++ < 500) {
-        for (final gate in [...gates]) {
-          if (!gate.isCompleted) gate.complete();
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-      final results = await Future.wait(downloads);
+      // resolve does not accept the truncated file as artwork either.
+      expect(store.resolve(steamGame('900203')).kind, ArtworkKind.letter);
+      final artwork = await store.fetchSteamCover(steamGame('900203'));
+      store.close();
       await server.close(force: true);
 
-      expect(completed, tiles);
-      expect(results.whereType<Artwork>(), hasLength(tiles));
-      expect(peak, 4);
-      // The capsules were cached as they arrived.
-      expect(File('${dir.path}/covers/steam_900000.jpg').existsSync(), isTrue);
+      expect(artwork, isNotNull);
+      expect(artwork!.kind, ArtworkKind.cover);
+      expect(artwork.value, cached.path);
+      expect(cached.lengthSync(), 8192);
+      // A real capsule arrived, so there is nothing "missing".
+      expect(
+        File('${dir.path}/covers/steam_900203.missing').existsSync(),
+        isFalse,
+      );
+      // The atomic write leaves no temp file behind.
+      expect(File('${cached.path}.tmp').existsSync(), isFalse);
     });
+
+    test(
+      'a slow-drip capsule frees its download slot and writes no marker',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((request) async {
+          if (request.uri.path.startsWith('/424242/')) {
+            // Answer with 200 and then drip a byte at a time forever; only the
+            // body timeout can end this response.
+            try {
+              request.response.headers.contentType = ContentType.binary;
+              while (true) {
+                request.response.add([7]);
+                await request.response.flush();
+                await Future<void>.delayed(const Duration(milliseconds: 100));
+              }
+            } catch (_) {
+              // The client gave up on the drip (or the server was closed),
+              // either of which ends this handler.
+            }
+            return;
+          }
+          request.response
+            ..headers.contentType = ContentType.binary
+            ..add(List<int>.filled(8192, 7));
+          await request.response.close();
+        });
+        final store = CoverStore(
+          settings: const ArtSettings(),
+          coverDir: '${dir.path}/covers',
+          cdnBase: 'http://127.0.0.1:${server.port}',
+          bodyTimeout: const Duration(milliseconds: 300),
+        );
+
+        final drip = store.fetchSteamCover(steamGame('424242'));
+        // Enough other tiles to fill every download slot behind the drip.
+        final others = [
+          for (var i = 0; i < 6; i++)
+            store.fetchSteamCover(steamGame('${900300 + i}')),
+        ];
+        // Without the timeout this wait never returns: the drip would hold one
+        // of the four slots forever and four of the others would starve.
+        final results = await Future.wait([...others, drip])
+            .timeout(const Duration(seconds: 15));
+        store.close();
+        await server.close(force: true);
+
+        expect(results.sublist(0, 6).whereType<Artwork>(), hasLength(6));
+        expect(results.last, isNull);
+        expect(
+          File('${dir.path}/covers/steam_900300.jpg').existsSync(),
+          isTrue,
+        );
+        // A stalled body is no answer: no missing marker, no cached file.
+        expect(
+          File('${dir.path}/covers/steam_424242.missing').existsSync(),
+          isFalse,
+        );
+        expect(
+          File('${dir.path}/covers/steam_424242.jpg').existsSync(),
+          isFalse,
+        );
+      },
+    );
   });
 
   group('SteamGridDB grids', () {
@@ -576,48 +778,58 @@ void main() {
         '/grids/steam/1234',
         '/grids/game/5678',
       ]);
-      expect(
-        queries.map((uri) => uri.queryParameters['dimensions']).toSet(),
-        {SteamGridDb.defaultDimensions},
-      );
-    });
-
-    test('searchArt looks a Steam game up by app id, anything else by name', () async {
-      final queries = <Uri>[];
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      server.listen((request) async {
-        queries.add(request.uri);
-        final path = request.uri.path;
-        final body = path.startsWith('/grids/steam/')
-            ? '{"success":true,"data":[{"id":1,"url":"https://cdn.example/1.png"}]}'
-            : path.startsWith('/search/')
-            ? '{"success":true,"data":[{"id":7,"name":"Terraria"}]}'
-            : '{"success":true,"data":[]}';
-        request.response
-          ..headers.contentType = ContentType.json
-          ..write(body);
-        await request.response.close();
+      expect(queries.map((uri) => uri.queryParameters['dimensions']).toSet(), {
+        SteamGridDb.defaultDimensions,
       });
-      final store = CoverStore(
-        settings: const ArtSettings(sgdbKey: 'key', sgdbAuto: true),
-        coverDir: '${dir.path}/covers',
-        sgdbBase: 'http://127.0.0.1:${server.port}',
-      );
-
-      await store.searchArt(steamGame('1234'));
-      expect(queries.single.path, '/grids/steam/1234');
-      expect(queries.single.queryParameters['dimensions'], SteamGridDb.defaultDimensions);
-
-      // No app id: autocomplete first, then the grids of the best match.
-      queries.clear();
-      await store.searchArt(game('flatpak:x', 'Terraria', SourceKind.flatpak));
-      expect(queries.map((uri) => uri.path).toList(), [
-        '/search/autocomplete/Terraria',
-        '/grids/game/7',
-      ]);
-      expect(queries.last.queryParameters['dimensions'], SteamGridDb.defaultDimensions);
-      await server.close(force: true);
     });
+
+    test(
+      'searchArt looks a Steam game up by app id, anything else by name',
+      () async {
+        final queries = <Uri>[];
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((request) async {
+          queries.add(request.uri);
+          final path = request.uri.path;
+          final body = path.startsWith('/grids/steam/')
+              ? '{"success":true,"data":[{"id":1,"url":"https://cdn.example/1.png"}]}'
+              : path.startsWith('/search/')
+              ? '{"success":true,"data":[{"id":7,"name":"Terraria"}]}'
+              : '{"success":true,"data":[]}';
+          request.response
+            ..headers.contentType = ContentType.json
+            ..write(body);
+          await request.response.close();
+        });
+        final store = CoverStore(
+          settings: const ArtSettings(sgdbKey: 'key', sgdbAuto: true),
+          coverDir: '${dir.path}/covers',
+          sgdbBase: 'http://127.0.0.1:${server.port}',
+        );
+
+        await store.searchArt(steamGame('1234'));
+        expect(queries.single.path, '/grids/steam/1234');
+        expect(
+          queries.single.queryParameters['dimensions'],
+          SteamGridDb.defaultDimensions,
+        );
+
+        // No app id: autocomplete first, then the grids of the best match.
+        queries.clear();
+        await store.searchArt(
+          game('flatpak:x', 'Terraria', SourceKind.flatpak),
+        );
+        expect(queries.map((uri) => uri.path).toList(), [
+          '/search/autocomplete/Terraria',
+          '/grids/game/7',
+        ]);
+        expect(
+          queries.last.queryParameters['dimensions'],
+          SteamGridDb.defaultDimensions,
+        );
+        await server.close(force: true);
+      },
+    );
   });
 
   group('SteamGridDB failures', () {
@@ -630,7 +842,10 @@ void main() {
     }
 
     test('an unreachable host is reported like any other failure', () async {
-      final client = SteamGridDb(apiKey: 'key', baseUrl: await unreachableBaseUrl());
+      final client = SteamGridDb(
+        apiKey: 'key',
+        baseUrl: await unreachableBaseUrl(),
+      );
 
       // The settings screen, the tile auto fetch and the art picker all only
       // handle SteamGridDbException; a raw socket error walks past them.
@@ -644,10 +859,7 @@ void main() {
           ),
         ),
       );
-      await expectLater(
-        client.testKey(),
-        throwsA(isA<SteamGridDbException>()),
-      );
+      await expectLater(client.testKey(), throwsA(isA<SteamGridDbException>()));
       client.close();
     });
 
@@ -660,7 +872,9 @@ void main() {
         );
         final isImage = request.uri.path == '/grid/1.png';
         request.response
-          ..headers.contentType = isImage ? ContentType.binary : ContentType.json
+          ..headers.contentType = isImage
+              ? ContentType.binary
+              : ContentType.json
           ..add(
             isImage
                 ? List<int>.filled(64, 7)
@@ -691,15 +905,58 @@ void main() {
       expect(path, '${dir.path}/grid.png');
     });
 
-    test('a grid that cannot be downloaded is reported as no artwork', () async {
-      final client = SteamGridDb(apiKey: 'key', baseUrl: await unreachableBaseUrl());
-      final path = await client.downloadGrid(
-        SgdbGrid(id: 1, url: '${await unreachableBaseUrl()}/grid.png', thumb: ''),
-        '${dir.path}/grid.png',
+    test(
+      'a grid that cannot be downloaded is reported as no artwork',
+      () async {
+        final client = SteamGridDb(
+          apiKey: 'key',
+          baseUrl: await unreachableBaseUrl(),
+        );
+        final path = await client.downloadGrid(
+          SgdbGrid(
+            id: 1,
+            url: '${await unreachableBaseUrl()}/grid.png',
+            thumb: '',
+          ),
+          '${dir.path}/grid.png',
+        );
+        expect(path, isNull);
+        expect(File('${dir.path}/grid.png').existsSync(), isFalse);
+        client.close();
+      },
+    );
+
+    test('a truncated cached grid is downloaded again', () async {
+      final target = File('${dir.path}/grid.png')
+        // A download that died halfway; it must not be accepted as artwork.
+        ..writeAsBytesSync(const []);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        request.response
+          ..headers.contentType = ContentType.binary
+          ..add(List<int>.filled(64, 7));
+        await request.response.close();
+      });
+      final client = SteamGridDb(
+        apiKey: 'key',
+        baseUrl: 'http://127.0.0.1:${server.port}',
       );
-      expect(path, isNull);
-      expect(File('${dir.path}/grid.png').existsSync(), isFalse);
+
+      final path = await client.downloadGrid(
+        SgdbGrid(
+          id: 1,
+          url: 'http://127.0.0.1:${server.port}/grid/1.png',
+          thumb: '',
+        ),
+        target.path,
+      );
       client.close();
+      await server.close(force: true);
+
+      expect(path, target.path);
+      expect(target.lengthSync(), 64);
+      // The atomic write leaves no temp file behind.
+      expect(File('${target.path}.tmp').existsSync(), isFalse);
     });
   });
 
@@ -755,7 +1012,9 @@ void main() {
       Set<String> hidden = const {},
     }) => AppConfig(
       appimageDirs: const [],
-      manual: [ManualEntry(name: 'Alpha', key: 'alpha', command: const ['true'])],
+      manual: [
+        ManualEntry(name: 'Alpha', key: 'alpha', command: const ['true']),
+      ],
       nameOverrides: names,
       artOverrides: art,
       hidden: hidden,
@@ -778,70 +1037,76 @@ void main() {
     Game foundIn(LibraryController controller) =>
         controller.games.firstWhere((entry) => entry.id == id);
 
-    test('a scan caches the discovered name and re-applies the rename', () async {
-      final first = controller(config: library());
-      addTearDown(first.dispose);
-      await first.rescan();
-      expect(foundIn(first).name, 'Alpha');
+    test(
+      'a scan caches the discovered name and re-applies the rename',
+      () async {
+        final first = controller(config: library());
+        addTearDown(first.dispose);
+        await first.rescan();
+        expect(foundIn(first).name, 'Alpha');
 
-      first.setName(id, 'Beta');
-      expect(foundIn(first).name, 'Beta');
+        first.setName(id, 'Beta');
+        expect(foundIn(first).name, 'Beta');
 
-      // A second scan must not write the rename into the cache, or the reset
-      // could never find the discovered name again.
-      await first.rescan();
-      expect(foundIn(first).name, 'Beta');
-      final cached = jsonDecode(File(cachePath()).readAsStringSync()) as Map;
-      final entry = (cached['games'] as List)
-          .cast<Map>()
-          .firstWhere((row) => row['id'] == id);
-      expect(entry['name'], 'Alpha');
+        // A second scan must not write the rename into the cache, or the reset
+        // could never find the discovered name again.
+        await first.rescan();
+        expect(foundIn(first).name, 'Beta');
+        final cached = jsonDecode(File(cachePath()).readAsStringSync()) as Map;
+        final entry = (cached['games'] as List).cast<Map>().firstWhere(
+          (row) => row['id'] == id,
+        );
+        expect(entry['name'], 'Alpha');
 
-      // The next start shows the rename before its own scan has run.
-      final second = reopened();
-      addTearDown(second.dispose);
-      await second.load(refresh: false);
-      expect(foundIn(second).name, 'Beta');
-      expect(second.discoveredNameFor(id), 'Alpha');
+        // The next start shows the rename before its own scan has run.
+        final second = reopened();
+        addTearDown(second.dispose);
+        await second.load(refresh: false);
+        expect(foundIn(second).name, 'Beta');
+        expect(second.discoveredNameFor(id), 'Alpha');
 
-      // And resetting goes back to what the launcher found, not to the cache.
-      second.setName(id, null);
-      expect(foundIn(second).name, 'Alpha');
-      expect(AppConfig.load(configPath()).nameOverrides, isEmpty);
-    });
+        // And resetting goes back to what the launcher found, not to the cache.
+        second.setName(id, null);
+        expect(foundIn(second).name, 'Alpha');
+        expect(AppConfig.load(configPath()).nameOverrides, isEmpty);
+      },
+    );
 
-    test('a rename keeps the identity, the hidden flag, the art and the time', () async {
-      final art = File('${dir.path}/pinned.png')..writeAsBytesSync([1, 2, 3]);
-      final first = controller(
-        config: library(art: {id: art.path}, hidden: {id}),
-      );
-      addTearDown(first.dispose);
-      await first.rescan();
-      final before = foundIn(first);
-      final start = DateTime.now().subtract(const Duration(minutes: 5));
-      first.playtime.begin(id, start);
-      first.playtime.end(id, DateTime.now());
-      final played = first.playtimeOf(id);
-      expect(played, greaterThan(Duration.zero));
-      expect(first.hiddenCount, 1);
+    test(
+      'a rename keeps the identity, the hidden flag, the art and the time',
+      () async {
+        final art = File('${dir.path}/pinned.png')..writeAsBytesSync([1, 2, 3]);
+        final first = controller(
+          config: library(art: {id: art.path}, hidden: {id}),
+        );
+        addTearDown(first.dispose);
+        await first.rescan();
+        final before = foundIn(first);
+        final start = DateTime.now().subtract(const Duration(minutes: 5));
+        first.playtime.begin(id, start);
+        first.playtime.end(id, DateTime.now());
+        final played = first.playtimeOf(id);
+        expect(played, greaterThan(Duration.zero));
+        expect(first.hiddenCount, 1);
 
-      first.setName(id, 'Beta');
+        first.setName(id, 'Beta');
 
-      final after = foundIn(first);
-      expect(after.name, 'Beta');
-      expect(after.id, before.id);
-      expect(after.key, before.key);
-      expect(after.command, before.command);
-      expect(after.extra, before.extra);
-      expect(after.path, before.path);
-      // Everything keyed by identity follows the game, not its name.
-      expect(first.hiddenCount, 1);
-      expect(first.visibleGames.any((entry) => entry.id == id), isFalse);
-      expect(first.covers.overrideFor(after), art.path);
-      expect(first.covers.resolve(after).kind, ArtworkKind.cover);
-      expect(first.playtimeOf(id), played);
-      expect(first.lastPlayedFor(id), isNotNull);
-    });
+        final after = foundIn(first);
+        expect(after.name, 'Beta');
+        expect(after.id, before.id);
+        expect(after.key, before.key);
+        expect(after.command, before.command);
+        expect(after.extra, before.extra);
+        expect(after.path, before.path);
+        // Everything keyed by identity follows the game, not its name.
+        expect(first.hiddenCount, 1);
+        expect(first.visibleGames.any((entry) => entry.id == id), isFalse);
+        expect(first.covers.overrideFor(after), art.path);
+        expect(first.covers.resolve(after).kind, ArtworkKind.cover);
+        expect(first.playtimeOf(id), played);
+        expect(first.lastPlayedFor(id), isNotNull);
+      },
+    );
 
     test('a rename cannot merge two games that end up with one name', () async {
       final controllerWithBoth = LibraryController(
@@ -861,12 +1126,14 @@ void main() {
 
       controllerWithBoth.setName('manual:alpha', 'Beta');
 
-      final both = controllerWithBoth.games.where((entry) => entry.name == 'Beta');
-      expect(both, hasLength(2));
-      expect(
-        both.map((entry) => entry.id).toSet(),
-        {'manual:alpha', 'manual:beta'},
+      final both = controllerWithBoth.games.where(
+        (entry) => entry.name == 'Beta',
       );
+      expect(both, hasLength(2));
+      expect(both.map((entry) => entry.id).toSet(), {
+        'manual:alpha',
+        'manual:beta',
+      });
       // ... and the override never reaches the scan: identity is untouched.
       expect(
         controllerWithBoth.games
@@ -904,7 +1171,10 @@ void main() {
       // renamed game: overrides are applied after de-duplication.
       final scanned = await discoverAll(
         AppConfig(nameOverrides: const {'steam:440': 'TF2 (modded)'}),
-        sources: [_FixedSource(SourceKind.steam, [steam]), _FixedSource(SourceKind.desktop, [shortcut])],
+        sources: [
+          _FixedSource(SourceKind.steam, [steam]),
+          _FixedSource(SourceKind.desktop, [shortcut]),
+        ],
       );
       expect(scanned, hasLength(1));
       expect(scanned.single.id, 'steam:440');
@@ -945,7 +1215,8 @@ void main() {
 
     double gridAspect(WidgetTester tester) {
       final grid = tester.widget<GridView>(find.byType(GridView));
-      final delegate = grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+      final delegate =
+          grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
       return delegate.childAspectRatio;
     }
 
@@ -959,23 +1230,33 @@ void main() {
           .first,
     );
 
-    testWidgets('the wall is portrait posters whatever the window shape', (tester) async {
+    testWidgets('the wall is portrait posters whatever the window shape', (
+      tester,
+    ) async {
       final controller = buildSpy();
       await pumpPage(tester, controller, const Size(1600, 900));
 
       expect(tiles(tester), isNotEmpty);
       expect(gridAspect(tester), GameTile.width / (GameTile.coverHeight + 68));
-      expect(coverBox(tester), const Size(GameTile.width, GameTile.coverHeight));
+      expect(
+        coverBox(tester),
+        const Size(GameTile.width, GameTile.coverHeight),
+      );
       expect(controller.coverRequests, isNotEmpty);
 
       // A square window used to turn the whole wall into square posters; that
       // experiment is gone, so the geometry has to hold here too.
       await resizeWindow(tester, const Size(1000, 1000));
       expect(gridAspect(tester), GameTile.width / (GameTile.coverHeight + 68));
-      expect(coverBox(tester), const Size(GameTile.width, GameTile.coverHeight));
+      expect(
+        coverBox(tester),
+        const Size(GameTile.width, GameTile.coverHeight),
+      );
     });
 
-    testWidgets('resizing does not re-ask for artwork tile by tile', (tester) async {
+    testWidgets('resizing does not re-ask for artwork tile by tile', (
+      tester,
+    ) async {
       final controller = buildSpy();
       await pumpPage(tester, controller, const Size(1600, 900));
       final asked = controller.coverRequests.length;
@@ -988,7 +1269,6 @@ void main() {
       await resizeWindow(tester, const Size(900, 900));
       expect(controller.coverRequests.length, asked);
     });
-
   });
 
   // ------------------------------------------------------------- sidebar
@@ -1014,39 +1294,46 @@ void main() {
     Finder sidebarText(String text) =>
         find.descendant(of: find.byType(ListView), matching: find.text(text));
 
-    testWidgets('folds to an icon rail, gives the wall the width, and remembers', (
-      tester,
-    ) async {
-      final controller = buildSpy();
-      await pumpPage(tester, controller, const Size(1400, 900));
+    testWidgets(
+      'folds to an icon rail, gives the wall the width, and remembers',
+      (tester) async {
+        final controller = buildSpy();
+        await pumpPage(tester, controller, const Size(1400, 900));
 
-      expect(sidebarText('All games'), findsOneWidget);
-      expect(sidebarText('Flatpak'), findsOneWidget);
-      final wide = tester.getSize(find.byType(GridView)).width;
+        expect(sidebarText('All games'), findsOneWidget);
+        expect(sidebarText('Flatpak'), findsOneWidget);
+        final wide = tester.getSize(find.byType(GridView)).width;
 
-      await tester.tap(find.byTooltip('Collapse the sidebar'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Collapse the sidebar'));
+        await tester.pumpAndSettle();
 
-      // The labels go, the filters stay.
-      expect(find.byTooltip('Expand the sidebar'), findsOneWidget);
-      expect(sidebarText('All games'), findsNothing);
-      expect(sidebarText('Flatpak'), findsNothing);
-      expect(find.byIcon(Icons.apps), findsOneWidget);
-      expect(find.byTooltip('Flatpak · 2'), findsOneWidget);
-      expect(
-        tester.getSize(find.byType(GridView)).width - wide,
-        168,
-        reason: 'the 232px sidebar folds to a 64px rail',
-      );
-      expect(AppConfig.load('${dir.path}/config.json').sidebarCollapsed, isTrue);
+        // The labels go, the filters stay.
+        expect(find.byTooltip('Expand the sidebar'), findsOneWidget);
+        expect(sidebarText('All games'), findsNothing);
+        expect(sidebarText('Flatpak'), findsNothing);
+        expect(find.byIcon(Icons.apps), findsOneWidget);
+        expect(find.byTooltip('Flatpak · 2'), findsOneWidget);
+        expect(
+          tester.getSize(find.byType(GridView)).width - wide,
+          168,
+          reason: 'the 232px sidebar folds to a 64px rail',
+        );
+        expect(
+          AppConfig.load('${dir.path}/config.json').sidebarCollapsed,
+          isTrue,
+        );
 
-      await tester.tap(find.byTooltip('Expand the sidebar'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Expand the sidebar'));
+        await tester.pumpAndSettle();
 
-      expect(sidebarText('All games'), findsOneWidget);
-      expect(tester.getSize(find.byType(GridView)).width, wide);
-      expect(AppConfig.load('${dir.path}/config.json').sidebarCollapsed, isFalse);
-    });
+        expect(sidebarText('All games'), findsOneWidget);
+        expect(tester.getSize(find.byType(GridView)).width, wide);
+        expect(
+          AppConfig.load('${dir.path}/config.json').sidebarCollapsed,
+          isFalse,
+        );
+      },
+    );
 
     testWidgets('a source is still pickable from the rail', (tester) async {
       final controller = buildSpy();
@@ -1058,10 +1345,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(controller.sourceFilter, {SourceKind.flatpak});
-      expect(
-        controller.visibleGames.map((game) => game.id).toSet(),
-        {'flatpak:a', 'flatpak:b'},
-      );
+      expect(controller.visibleGames.map((game) => game.id).toSet(), {
+        'flatpak:a',
+        'flatpak:b',
+      });
     });
 
     testWidgets('Show hidden is reachable while folded', (tester) async {
@@ -1087,7 +1374,9 @@ void main() {
   // ------------------------------------------------------------ art pick
 
   group('art pick in the window', () {
-    testWidgets('a failed pick is shown in the dialog and leaves it usable', (tester) async {
+    testWidgets('a failed pick is shown in the dialog and leaves it usable', (
+      tester,
+    ) async {
       final spy = ArtSpy(
         configPath: '${dir.path}/config.json',
         cachePath: '${dir.path}/games.json',
@@ -1144,13 +1433,18 @@ void main() {
       expect(ink.onTap, isNotNull);
     });
 
-    testWidgets('a pick reaches the tile and the panel at once', (tester) async {
+    testWidgets('a pick reaches the tile and the panel at once', (
+      tester,
+    ) async {
       final art = File('${dir.path}/cover.png')..writeAsBytesSync([1, 2, 3]);
       final controller = LibraryController(
         configPath: '${dir.path}/config.json',
         cachePath: '${dir.path}/games.json',
         playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
-        config: AppConfig(appimageDirs: const [], artOverrides: {'flatpak:a': art.path}),
+        config: AppConfig(
+          appimageDirs: const [],
+          artOverrides: {'flatpak:a': art.path},
+        ),
       );
       addTearDown(controller.dispose);
       controller.games = [game('flatpak:a', 'Alpha', SourceKind.flatpak)];
@@ -1168,7 +1462,9 @@ void main() {
 
       // And the other way round: art pinned after the tile was built. This is
       // the state a successful pick leaves behind.
-      controller.covers.settings = ArtSettings(overrides: {'flatpak:a': art.path});
+      controller.covers.settings = ArtSettings(
+        overrides: {'flatpak:a': art.path},
+      );
       controller.select(controller.games.first);
       await tester.pumpAndSettle();
       expect(shownCoverPaths(tester), [art.path, art.path]);
@@ -1185,7 +1481,6 @@ void main() {
     String root() => '${dir.path}/eglv2';
 
     String folderFor(String artifactId) => '${dir.path}/games/$artifactId';
-
 
     Map<String, Object?> install({
       String installationId = 'ID-1',
@@ -1210,11 +1505,13 @@ void main() {
     void writeLog(List<Object?> lines) {
       File('${root()}/installations.jsonl')
         ..parent.createSync(recursive: true)
-        ..writeAsStringSync([
-          '{"version":1,"writtenAt":"2026-10-14T18:09:05Z","entries":${lines.length}}',
-          for (final line in lines) line is String ? line : jsonEncode(line),
-          '',
-        ].join('\n'));
+        ..writeAsStringSync(
+          [
+            '{"version":1,"writtenAt":"2026-10-14T18:09:05Z","entries":${lines.length}}',
+            for (final line in lines) line is String ? line : jsonEncode(line),
+            '',
+          ].join('\n'),
+        );
     }
 
     void writeCatalog(Map<String, String> titles) {
@@ -1232,59 +1529,75 @@ void main() {
         );
     }
 
-    Future<List<Game>> discover() => EpicSource(dataRoot: root()).discover(AppConfig());
+    Future<List<Game>> discover() =>
+        EpicSource(dataRoot: root()).discover(AppConfig());
 
-    test('takes the last state per installation and names it from the catalog', () async {
-      writeCatalog({'93f2a8c3547846eda966cb3c152a026e': 'Alan Wake 2'});
-      writeLog([
-        install(complete: false, executable: 'Installing.exe'),
-        // A half written append must not take the record down with it.
-        '{"installationId":"ID-1","complete":',
-        install(complete: true),
-      ]);
+    test(
+      'takes the last state per installation and names it from the catalog',
+      () async {
+        writeCatalog({'93f2a8c3547846eda966cb3c152a026e': 'Alan Wake 2'});
+        writeLog([
+          install(complete: false, executable: 'Installing.exe'),
+          // A half written append must not take the record down with it.
+          '{"installationId":"ID-1","complete":',
+          install(complete: true),
+        ]);
 
-      final games = await discover();
+        final games = await discover();
 
-      expect(games, hasLength(1));
-      final game = games.single;
-      expect(game.id, 'epic:dc9d2e595d0e4650b35d659f90d41059');
-      expect(game.key, 'dc9d2e595d0e4650b35d659f90d41059');
-      expect(game.source, SourceKind.epic);
-      expect(game.name, 'Alan Wake 2');
-      expect(game.subtitle, SourceKind.epic.label);
-      expect(game.command, [
-        'xdg-open',
-        'com.epicgames.launcher://apps/'
-            'c4763f236d08423eb47b4c3008779c84%3A93f2a8c3547846eda966cb3c152a026e%3A'
-            'dc9d2e595d0e4650b35d659f90d41059?action=launch&silent=true',
-      ]);
-      expect(game.extra['complete'], isTrue);
-      expect(game.extra['itemId'], '93f2a8c3547846eda966cb3c152a026e');
-      expect(game.extra['platform'], 'Windows');
-      // The folder is only offered when it is really there.
-      expect(game.path, isNull);
-      final folder = folderFor('dc9d2e595d0e4650b35d659f90d41059');
-      Directory(folder).createSync(recursive: true);
-      expect((await discover()).single.path, folder);
-    });
+        expect(games, hasLength(1));
+        final game = games.single;
+        expect(game.id, 'epic:dc9d2e595d0e4650b35d659f90d41059');
+        expect(game.key, 'dc9d2e595d0e4650b35d659f90d41059');
+        expect(game.source, SourceKind.epic);
+        expect(game.name, 'Alan Wake 2');
+        expect(game.subtitle, SourceKind.epic.label);
+        expect(game.command, [
+          'xdg-open',
+          'com.epicgames.launcher://apps/'
+              'c4763f236d08423eb47b4c3008779c84%3A93f2a8c3547846eda966cb3c152a026e%3A'
+              'dc9d2e595d0e4650b35d659f90d41059?action=launch&silent=true',
+        ]);
+        expect(game.extra['complete'], isTrue);
+        expect(game.extra['itemId'], '93f2a8c3547846eda966cb3c152a026e');
+        expect(game.extra['platform'], 'Windows');
+        // The folder is only offered when it is really there.
+        expect(game.path, isNull);
+        final folder = folderFor('dc9d2e595d0e4650b35d659f90d41059');
+        Directory(folder).createSync(recursive: true);
+        expect((await discover()).single.path, folder);
+      },
+    );
 
-    test('names a game without a catalog title from what the record has', () async {
-      writeLog([
-        install(installationId: 'A', artifactId: 'alpha', executable: ''),
-        install(installationId: 'B', artifactId: 'beta', executable: 'Beta.exe'),
-        install(installationId: 'C', artifactId: 'gamma', executable: '', dir: ''),
-      ]);
+    test(
+      'names a game without a catalog title from what the record has',
+      () async {
+        writeLog([
+          install(installationId: 'A', artifactId: 'alpha', executable: ''),
+          install(
+            installationId: 'B',
+            artifactId: 'beta',
+            executable: 'Beta.exe',
+          ),
+          install(
+            installationId: 'C',
+            artifactId: 'gamma',
+            executable: '',
+            dir: '',
+          ),
+        ]);
 
-      final names = {
-        for (final game in await discover()) game.key: game.name,
-      };
+        final names = {
+          for (final game in await discover()) game.key: game.name,
+        };
 
-      expect(names, {
-        'alpha': 'alpha', // no title and no executable: the app name itself
-        'beta': 'Beta', // the executable without its extension
-        'gamma': 'gamma', // no folder either, so the app name again
-      });
-    });
+        expect(names, {
+          'alpha': 'alpha', // no title and no executable: the app name itself
+          'beta': 'Beta', // the executable without its extension
+          'gamma': 'gamma', // no folder either, so the app name again
+        });
+      },
+    );
 
     test('keeps one entry per app and skips what it cannot launch', () async {
       writeLog([
@@ -1303,26 +1616,32 @@ void main() {
       expect(games.map((game) => game.key), ['same', 'crlf']);
     });
 
-    test('an installation with no namespace falls back to the short uri', () async {
-      writeLog([install(namespace: '', itemId: '', artifactId: 'shortname')]);
+    test(
+      'an installation with no namespace falls back to the short uri',
+      () async {
+        writeLog([install(namespace: '', itemId: '', artifactId: 'shortname')]);
 
-      final games = await discover();
+        final games = await discover();
 
-      expect(games.single.command, [
-        'xdg-open',
-        'com.epicgames.launcher://apps/shortname?action=launch',
-      ]);
-    });
+        expect(games.single.command, [
+          'xdg-open',
+          'com.epicgames.launcher://apps/shortname?action=launch',
+        ]);
+      },
+    );
 
-    test('nothing installed, or nothing readable, is no games at all', () async {
-      expect(await discover(), isEmpty);
+    test(
+      'nothing installed, or nothing readable, is no games at all',
+      () async {
+        expect(await discover(), isEmpty);
 
-      writeLog([install()]);
-      File('${root()}/cache/prod/catalog-cache.json')
-        ..parent.createSync(recursive: true)
-        ..writeAsStringSync('{ not json');
-      expect(await discover(), hasLength(1));
-    });
+        writeLog([install()]);
+        File('${root()}/cache/prod/catalog-cache.json')
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('{ not json');
+        expect(await discover(), hasLength(1));
+      },
+    );
 
     test('the registry and the source kind are wired up', () {
       expect(SourceKind.epic.id, 'epic');

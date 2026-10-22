@@ -60,9 +60,8 @@ Future<List<String>> installBundledPlugins({
     }
     Directory(folder).createSync(recursive: true);
     for (final file in bundled.files) {
-      File('$folder/$file').writeAsStringSync(
-        await assets(_assetPath(bundled, file)),
-      );
+      File('$folder/$file')
+          .writeAsStringSync(await assets(_assetPath(bundled, file)));
     }
     written.add(bundled.id);
   }

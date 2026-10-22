@@ -33,8 +33,9 @@ Future<ManualEntry?> showAddGameDialog(BuildContext context) {
                 controller: nameController,
                 autofocus: true,
                 decoration: const InputDecoration(labelText: 'Name'),
-                validator: (value) =>
-                    (value == null || value.trim().isEmpty) ? 'A name is required' : null,
+                validator: (value) => (value == null || value.trim().isEmpty)
+                    ? 'A name is required'
+                    : null,
               ),
               const SizedBox(height: 14),
               TextFormField(
@@ -43,8 +44,9 @@ Future<ManualEntry?> showAddGameDialog(BuildContext context) {
                   labelText: 'Launch command',
                   hintText: 'flatpak run com.example.Game',
                 ),
-                validator: (value) =>
-                    (value == null || value.trim().isEmpty) ? 'A command is required' : null,
+                validator: (value) => (value == null || value.trim().isEmpty)
+                    ? 'A command is required'
+                    : null,
               ),
               const SizedBox(height: 14),
               TextFormField(
@@ -78,7 +80,13 @@ Future<ManualEntry?> showAddGameDialog(BuildContext context) {
         ),
       ],
     ),
-  );
+    // The fields' controllers live exactly as long as the dialog, however
+    // it closes: Add, Cancel or a tap on the barrier.
+  ).whenComplete(() {
+    nameController.dispose();
+    commandController.dispose();
+    cwdController.dispose();
+  });
 }
 
 /// Settings: appearance, AppImage folders, cover fetching, hidden games, paths.
@@ -135,7 +143,10 @@ class SettingsView extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 18),
-              _AccentRow(selected: config.accent, onChanged: controller.setAccentColor),
+              _AccentRow(
+                selected: config.accent,
+                onChanged: controller.setAccentColor,
+              ),
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: Text(
@@ -174,7 +185,11 @@ class SettingsView extends StatelessWidget {
                     onPressed: () async {
                       final entry = await showAddGameDialog(context);
                       if (entry != null) {
-                        await controller.addManual(entry.name, entry.command, cwd: entry.cwd);
+                        await controller.addManual(
+                          entry.name,
+                          entry.command,
+                          cwd: entry.cwd,
+                        );
                       }
                     },
                     icon: const Icon(Icons.add),
@@ -195,9 +210,9 @@ class SettingsView extends StatelessWidget {
                   trailing: IconButton(
                     tooltip: 'Remove',
                     icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => controller.setAppimageDirs(
-                      [...config.appimageDirs.where((entry) => entry != dir)],
-                    ),
+                    onPressed: () => controller.setAppimageDirs([
+                      ...config.appimageDirs.where((entry) => entry != dir),
+                    ]),
                   ),
                 ),
               _AddFolderField(
@@ -576,7 +591,9 @@ class _AccentRow extends StatelessWidget {
                   // The ring is the page's own text colour, so it reads in both
                   // modes; the idle outline keeps pale accents off the page.
                   border: Border.all(
-                    color: accent == selected ? palette.text : palette.surfaceHigh,
+                    color: accent == selected
+                        ? palette.text
+                        : palette.surfaceHigh,
                     width: accent == selected ? 3 : 1,
                   ),
                 ),
@@ -584,7 +601,10 @@ class _AccentRow extends StatelessWidget {
                     ? Icon(
                         Icons.check,
                         size: 16,
-                        color: AppPalette.forMode(brightness, accent.color).onAccent,
+                        color: AppPalette.forMode(
+                          brightness,
+                          accent.color,
+                        ).onAccent,
                       )
                     : null,
               ),
@@ -639,12 +659,17 @@ class _SteamGridDbSectionState extends State<_SteamGridDbSection> {
               child: TextField(
                 controller: _key,
                 obscureText: true,
-                decoration: const InputDecoration(hintText: 'SteamGridDB API key'),
+                decoration: const InputDecoration(
+                  hintText: 'SteamGridDB API key',
+                ),
                 onSubmitted: _save,
               ),
             ),
             const SizedBox(width: 10),
-            FilledButton(onPressed: () => _save(_key.text), child: const Text('Save')),
+            FilledButton(
+              onPressed: () => _save(_key.text),
+              child: const Text('Save'),
+            ),
             const SizedBox(width: 8),
             OutlinedButton(
               onPressed: _checking ? null : _test,
@@ -665,7 +690,9 @@ class _SteamGridDbSectionState extends State<_SteamGridDbSection> {
               _result!,
               style: TextStyle(
                 fontSize: 12.5,
-                color: _result!.startsWith('Key works') ? palette.accentSoft : palette.warning,
+                color: _result!.startsWith('Key works')
+                    ? palette.accentSoft
+                    : palette.warning,
               ),
             ),
           ),
@@ -741,7 +768,10 @@ class _AddFolderFieldState extends State<_AddFolderField> {
             ),
           ),
           const SizedBox(width: 10),
-          FilledButton(onPressed: () => _submit(_controller.text), child: const Text('Add')),
+          FilledButton(
+            onPressed: () => _submit(_controller.text),
+            child: const Text('Add'),
+          ),
         ],
       ),
     );

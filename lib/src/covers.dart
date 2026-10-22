@@ -13,7 +13,12 @@ import 'paths.dart';
 enum ArtworkKind { cover, icon, letter }
 
 class Artwork {
-  const Artwork(this.kind, {this.value, this.isName = false, this.pending = false});
+  const Artwork(
+    this.kind, {
+    this.value,
+    this.isName = false,
+    this.pending = false,
+  });
 
   final ArtworkKind kind;
 
@@ -59,11 +64,17 @@ class ArtSettings {
 /// Cover art / icon resolution, including lazy Steam CDN and SteamGridDB
 /// downloads.
 class CoverStore {
-  CoverStore({ArtSettings? settings, String? coverDir, String? cdnBase, String? sgdbBase})
-    : _settings = settings ?? const ArtSettings(),
-      _coverFolder = coverDir ?? AppPaths.coverDir,
-      _artCdn = cdnBase ?? defaultCdn,
-      _sgdbBaseUrl = sgdbBase ?? SteamGridDb.defaultBaseUrl;
+  CoverStore({
+    ArtSettings? settings,
+    String? coverDir,
+    String? cdnBase,
+    String? sgdbBase,
+    Duration? bodyTimeout,
+  }) : _settings = settings ?? const ArtSettings(),
+       _coverFolder = coverDir ?? AppPaths.coverDir,
+       _artCdn = cdnBase ?? defaultCdn,
+       _sgdbBaseUrl = sgdbBase ?? SteamGridDb.defaultBaseUrl,
+       _bodyTimeout = bodyTimeout ?? _defaultBodyTimeout;
 
   /// Where downloaded art is cached; the app's cache folder by default.
   final String _coverFolder;
@@ -79,9 +90,17 @@ class CoverStore {
     'library_600x900_2x.jpg',
     'header.jpg',
   ];
-  static const String defaultCdn = 'https://cdn.cloudflare.steamstatic.com/steam/apps';
+  static const String defaultCdn =
+      'https://cdn.cloudflare.steamstatic.com/steam/apps';
   static const String _userAgent = 'OmniLauncher/1.0';
   static const int _minBytes = 4096;
+
+  /// The most a Steam capsule may weigh.
+  static const int _maxCapsuleBytes = 16 * 1024 * 1024;
+
+  /// The longest a capsule body may take; the connection timeout only covers
+  /// the handshake, not a server that drips bytes forever.
+  static const Duration _defaultBodyTimeout = Duration(seconds: 30);
 
   /// How long a Steam "no capsule" answer is believed before it is retried: a
   /// game can get artwork on the CDN long after the launcher first asked.
@@ -92,6 +111,14 @@ class CoverStore {
 
   ArtSettings _settings;
   SteamGridDb? _sgdb;
+
+  /// Steam CDN client, created on demand and shared by every capsule fetch:
+  /// a grid of tiles asks for many capsules at once, and one client pools the
+  /// connections instead of paying a handshake per capsule.
+  HttpClient? _steamClient;
+
+  /// The longest a capsule body may take, overridable for tests.
+  final Duration _bodyTimeout;
   Map<String, String>? _themeIcons;
   final Set<String> _pending = <String>{};
   int _downloads = 0;
@@ -122,6 +149,19 @@ class CoverStore {
   /// SteamGridDB client, created on demand.
   SteamGridDb get sgdb =>
       _sgdb ??= SteamGridDb(apiKey: _settings.sgdbKey, baseUrl: _sgdbBaseUrl);
+
+  /// The shared Steam CDN client, created on demand.
+  HttpClient get _cdn =>
+      _steamClient ??= HttpClient()
+        ..connectionTimeout = const Duration(seconds: 8);
+
+  /// Release the network clients; the store must not be asked for art again.
+  void close() {
+    _steamClient?.close(force: true);
+    _steamClient = null;
+    _sgdb?.close();
+    _sgdb = null;
+  }
 
   String get _steamLibraryCache =>
       '${AppPaths.home}/.local/share/Steam/appcache/librarycache';
@@ -171,8 +211,12 @@ class CoverStore {
     }
     final icon = game.icon;
     if (icon != null && icon.isNotEmpty) {
-      if (game.iconIsName) return Artwork(ArtworkKind.icon, value: icon, isName: true);
-      if (File(icon).existsSync()) return Artwork(ArtworkKind.icon, value: icon);
+      if (game.iconIsName) {
+        return Artwork(ArtworkKind.icon, value: icon, isName: true);
+      }
+      if (File(icon).existsSync()) {
+        return Artwork(ArtworkKind.icon, value: icon);
+      }
     }
     return Artwork(ArtworkKind.letter, pending: _pendingFor(null));
   }
@@ -270,7 +314,8 @@ class CoverStore {
 
   // ---------------------------------------------------------------- steam
 
-  File _missingMarker(String appid) => File('$_coverFolder/steam_$appid.missing');
+  File _missingMarker(String appid) =>
+      File('$_coverFolder/steam_$appid.missing');
 
   /// True while [appid]'s missing marker is fresh enough to believe: a
   /// capsule can appear on the CDN later, so a marker older than
@@ -297,7 +342,16 @@ class CoverStore {
 
   String? _steamCached(String appid) {
     final file = File('$_coverFolder/steam_$appid.jpg');
-    return file.existsSync() ? file.path : null;
+    if (!file.existsSync()) return null;
+    if (file.lengthSync() > _minBytes) return file.path;
+    // A zero or truncated capsule is no artwork; drop it so it is fetched
+    // again instead of being shown as a broken image forever.
+    try {
+      file.deleteSync();
+    } on FileSystemException {
+      // Another run of the launcher got there first; a retry refetches.
+    }
+    return null;
   }
 
   /// Fetch the Steam capsule once; `null` when unavailable or disabled.
@@ -345,39 +399,84 @@ class CoverStore {
     if (_missingFresh(appid)) return null;
     Directory(_coverFolder).createSync(recursive: true);
     final target = File('$_coverFolder/steam_$appid.jpg');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-    try {
-      for (final asset in assets) {
-        try {
-          final request = await client.getUrl(Uri.parse('$_artCdn/$appid/$asset'));
-          request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-          final response = await request.close();
-          if (response.statusCode != HttpStatus.ok) {
-            await response.drain<void>();
-            continue;
-          }
-          final builder = BytesBuilder(copy: false);
-          await for (final chunk in response) {
-            builder.add(chunk);
-          }
-          final bytes = builder.takeBytes();
-          if (bytes.length > _minBytes) {
-            target.writeAsBytesSync(bytes);
-            return target.path;
-          }
-        } on IOException {
-          continue;
-        }
+    // The missing marker may only be written once the CDN has actually
+    // answered for this app id; a host that cannot be reached says nothing
+    // about whether the capsule exists.
+    var answered = false;
+    for (final asset in assets) {
+      final HttpClientResponse response;
+      try {
+        final request = await _cdn.getUrl(Uri.parse('$_artCdn/$appid/$asset'));
+        request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+        response = await request.close();
+      } on IOException {
+        // Connection, DNS or TLS failure before any answer: not a "missing".
+        continue;
       }
-    } finally {
-      client.close(force: true);
+      answered = true;
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        continue;
+      }
+      final Uint8List bytes;
+      try {
+        bytes = await _readBody(response);
+      } on IOException {
+        // A body that dies or stalls halfway says nothing about the capsule;
+        // in particular it must not be remembered as missing.
+        return null;
+      } on TimeoutException {
+        // A slow drip must not hold a download slot forever, and is no
+        // answer either.
+        return null;
+      }
+      if (bytes.length > _minBytes) {
+        return await _writeCapsule(target, bytes) ? target.path : null;
+      }
+      // A body too small to be a real capsule; try the next asset.
     }
-    try {
-      missing.createSync(recursive: true);
-    } on FileSystemException {
-      // A missing marker is only an optimisation.
+    if (answered) {
+      try {
+        missing.createSync(recursive: true);
+      } on FileSystemException {
+        // A missing marker is only an optimisation.
+      }
     }
     return null;
+  }
+
+  /// The whole capsule body, bounded in size and time: the connection
+  /// timeout covers the handshake only, so a server that drips bytes forever
+  /// would otherwise hold a download slot for the rest of the run.
+  Future<Uint8List> _readBody(HttpClientResponse response) async {
+    final builder = BytesBuilder(copy: false);
+    // A stream timeout cancels the subscription; a future timeout would keep
+    // reading the drip after the caller gave up.
+    await for (final chunk in response.timeout(_bodyTimeout)) {
+      builder.add(chunk);
+      if (builder.length > _maxCapsuleBytes) {
+        throw HttpException('capsule larger than $_maxCapsuleBytes bytes');
+      }
+    }
+    return builder.takeBytes();
+  }
+
+  /// Store [bytes] at [target] via a temp file, so a tile can never read a
+  /// half-written capsule; false when the disk would not take the write.
+  Future<bool> _writeCapsule(File target, Uint8List bytes) async {
+    final temp = File('${target.path}.tmp');
+    try {
+      await temp.writeAsBytes(bytes, flush: true);
+      await temp.rename(target.path);
+      return true;
+    } on IOException {
+      try {
+        await temp.delete();
+      } on IOException {
+        // The write may have failed before the temp file existed.
+      }
+      return false;
+    }
   }
 
   // ---------------------------------------------------------- steamgriddb

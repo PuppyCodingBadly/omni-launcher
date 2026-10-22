@@ -52,14 +52,23 @@ void main() {
 
     test('today and yesterday', () {
       expect(formatLastPlayed(now, now), 'today');
-      expect(formatLastPlayed(now.subtract(const Duration(minutes: 5)), now), 'today');
+      expect(
+        formatLastPlayed(now.subtract(const Duration(minutes: 5)), now),
+        'today',
+      );
       expect(formatLastPlayed(DateTime(2026, 10, 14, 0, 5), now), 'today');
-      expect(formatLastPlayed(DateTime(2026, 10, 13, 23, 55), now), 'yesterday');
+      expect(
+        formatLastPlayed(DateTime(2026, 10, 13, 23, 55), now),
+        'yesterday',
+      );
       expect(formatLastPlayed(DateTime(2026, 10, 13), now), 'yesterday');
     });
 
     test('counts calendar days, not 24 hour blocks', () {
-      expect(formatLastPlayed(DateTime(2026, 10, 11, 23, 59), now), '3 days ago');
+      expect(
+        formatLastPlayed(DateTime(2026, 10, 11, 23, 59), now),
+        '3 days ago',
+      );
       expect(formatLastPlayed(DateTime(2026, 10, 8), now), '6 days ago');
     });
 
@@ -119,7 +128,10 @@ void main() {
       final controller = build();
       addTearDown(controller.dispose);
 
-      expect(controller.playtimeOf('steam:1'), const Duration(hours: 12, minutes: 40));
+      expect(
+        controller.playtimeOf('steam:1'),
+        const Duration(hours: 12, minutes: 40),
+      );
       expect(controller.lastPlayedFor('steam:1'), played);
       expect(controller.playtimeOf('steam:2'), Duration.zero);
       expect(controller.lastPlayedFor('steam:2'), isNull);
@@ -128,7 +140,9 @@ void main() {
     test('start up closes a session the launcher never finished', () async {
       // The store keeps milliseconds, so the seed has to as well.
       final started = DateTime.fromMillisecondsSinceEpoch(
-        DateTime.now().subtract(const Duration(hours: 2)).millisecondsSinceEpoch,
+        DateTime.now()
+            .subtract(const Duration(hours: 2))
+            .millisecondsSinceEpoch,
       );
       final seen = started.add(const Duration(minutes: 30));
       seed({
@@ -171,16 +185,24 @@ void main() {
       final start = DateTime(2026, 10, 14, 20);
       expect(LibraryController.shouldTouch(start, start), isFalse);
       expect(
-        LibraryController.shouldTouch(start, start.add(const Duration(seconds: 29))),
+        LibraryController.shouldTouch(
+          start,
+          start.add(const Duration(seconds: 29)),
+        ),
         isFalse,
       );
       expect(
-        LibraryController.shouldTouch(start, start.add(const Duration(seconds: 30))),
+        LibraryController.shouldTouch(
+          start,
+          start.add(const Duration(seconds: 30)),
+        ),
         isTrue,
       );
     });
 
-    testWidgets('the detail panel shows played time and last played', (tester) async {
+    testWidgets('the detail panel shows played time and last played', (
+      tester,
+    ) async {
       // The panel scrolls; give it room so the metadata fields are laid out.
       tester.view.physicalSize = const Size(420, 2200);
       tester.view.devicePixelRatio = 1;
@@ -205,17 +227,24 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.dark,
-          home: Scaffold(body: DetailPanel(controller: controller, game: game)),
+          home: Scaffold(
+            body: DetailPanel(controller: controller, game: game),
+          ),
         ),
       );
 
       expect(find.text('PLAYED'), findsOneWidget);
       expect(find.text('12h 40m'), findsOneWidget);
       expect(find.text('LAST PLAYED'), findsOneWidget);
-      expect(find.text(formatLastPlayed(played, DateTime.now())), findsOneWidget);
+      expect(
+        find.text(formatLastPlayed(played, DateTime.now())),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('a game that was never played shows no last played', (tester) async {
+    testWidgets('a game that was never played shows no last played', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(420, 2200);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -232,7 +261,9 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.dark,
-          home: Scaffold(body: DetailPanel(controller: controller, game: game)),
+          home: Scaffold(
+            body: DetailPanel(controller: controller, game: game),
+          ),
         ),
       );
 
@@ -240,7 +271,9 @@ void main() {
       expect(find.text('0m'), findsOneWidget);
       expect(find.text('LAST PLAYED'), findsNothing);
     });
-    testWidgets('the detail panel can close the launcher with the game', (tester) async {
+    testWidgets('the detail panel can close the launcher with the game', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(420, 2400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -267,7 +300,10 @@ void main() {
         ),
       );
 
-      final row = find.widgetWithText(SwitchListTile, 'Close the launcher with the game');
+      final row = find.widgetWithText(
+        SwitchListTile,
+        'Close the launcher with the game',
+      );
       expect(tester.widget<SwitchListTile>(row).value, isFalse);
 
       await tester.tap(row);
@@ -318,10 +354,10 @@ void main() {
     test('descendants walks deeper than the direct children', () async {
       // sh -> sh -> sleep: the sleep is a grandchild, so a one level walk
       // would not find it.
-      final process = await Process.start(
-        'sh',
-        ['-c', "sh -c 'sleep 30 & wait' & wait"],
-      );
+      final process = await Process.start('sh', [
+        '-c',
+        "sh -c 'sleep 30 & wait' & wait",
+      ]);
       addTearDown(() => process.kill(ProcessSignal.sigkill));
       await Future<void>.delayed(const Duration(milliseconds: 400));
 
@@ -385,12 +421,18 @@ void main() {
 
       expect(controller.config.closesWithGame('flatpak:alpha'), isTrue);
       expect(controller.config.closesWithGame('flatpak:beta'), isFalse);
-      expect(AppConfig.load(configPath).closesWithGame('flatpak:alpha'), isTrue);
+      expect(
+        AppConfig.load(configPath).closesWithGame('flatpak:alpha'),
+        isTrue,
+      );
 
       controller.setCloseWithGame('flatpak:alpha', false);
 
       expect(controller.config.closesWithGame('flatpak:alpha'), isFalse);
-      expect(AppConfig.load(configPath).closesWithGame('flatpak:alpha'), isFalse);
+      expect(
+        AppConfig.load(configPath).closesWithGame('flatpak:alpha'),
+        isFalse,
+      );
     });
 
     /// Waits for [condition] to hold, or gives up after [timeout].

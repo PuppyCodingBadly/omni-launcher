@@ -44,7 +44,10 @@ void main() {
 
       expect(grids, hasLength(2));
       expect(grids.first.id, 372951);
-      expect(grids.first.thumb, 'https://cdn2.steamgriddb.com/thumb/0f0d0f0d.jpg');
+      expect(
+        grids.first.thumb,
+        'https://cdn2.steamgriddb.com/thumb/0f0d0f0d.jpg',
+      );
       expect(grids.first.width, 600);
       expect(grids.first.height, 900);
       expect(grids.first.style, 'alternate');
@@ -60,7 +63,10 @@ void main() {
       expect(SgdbGrid.fromJson(const {'url': 'https://x/y.png'}), isNull);
       expect(SgdbGrid.fromJson(const {'id': 1}), isNull);
       expect(SgdbGrid.fromJson(const {'id': 1, 'url': ''}), isNull);
-      expect(SgdbGrid.fromJson(const {'id': 1, 'url': 'https://x/y'}), isNotNull);
+      expect(
+        SgdbGrid.fromJson(const {'id': 1, 'url': 'https://x/y'}),
+        isNotNull,
+      );
     });
 
     test('parses autocomplete hits', () {
@@ -86,8 +92,11 @@ void main() {
       );
       expect(grid.extension, '.png');
       expect(
-        const SgdbGrid(id: 2, url: 'https://cdn.example/grid/thing', thumb: '')
-            .extension,
+        const SgdbGrid(
+          id: 2,
+          url: 'https://cdn.example/grid/thing',
+          thumb: '',
+        ).extension,
         '.jpg',
       );
     });
@@ -149,6 +158,81 @@ void main() {
       expect(seen.first.headers.value('authorization'), 'Bearer secret-key');
       expect(seen.last.uri.path, '/real');
       expect(seen.last.headers.value('authorization'), isNull);
+    });
+
+    test('a server that never answers is given up on', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      // The connection is accepted, and then nothing is ever written.
+      server.listen((request) {});
+      final client = SteamGridDb(
+        apiKey: 'secret-key',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+        bodyTimeout: const Duration(milliseconds: 150),
+      );
+      addTearDown(client.close);
+
+      await expectLater(
+        client.gridsForSteamApp(427410),
+        throwsA(
+          isA<SteamGridDbException>().having(
+            (error) => error.message,
+            'message',
+            contains('took too long'),
+          ),
+        ),
+      );
+    });
+
+    test('a body that stalls after the headers is given up on', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write('{"success":true,"data":[');
+        // Deliberately never closes: the body timeout must end the read.
+      });
+      final client = SteamGridDb(
+        apiKey: 'secret-key',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+        bodyTimeout: const Duration(milliseconds: 150),
+      );
+      addTearDown(client.close);
+
+      await expectLater(
+        client.gridsForSteamApp(427410),
+        throwsA(
+          isA<SteamGridDbException>().having(
+            (error) => error.message,
+            'message',
+            contains('took too long'),
+          ),
+        ),
+      );
+    });
+
+    test('a redirect to plain http is refused before the key can follow '
+        'it', () async {
+      final (server, seen) = await serve((request) {
+        request.response.statusCode = HttpStatus.found;
+        request.response.headers.set(
+          HttpHeaders.locationHeader,
+          'http://example.com/steal',
+        );
+        request.response.close();
+      });
+      final client = SteamGridDb(
+        apiKey: 'secret-key',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+      );
+      addTearDown(client.close);
+
+      await expectLater(
+        client.gridsForSteamApp(427410),
+        throwsA(isA<SteamGridDbException>()),
+      );
+      // The redirect was never followed, so the key was never sent to it.
+      expect(seen, hasLength(1));
     });
 
     test('a redirect that never ends is refused', () async {

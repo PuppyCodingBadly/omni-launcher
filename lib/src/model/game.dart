@@ -145,7 +145,9 @@ class Game {
       subtitle: subtitle is String ? subtitle : null,
       // A decoded JSON map stays mutable; hand out a copy nobody can mutate,
       // so two games decoded from the same record share nothing.
-      extra: extra is Map ? Map.unmodifiable(extra.cast<String, Object?>()) : const {},
+      extra: extra is Map
+          ? Map.unmodifiable(extra.cast<String, Object?>())
+          : const {},
     );
   }
 }

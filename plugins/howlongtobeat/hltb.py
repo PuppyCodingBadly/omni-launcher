@@ -22,7 +22,13 @@ UA = (
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
     'Chrome/124.0 Safari/537.36'
 )
-TIMEOUT = 20
+# The runner kills a plugin after 30s, and a lookup makes two requests; each
+# gets half that with room to spare.
+TIMEOUT = 10
+
+# The most a single answer may weigh: the site's answers are kilobytes, so a
+# megabyte is already generous, and beyond it something is wrong.
+MAX_BODY = 1024 * 1024
 
 # The search takes the site's whole filter object; most of it stays empty.
 SEARCH_OPTIONS = {
@@ -74,7 +80,10 @@ def fetch(url, data=None, headers=None, method=None):
         },
     )
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        return response.read().decode('utf-8', 'replace')
+        body = response.read(MAX_BODY + 1)
+        if len(body) > MAX_BODY:
+            raise ValueError('the answer is larger than {} bytes'.format(MAX_BODY))
+        return body.decode('utf-8', 'replace')
 
 
 def token():
@@ -165,8 +174,13 @@ def main():
     except ValueError:
         emit({'error': 'The request was not JSON.'})
         return 0
+    if not isinstance(request, dict):
+        emit({'error': 'The request was not a JSON object.'})
+        return 0
 
-    game = request.get('game') or {}
+    game = request.get('game')
+    if not isinstance(game, dict):
+        game = {}
     name = str(game.get('name') or '').strip()
     if not name:
         emit({'error': 'The request named no game.'})
@@ -188,7 +202,11 @@ def main():
     except OSError as error:
         emit({'error': 'Could not reach HowLongToBeat: {}'.format(error)})
     except ValueError:
-        emit({'error': 'HowLongToBeat answered something that is not JSON.'})
+        emit({'error': 'HowLongToBeat answered something unusable.'})
+    except (KeyError, TypeError, AttributeError):
+        # The site's payload changed shape under the plugin: say so as an
+        # answer, rather than as a traceback the launcher cannot show.
+        emit({'error': 'HowLongToBeat changed the shape of its answers.'})
     return 0
 
 

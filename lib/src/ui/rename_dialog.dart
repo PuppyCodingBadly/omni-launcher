@@ -42,8 +42,9 @@ Future<RenameChoice?> showRenameGameDialog(
                 controller: field,
                 autofocus: true,
                 decoration: const InputDecoration(labelText: 'Name'),
-                validator: (value) =>
-                    (value == null || value.trim().isEmpty) ? 'A name is required' : null,
+                validator: (value) => (value == null || value.trim().isEmpty)
+                    ? 'A name is required'
+                    : null,
                 onFieldSubmitted: (_) => _save(context, formKey, field),
               ),
               if (renamed)
@@ -51,7 +52,10 @@ Future<RenameChoice?> showRenameGameDialog(
                   padding: const EdgeInsets.only(top: 12),
                   child: Text(
                     'Renamed. The launcher found this game as "$discoveredName".',
-                    style: TextStyle(fontSize: 12.5, color: context.palette.textDim),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: context.palette.textDim,
+                    ),
                   ),
                 ),
             ],
@@ -61,7 +65,8 @@ Future<RenameChoice?> showRenameGameDialog(
       actions: [
         if (renamed)
           TextButton(
-            onPressed: () => Navigator.of(context).pop(const RenameChoice.reset()),
+            onPressed: () =>
+                Navigator.of(context).pop(const RenameChoice.reset()),
             child: const Text('Reset'),
           ),
         TextButton(

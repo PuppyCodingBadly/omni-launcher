@@ -101,11 +101,25 @@ Future<List<Game>> preferSteamShortcuts(
   }
 
   final result = <Game>[];
+  List<String>? prefix;
   for (final game in games) {
     final nameKey = game.name.trim().toLowerCase();
     SteamShortcut? shortcut;
     if (game.source == SourceKind.flatpak) {
-      shortcut = byFlatpak[game.key] ?? byName[nameKey];
+      shortcut = byFlatpak[game.key];
+      if (shortcut == null) {
+        final candidate = byName[nameKey];
+        // A shortcut that names a different flatpak app is not a name match
+        // for this game; its exact `FlatpakAppID` match must stay available
+        // for the game it actually belongs to. A purely name-only shortcut
+        // is consumed once applied: two flatpak games can share a display
+        // name, and the shortcut must not take over both.
+        if (candidate != null &&
+            (candidate.flatpakAppId == null ||
+                candidate.flatpakAppId!.isEmpty)) {
+          shortcut = byName.remove(nameKey);
+        }
+      }
     } else {
       // A bare name match is only safe for flatpak games: two unrelated games
       // can share a display name, and swapping the wrong one's command for
@@ -127,7 +141,9 @@ Future<List<Game>> preferSteamShortcuts(
         key: game.key,
         name: game.name,
         source: game.source,
-        command: await steamLaunchCommand('${shortcut.appId}'),
+        // The prefix is resolved once for all matched shortcuts; each match
+        // only appends its own appid.
+        command: [...prefix ??= await steamLaunchPrefix(), '${shortcut.appId}'],
         cwd: game.cwd,
         icon: game.icon,
         iconIsName: game.iconIsName,
@@ -170,17 +186,26 @@ Future<List<Game>> discoverAll(
   List<SteamShortcut>? shortcuts,
   void Function(SourceKind kind, Object error)? onError,
 }) async {
+  final selected = [
+    for (final source in sources ?? buildSources())
+      if (only == null || only.contains(source.kind)) source,
+  ];
+  // Independent sources scan concurrently; a failing source reports through
+  // [onError] and yields nothing, and merging still happens in source order.
+  final results = await Future.wait([
+    for (final source in selected)
+      () async {
+        try {
+          return await source.discover(cfg);
+        } catch (error) {
+          onError?.call(source.kind, error);
+          return const <Game>[];
+        }
+      }(),
+  ]);
   final found = <String, Game>{};
   final identities = <String, String>{};
-  for (final source in sources ?? buildSources()) {
-    if (only != null && !only.contains(source.kind)) continue;
-    List<Game> games;
-    try {
-      games = await source.discover(cfg);
-    } catch (error) {
-      onError?.call(source.kind, error);
-      continue;
-    }
+  for (final games in results) {
     for (final game in games) {
       if (found.containsKey(game.id)) continue;
       final identity = dedupeKey(game);

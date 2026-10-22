@@ -85,24 +85,31 @@ class PlaytimeStore {
   final String _path;
   final Map<String, GamePlaytime> _entries = <String, GamePlaytime>{};
 
-  Map<String, GamePlaytime> get entries => Map<String, GamePlaytime>.unmodifiable(_entries);
+  Map<String, GamePlaytime> get entries =>
+      Map<String, GamePlaytime>.unmodifiable(_entries);
 
   /// Total observed playtime for [gameId].
-  Duration totalFor(String gameId) => _entries[gameId]?.observed ?? Duration.zero;
+  Duration totalFor(String gameId) =>
+      _entries[gameId]?.observed ?? Duration.zero;
 
   DateTime? lastPlayedFor(String gameId) => _entries[gameId]?.lastPlayed;
 
   bool isOpen(String gameId) => _entries[gameId]?.isOpen ?? false;
 
   /// Start a session. A session already open for this game is closed first, so
-  /// launching twice cannot double count.
+  /// launching twice cannot double count — folded into the same write, so the
+  /// replace costs one save, not two.
   void begin(String gameId, DateTime at) {
     final existing = _entries[gameId];
-    if (existing != null && existing.isOpen) {
-      end(gameId, at);
+    var total = existing?.totalSeconds ?? 0;
+    final openStart = existing?.startedAt;
+    if (openStart != null) {
+      // The session being replaced ends at [at], exactly as [end] would
+      // close it.
+      total += at.isAfter(openStart) ? at.difference(openStart).inSeconds : 0;
     }
     _entries[gameId] = GamePlaytime(
-      totalSeconds: _entries[gameId]?.totalSeconds ?? 0,
+      totalSeconds: total,
       startedAt: at,
       lastSeenAt: at,
       lastPlayed: at,

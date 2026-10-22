@@ -164,11 +164,15 @@ Future<void> installPlugin(
     try {
       json = jsonDecode(manifest.readAsStringSync());
     } on FormatException catch (error) {
-      throw PluginStoreException('the plugin\'s manifest is not JSON: ${error.message}');
+      throw PluginStoreException(
+        'the plugin\'s manifest is not JSON: ${error.message}',
+      );
     }
     final plugin = Plugin.fromManifest(staging, json);
     if (plugin == null) {
-      throw const PluginStoreException('the plugin\'s manifest does not describe a plugin');
+      throw const PluginStoreException(
+        'the plugin\'s manifest does not describe a plugin',
+      );
     }
     if (plugin.id != entry.id) {
       throw PluginStoreException(
@@ -210,34 +214,44 @@ const int _maxRedirects = 5;
 /// rewritten by anyone on the path — with the loopback addresses a test
 /// serves on as the one exception. Redirects are followed by hand, so a hop
 /// to plain http is refused like any other plain http address.
-Future<Uint8List> readUrl(Uri url, {required int limit}) async {
-  final client = HttpClient()..connectionTimeout = _timeout;
+///
+/// Every stage is on [timeout]: connecting, waiting for the answer, and each
+/// stretch of the body between two chunks. A server that connects and then
+/// says nothing is then given up on like one that never answered at all.
+Future<Uint8List> readUrl(
+  Uri url, {
+  required int limit,
+  Duration timeout = _timeout,
+}) async {
+  final client = HttpClient()..connectionTimeout = timeout;
   try {
     var target = url;
     late HttpClientResponse response;
-    for (var redirects = 0;; redirects++) {
+    for (var redirects = 0; ; redirects++) {
       _refusePlainHttp(target);
       final request = await client.getUrl(target);
       request.followRedirects = false;
       request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-      final current = await request.close();
+      final current = await request.close().timeout(timeout);
       if (!_isRedirect(current.statusCode)) {
         response = current;
         break;
       }
       final location = current.headers.value(HttpHeaders.locationHeader);
-      await current.drain<void>();
+      await current.drain<void>().timeout(timeout);
       if (location == null || redirects >= _maxRedirects) {
         throw PluginStoreException('$url will not stop redirecting');
       }
       target = target.resolve(location);
     }
     if (response.statusCode != HttpStatus.ok) {
-      await response.drain<void>();
+      await response.drain<void>().timeout(timeout);
       throw PluginStoreException('$url answered ${response.statusCode}');
     }
     final builder = BytesBuilder(copy: false);
-    await for (final chunk in response) {
+    // The timeout is per stretch of silence, not per body: a slow server may
+    // take its time, a stalled one may not.
+    await for (final chunk in response.timeout(timeout)) {
       builder.add(chunk);
       if (builder.length > limit) {
         throw PluginStoreException('$url sent more than ${limit ~/ 1024} KiB');
@@ -259,7 +273,9 @@ Future<Uint8List> readUrl(Uri url, {required int limit}) async {
 void _refusePlainHttp(Uri url) {
   if (url.scheme == 'https') return;
   if (url.scheme == 'http' &&
-      (url.host == 'localhost' || url.host == '127.0.0.1' || url.host == '::1')) {
+      (url.host == 'localhost' ||
+          url.host == '127.0.0.1' ||
+          url.host == '::1')) {
     return;
   }
   throw PluginStoreException('$url is not an https address');

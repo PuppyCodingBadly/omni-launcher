@@ -10,10 +10,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omni_launcher/src/config.dart';
+import 'package:omni_launcher/src/host.dart';
+import 'package:omni_launcher/src/launcher.dart';
 import 'package:omni_launcher/src/model/game.dart';
 import 'package:omni_launcher/src/paths.dart';
 import 'package:omni_launcher/src/sources/appimage.dart';
 import 'package:omni_launcher/src/sources/epic.dart';
+import 'package:omni_launcher/src/sources/flatpak.dart';
 import 'package:omni_launcher/src/sources/heroic.dart';
 import 'package:omni_launcher/src/sources/manual.dart';
 import 'package:omni_launcher/src/sources/registry.dart';
@@ -129,10 +132,7 @@ void main() {
 
       expect(
         (await iterDesktopFiles([first.path, second.path])).map((f) => f.path),
-        [
-          '${first.path}/game.desktop',
-          '${second.path}/only.desktop',
-        ],
+        ['${first.path}/game.desktop', '${second.path}/only.desktop'],
       );
     });
   });
@@ -212,7 +212,10 @@ void main() {
       final dir = tempDir('omni-config-root');
       for (final json in ['[1, 2]', '"nope"', '5', 'true', 'null']) {
         late AppConfig config;
-        expect(() => config = AppConfig.load(writeConfig(dir, json)), returnsNormally);
+        expect(
+          () => config = AppConfig.load(writeConfig(dir, json)),
+          returnsNormally,
+        );
         expect(config.hidden, isEmpty);
         expect(config.appimageDirs, AppConfig.defaultAppimageDirs);
         expect(config.themeMode, AppThemeMode.dark);
@@ -235,7 +238,10 @@ void main() {
       loaded.save(path);
       expect(AppConfig.load(path).nameOverrides, loaded.nameOverrides);
       // And copyWith carries them over.
-      expect(loaded.copyWith(showHidden: true).nameOverrides, loaded.nameOverrides);
+      expect(
+        loaded.copyWith(showHidden: true).nameOverrides,
+        loaded.nameOverrides,
+      );
       expect(
         loaded.copyWith(nameOverrides: const {'steam:1': 'One'}).nameOverrides,
         {'steam:1': 'One'},
@@ -307,10 +313,10 @@ void main() {
         command: ['flatpak', 'run', 'org.example.Other'],
       );
 
-      final renamed = applyNameOverrides(const [zelda, other], const {
-        'steam:100': 'Zelda',
-        'steam:999': 'Not in the library',
-      });
+      final renamed = applyNameOverrides(
+        const [zelda, other],
+        const {'steam:100': 'Zelda', 'steam:999': 'Not in the library'},
+      );
 
       expect(renamed, hasLength(2));
       expect(renamed.first.name, 'Zelda');
@@ -358,10 +364,10 @@ void main() {
         command: ['steam'],
       );
 
-      final renamed = applyNameOverrides(const [one, two], const {
-        'steam:1': 'Same Name',
-        'steam:2': 'Same Name',
-      });
+      final renamed = applyNameOverrides(
+        const [one, two],
+        const {'steam:1': 'Same Name', 'steam:2': 'Same Name'},
+      );
 
       expect(renamed.map((game) => game.id), ['steam:1', 'steam:2']);
       expect(renamed.map((game) => game.name), ['Same Name', 'Same Name']);
@@ -370,7 +376,11 @@ void main() {
     test('discoverAll renames what it found', () async {
       final config = AppConfig(
         manual: [
-          ManualEntry(name: 'Hand Added', key: 'hand-added', command: ['/opt/run']),
+          ManualEntry(
+            name: 'Hand Added',
+            key: 'hand-added',
+            command: ['/opt/run'],
+          ),
         ],
         nameOverrides: {'manual:hand-added': 'Renamed By Hand'},
       );
@@ -444,9 +454,8 @@ void main() {
     String epicRoot(Directory dir, List<String> lines, {String? catalog}) {
       final root = Directory('${dir.path}/com.epicgames.eglv2')
         ..createSync(recursive: true);
-      File('${root.path}/installations.jsonl').writeAsStringSync(
-        '${lines.join('\n')}\n',
-      );
+      File('${root.path}/installations.jsonl')
+          .writeAsStringSync('${lines.join('\n')}\n');
       if (catalog != null) {
         final cache = Directory('${root.path}/cache/prod')
           ..createSync(recursive: true);
@@ -456,7 +465,8 @@ void main() {
     }
 
     /// The header line the launcher puts above the snapshots.
-    const header = '{"version":1,"writtenAt":"2026-01-01T00:00:00Z","entries":1}';
+    const header =
+        '{"version":1,"writtenAt":"2026-01-01T00:00:00Z","entries":1}';
 
     String catalogWith(String title) => jsonEncode({
       'schemaVersion': 2,
@@ -469,61 +479,67 @@ void main() {
             'namespace': namespace,
             'title': title,
             'releaseInfo': [
-              {'appId': appName, 'platform': ['Windows']},
+              {
+                'appId': appName,
+                'platform': ['Windows'],
+              },
             ],
           },
         },
       },
     });
 
-    test('an installation with the full triple becomes a launchable game', () async {
-      final dir = tempDir('omni-epic');
-      final install = Directory('${dir.path}/games/AlanWake2')
-        ..createSync(recursive: true);
-      final root = epicRoot(dir, [
-        header,
-        jsonEncode({
+    test(
+      'an installation with the full triple becomes a launchable game',
+      () async {
+        final dir = tempDir('omni-epic');
+        final install = Directory('${dir.path}/games/AlanWake2')
+          ..createSync(recursive: true);
+        final root = epicRoot(dir, [
+          header,
+          jsonEncode({
+            'installationId': 'INSTALL1',
+            'complete': true,
+            'dir': install.path,
+            'platform': 'Windows',
+            'namespace': namespace,
+            'itemId': itemId,
+            'artifactId': appName,
+            'launchCommand': '',
+            'launchExecutable': 'Ginger.exe',
+            'writtenAt': '2026-01-02T00:00:00Z',
+          }),
+        ], catalog: catalogWith('Alan Wake 2'));
+
+        final games = await EpicSource(dataRoot: root).discover(AppConfig());
+
+        expect(games, hasLength(1));
+        final game = games.single;
+        expect(game.id, 'epic:$appName');
+        expect(game.key, appName);
+        expect(game.name, 'Alan Wake 2');
+        expect(game.source, SourceKind.epic);
+        expect(game.subtitle, 'Epic Games Launcher');
+        expect(game.path, install.path);
+        expect(game.launchable, isTrue);
+        expect(game.command, [
+          'xdg-open',
+          'com.epicgames.launcher://apps/'
+              '$namespace%3A$itemId%3A$appName?action=launch&silent=true',
+        ]);
+        expect(game.extra, {
           'installationId': 'INSTALL1',
-          'complete': true,
-          'dir': install.path,
-          'platform': 'Windows',
           'namespace': namespace,
           'itemId': itemId,
-          'artifactId': appName,
-          'launchCommand': '',
-          'launchExecutable': 'Ginger.exe',
-          'writtenAt': '2026-01-02T00:00:00Z',
-        }),
-      ], catalog: catalogWith('Alan Wake 2'));
-
-      final games = await EpicSource(dataRoot: root).discover(AppConfig());
-
-      expect(games, hasLength(1));
-      final game = games.single;
-      expect(game.id, 'epic:$appName');
-      expect(game.key, appName);
-      expect(game.name, 'Alan Wake 2');
-      expect(game.source, SourceKind.epic);
-      expect(game.subtitle, 'Epic Games Launcher');
-      expect(game.path, install.path);
-      expect(game.launchable, isTrue);
-      expect(game.command, [
-        'xdg-open',
-        'com.epicgames.launcher://apps/'
-            '$namespace%3A$itemId%3A$appName?action=launch&silent=true',
-      ]);
-      expect(game.extra, {
-        'installationId': 'INSTALL1',
-        'namespace': namespace,
-        'itemId': itemId,
-        'appName': appName,
-        'platform': 'Windows',
-        'complete': true,
-        'dir': install.path,
-        'dedupe': 'epic:$appName',
-      });
-      expect(dedupeKey(game), 'epic:$appName');
-    });
+          'appName': appName,
+          'platform': 'Windows',
+          'complete': true,
+          'dir': install.path,
+          'dedupe': 'epic:$appName',
+        });
+        expect(dedupeKey(game), 'epic:$appName');
+      },
+    );
 
     test('an installation with only an app name uses the short launch form', () async {
       final dir = tempDir('omni-epic-short');
@@ -600,23 +616,26 @@ void main() {
       expect(games.single.extra['dir'], '${dir.path}/done');
     });
 
-    test('a half-written log still yields the installations it describes', () async {
-      final dir = tempDir('omni-epic-corrupt');
-      final root = epicRoot(dir, [
-        header,
-        '',
-        '   ',
-        '{ this line is not json',
-        '[1, 2, 3]',
-        '"just a string"',
-        jsonEncode({'installationId': '', 'artifactId': 'NoId'}),
-        jsonEncode({'artifactId': 'NoInstallationId'}),
-        jsonEncode({'installationId': 'GOOD', 'artifactId': 'Good Game'}),
-      ]);
+    test(
+      'a half-written log still yields the installations it describes',
+      () async {
+        final dir = tempDir('omni-epic-corrupt');
+        final root = epicRoot(dir, [
+          header,
+          '',
+          '   ',
+          '{ this line is not json',
+          '[1, 2, 3]',
+          '"just a string"',
+          jsonEncode({'installationId': '', 'artifactId': 'NoId'}),
+          jsonEncode({'artifactId': 'NoInstallationId'}),
+          jsonEncode({'installationId': 'GOOD', 'artifactId': 'Good Game'}),
+        ]);
 
-      final games = await EpicSource(dataRoot: root).discover(AppConfig());
-      expect(games.map((game) => game.id), ['epic:Good Game']);
-    });
+        final games = await EpicSource(dataRoot: root).discover(AppConfig());
+        expect(games.map((game) => game.id), ['epic:Good Game']);
+      },
+    );
 
     test('a corrupt catalog only costs the pretty name', () async {
       final dir = tempDir('omni-epic-catalog');
@@ -736,21 +755,32 @@ void main() {
       return discoverAll(config ?? AppConfig(), sources: [heroic, epic]);
     }
 
-    test('the same Epic game from Heroic and the launcher folds to one', () async {
-      final dir = tempDir('omni-epic-fold');
-      final games = await discoverBoth(dir, heroicApp: 'Ginger', epicApp: 'Ginger');
+    test(
+      'the same Epic game from Heroic and the launcher folds to one',
+      () async {
+        final dir = tempDir('omni-epic-fold');
+        final games = await discoverBoth(
+          dir,
+          heroicApp: 'Ginger',
+          epicApp: 'Ginger',
+        );
 
-      expect(games, hasLength(1));
-      final game = games.single;
-      expect(game.id, 'heroic:Ginger');
-      expect(game.source, SourceKind.heroic);
-      expect(game.command, ['xdg-open', 'heroic://launch/Ginger']);
-      expect(dedupeKey(game), 'epic:Ginger');
-    });
+        expect(games, hasLength(1));
+        final game = games.single;
+        expect(game.id, 'heroic:Ginger');
+        expect(game.source, SourceKind.heroic);
+        expect(game.command, ['xdg-open', 'heroic://launch/Ginger']);
+        expect(dedupeKey(game), 'epic:Ginger');
+      },
+    );
 
     test('different app names stay two games', () async {
       final dir = tempDir('omni-epic-nofold');
-      final games = await discoverBoth(dir, heroicApp: 'Ginger', epicApp: 'Peony');
+      final games = await discoverBoth(
+        dir,
+        heroicApp: 'Ginger',
+        epicApp: 'Peony',
+      );
 
       expect(games.map((game) => game.id), ['heroic:Ginger', 'epic:Peony']);
       expect(games.map((game) => game.name), ['Ginger', 'Peony']);
@@ -782,9 +812,10 @@ void main() {
         epicApp: 'Ginger',
       )).single;
 
-      final renamed = applyNameOverrides([original], const {
-        'heroic:Ginger': 'Renamed',
-      }).single;
+      final renamed = applyNameOverrides(
+        [original],
+        const {'heroic:Ginger': 'Renamed'},
+      ).single;
       expect(renamed.name, 'Renamed');
       expect(renamed.extra['dedupe'], 'epic:Ginger');
       expect(dedupeKey(renamed), dedupeKey(original));
@@ -869,8 +900,14 @@ void main() {
 
     test('a record without an id, name or known source is still rejected', () {
       expect(Game.fromJson({'id': 1, 'name': 'x', 'source': 'steam'}), isNull);
-      expect(Game.fromJson({'id': 'a:1', 'name': 2, 'source': 'steam'}), isNull);
-      expect(Game.fromJson({'id': 'a:1', 'name': 'x', 'source': 'nope'}), isNull);
+      expect(
+        Game.fromJson({'id': 'a:1', 'name': 2, 'source': 'steam'}),
+        isNull,
+      );
+      expect(
+        Game.fromJson({'id': 'a:1', 'name': 'x', 'source': 'nope'}),
+        isNull,
+      );
     });
   });
 
@@ -915,9 +952,11 @@ void main() {
       final dir = tempDir('omni-which');
       final shadow = Directory('${dir.path}/shadow')..createSync();
       final real = Directory('${dir.path}/real')..createSync();
-      final shadowSteam = File('${shadow.path}/steam')..writeAsStringSync('#!/bin/sh\n');
+      final shadowSteam = File('${shadow.path}/steam')
+        ..writeAsStringSync('#!/bin/sh\n');
       Process.runSync('chmod', ['644', shadowSteam.path]);
-      final realSteam = File('${real.path}/steam')..writeAsStringSync('#!/bin/sh\n');
+      final realSteam = File('${real.path}/steam')
+        ..writeAsStringSync('#!/bin/sh\n');
       Process.runSync('chmod', ['755', realSteam.path]);
 
       expect(
@@ -925,7 +964,10 @@ void main() {
         realSteam.path,
       );
       expect(which('steam', searchPath: shadow.path), isNull);
-      expect(which('steam', searchPath: '${real.path}:${shadow.path}'), realSteam.path);
+      expect(
+        which('steam', searchPath: '${real.path}:${shadow.path}'),
+        realSteam.path,
+      );
     });
 
     test('ignores directories, broken symlinks and missing names', () {
@@ -953,10 +995,11 @@ void main() {
     test('a timed out command is killed and reports nothing', () async {
       final dir = tempDir('omni-capture');
       final pidFile = File('${dir.path}/pid');
-      final result = await runCapture(
-        ['sh', '-c', 'echo \$\$ > "${pidFile.path}"; sleep 60'],
-        timeout: const Duration(milliseconds: 300),
-      );
+      final result = await runCapture([
+        'sh',
+        '-c',
+        'echo \$\$ > "${pidFile.path}"; sleep 60',
+      ], timeout: const Duration(milliseconds: 300));
       expect(result, '');
 
       // The shell that ran the capture is dead, not still sleeping.
@@ -965,6 +1008,128 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       expect(processRunning(pid), isFalse);
+    });
+
+    test('the child\'s stdin is closed, so reading it cannot stall', () async {
+      // With stdin left open the read below would wait on the pipe until the
+      // timeout killed the shell; closed, it sees EOF at once.
+      expect(
+        await runCapture([
+          'sh',
+          '-c',
+          'read line && echo got || echo eof',
+        ], timeout: const Duration(seconds: 5)),
+        'eof\n',
+      );
+      // `cat` of a closed stdin ends right away, with nothing to say.
+      expect(await runCapture(['cat']), '');
+    });
+
+    test('the pipes settle on a killed or failed run', () async {
+      // A nonzero exit leaves buffered output behind; the capture is still
+      // the empty string, and no stdout future is left dangling.
+      expect(await runCapture(['sh', '-c', 'printf partial; exit 3']), '');
+      expect(
+        await runCapture([
+          'sh',
+          '-c',
+          'printf noise; sleep 60',
+        ], timeout: const Duration(milliseconds: 300)),
+        '',
+      );
+    });
+  });
+
+  group('process snapshot', () {
+    test('reads state and start time in one snapshot', () {
+      final snapshot = processSnapshot(pid);
+      expect(snapshot, isNotNull);
+      expect(snapshot!.running, isTrue);
+      expect(snapshot.startTime, isNotNull);
+      expect(snapshot.startTime, greaterThan(0));
+
+      // The one-purpose readers agree with the snapshot.
+      expect(snapshot.running, processRunning(pid));
+      expect(snapshot.startTime, processStartTime(pid));
+    });
+
+    test('a process that is gone has no snapshot', () {
+      expect(processSnapshot(0x3FFFFFFF), isNull);
+    });
+  });
+
+  group('sandboxed launch', () {
+    test('the game\'s working directory reaches the host', () {
+      final dir = tempDir('omni-launch-cwd');
+      Launcher.logPathOverrideForTest = '${dir.path}/launch.log';
+      Host.setInFlatpakForTest(true);
+      addTearDown(() {
+        Launcher.logPathOverrideForTest = null;
+        Host.setInFlatpakForTest(null);
+      });
+
+      final argv = Launcher.launchScript(const [
+        'run-game',
+        '--fast',
+      ], cwd: '/games/quake');
+
+      // flatpak-spawn carries the directory: the sandbox's own working
+      // directory means nothing on the host.
+      expect(argv.sublist(0, 3), [
+        'flatpak-spawn',
+        '--host',
+        '--directory=/games/quake',
+      ]);
+      expect(argv.sublist(3), [
+        'sh',
+        '-c',
+        'exec run-game --fast >> ${dir.path}/launch.log 2>&1',
+      ]);
+    });
+
+    test('a missing bare program is still refused', () {
+      Host.setInFlatpakForTest(true);
+      Host.setMountForTest('/definitely-not-a-mount');
+      addTearDown(() {
+        Host.setInFlatpakForTest(null);
+        Host.setMountForTest(null);
+      });
+
+      // The fallback asks the host shell itself; outside a real sandbox that
+      // lookup cannot run, and a missing program stays missing either way.
+      expect(
+        Launcher.resolveProgram(const ['definitely-not-a-program-xyz']),
+        isNull,
+      );
+    });
+  });
+
+  group('flatpak desktop dump', () {
+    test('the sandbox dump is wrapped for the host exactly once', () async {
+      Host.setInFlatpakForTest(true);
+      addTearDown(() => Host.setInFlatpakForTest(null));
+      setFlatpakAppIdsForTest({'com.example.Quake'});
+      addTearDown(() => setFlatpakAppIdsForTest(null));
+      final seen = <List<String>>[];
+      setFlatpakDumpRunnerForTest((argv) async {
+        seen.add(argv);
+        const entry = '[Desktop Entry]\nName=Quake\nCategories=Game;\n';
+        return '@@com.example.Quake.desktop ${base64.encode(utf8.encode(entry))}\n';
+      });
+      addTearDown(() => setFlatpakDumpRunnerForTest(null));
+
+      final games = await FlatpakSource().discover(AppConfig());
+
+      expect(games.map((game) => game.id), ['flatpak:com.example.Quake']);
+      // The source passes the raw argv: runCapture owns the host wrap, so the
+      // sandbox spawns `flatpak-spawn --host sh -c ...` rather than nesting
+      // flatpak-spawn inside itself.
+      expect(seen.single.sublist(0, 2), ['sh', '-c']);
+      expect(seen.single, hasLength(3));
+      expect(Host.command(seen.single).sublist(0, 2), [
+        'flatpak-spawn',
+        '--host',
+      ]);
     });
   });
 

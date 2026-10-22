@@ -21,6 +21,7 @@ const int _linkHops = 8;
 class Host {
   static bool? _inFlatpakForTest;
   static String? _mountForTest;
+  static String _spawnForTest = 'flatpak-spawn';
 
   /// True inside a flatpak sandbox.
   static bool get inFlatpak =>
@@ -32,6 +33,11 @@ class Host {
   /// Test seam for the host mount, so a test can point at a stand-in tree.
   static void setMountForTest(String? value) => _mountForTest = value;
 
+  /// Test seam for the flatpak-spawn executable, so a test can record the
+  /// host command without a sandbox.
+  static void setHostSpawnForTest(String? value) =>
+      _spawnForTest = value ?? 'flatpak-spawn';
+
   /// The host mount, as this side knows it.
   static String get _mount => _mountForTest ?? _hostMount;
 
@@ -42,7 +48,10 @@ class Host {
   static String get home {
     final sandboxHome = Platform.environment['HOME'] ?? '/tmp';
     if (!inFlatpak) return sandboxHome;
-    final parts = sandboxHome.split('/').where((part) => part.isNotEmpty).toList();
+    final parts = sandboxHome
+        .split('/')
+        .where((part) => part.isNotEmpty)
+        .toList();
     final cut = parts.length - 3;
     if (cut > 0 && parts[cut] == '.var' && parts[cut + 1] == 'app') {
       return '/${parts.sublist(0, cut).join('/')}';
@@ -142,7 +151,7 @@ class Host {
   static List<String> command(List<String> argv, {String? directory}) =>
       inFlatpak
       ? [
-          'flatpak-spawn',
+          _spawnForTest,
           '--host',
           if (directory != null) '--directory=$directory',
           ...argv,

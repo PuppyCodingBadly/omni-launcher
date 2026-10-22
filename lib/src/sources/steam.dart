@@ -59,11 +59,16 @@ Future<List<String>> _libraryPaths(String steamRoot) async {
     text = null;
   }
   final data = text == null ? <String, Object?>{} : parseKeyValues(text);
-  final folders = data['libraryfolders'] ?? data['LibraryFolders'] ?? const <String, Object?>{};
+  final folders =
+      data['libraryfolders'] ??
+      data['LibraryFolders'] ??
+      const <String, Object?>{};
   final libraries = <String>[];
   if (folders is Map) {
     for (final value in folders.values) {
-      if (value is Map && value['path'] != null && '${value['path']}'.isNotEmpty) {
+      if (value is Map &&
+          value['path'] != null &&
+          '${value['path']}'.isNotEmpty) {
         libraries.add('${value['path']}');
       }
     }
@@ -81,23 +86,30 @@ Future<List<String>> _launchPrefix() async {
   return ['steam', '-applaunch'];
 }
 
+/// The argv prefix (`steam -applaunch`, or the flatpak equivalent) that asks
+/// Steam to start a game.
+///
+/// Exposed so a caller launching several games can hoist the lookup instead
+/// of re-resolving the Steam install per game.
+Future<List<String>> steamLaunchPrefix() => _launchPrefix();
+
 /// argv that asks Steam to start [appid].
 ///
 /// Works for Steam's own games and for non-Steam shortcuts, which is how a
 /// game like RetroDECK gets Steam Input and the overlay.
-Future<List<String>> steamLaunchCommand(String appid) async =>
-    [...await _launchPrefix(), appid];
+Future<List<String>> steamLaunchCommand(String appid) async => [
+  ...await steamLaunchPrefix(),
+  appid,
+];
 
-/// Cover art for [appid] in any Steam root's librarycache, or `null`.
+/// Cover art for [appid] in the manifest's owning root, or `null`.
 ///
-/// The flatpak sandbox keeps its own appcache, so a cover downloaded by a
-/// flatpak Steam never appears under the native root.
-Future<String?> _coverPath(List<String> roots, String appid) async {
-  for (final root in roots) {
-    final cover = '$root/appcache/librarycache/$appid/library_600x900.jpg';
-    if (await File(cover).exists()) return cover;
-  }
-  return null;
+/// A manifest only ever belongs to the root whose `libraryfolders.vdf` listed
+/// its library, and the flatpak sandbox keeps its own appcache, so probing
+/// the other roots can only find another install's artwork.
+Future<String?> _coverPath(String root, String appid) async {
+  final cover = '$root/appcache/librarycache/$appid/library_600x900.jpg';
+  return await File(cover).exists() ? cover : null;
 }
 
 String _appId(Map<Object?, Object?> state, String manifestPath) {
@@ -105,7 +117,9 @@ String _appId(Map<Object?, Object?> state, String manifestPath) {
   if (appid != null && '$appid'.isNotEmpty) return '$appid';
   var stem = _basename(manifestPath);
   if (stem.endsWith('.acf')) stem = stem.substring(0, stem.length - 4);
-  return stem.startsWith('appmanifest_') ? stem.substring('appmanifest_'.length) : stem;
+  return stem.startsWith('appmanifest_')
+      ? stem.substring('appmanifest_'.length)
+      : stem;
 }
 
 Game? _game(
@@ -118,7 +132,9 @@ Game? _game(
   final rawName = state['name'];
   final name = rawName == null ? '' : '$rawName';
   if (name.isEmpty || _skipPrefixes.any(name.startsWith)) return null;
-  final flags = _asInt(state.containsKey('StateFlags') ? state['StateFlags'] : '0');
+  final flags = _asInt(
+    state.containsKey('StateFlags') ? state['StateFlags'] : '0',
+  );
   if (flags == null) return null;
   if (flags & _stateInstalled == 0) return null;
   final size =
@@ -198,7 +214,7 @@ class SteamSource extends GameSource {
             appid,
             library,
             prefix,
-            await _coverPath(roots, appid),
+            await _coverPath(root, appid),
           );
           if (game != null) games.add(game);
         }

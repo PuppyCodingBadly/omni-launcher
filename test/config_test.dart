@@ -41,25 +41,32 @@ void main() {
     expect(loaded.manual.single.key, 'alpha');
   });
 
-  test('a renamed manual entry keeps its key, so the game id is stable', () async {
-    final loaded = loadJson({
-      'manual': [
-        {'name': 'Alpha', 'key': 'alpha-1a2b3c', 'command': ['/opt/run']},
-      ],
-    });
-    final before = await ManualSource().discover(loaded);
-    expect(before.single.id, 'manual:alpha-1a2b3c');
-    expect(before.single.key, 'alpha-1a2b3c');
+  test(
+    'a renamed manual entry keeps its key, so the game id is stable',
+    () async {
+      final loaded = loadJson({
+        'manual': [
+          {
+            'name': 'Alpha',
+            'key': 'alpha-1a2b3c',
+            'command': ['/opt/run'],
+          },
+        ],
+      });
+      final before = await ManualSource().discover(loaded);
+      expect(before.single.id, 'manual:alpha-1a2b3c');
+      expect(before.single.key, 'alpha-1a2b3c');
 
-    // The rename changes the name but not the key; the id follows the key.
-    final renamed = loaded.copyWith(
-      manual: [loaded.manual.single.copyWith(name: 'Beta')],
-    );
-    final after = await ManualSource().discover(renamed);
-    expect(after.single.name, 'Beta');
-    expect(after.single.id, before.single.id);
-    expect(after.single.key, before.single.key);
-  });
+      // The rename changes the name but not the key; the id follows the key.
+      final renamed = loaded.copyWith(
+        manual: [loaded.manual.single.copyWith(name: 'Beta')],
+      );
+      final after = await ManualSource().discover(renamed);
+      expect(after.single.name, 'Beta');
+      expect(after.single.id, before.single.id);
+      expect(after.single.key, before.single.key);
+    },
+  );
 
   test('new manual entries get a generated key, unique per entry', () {
     final a = ManualEntry(name: 'Alpha', command: const ['/opt/run']);
@@ -72,8 +79,14 @@ void main() {
   test('two entries with the same name load with distinct keys', () {
     final loaded = loadJson({
       'manual': [
-        {'name': 'Alpha', 'command': ['/opt/a']},
-        {'name': 'Alpha', 'command': ['/opt/b']},
+        {
+          'name': 'Alpha',
+          'command': ['/opt/a'],
+        },
+        {
+          'name': 'Alpha',
+          'command': ['/opt/b'],
+        },
       ],
     });
     expect(loaded.manual.map((entry) => entry.key).toSet(), hasLength(2));
@@ -98,10 +111,13 @@ void main() {
 
   test('saving writes a schema version and leaves no temporary file', () {
     AppConfig(
-      manual: [ManualEntry(name: 'Alpha', key: 'alpha-1a2b3c', command: ['/opt/run'])],
+      manual: [
+        ManualEntry(name: 'Alpha', key: 'alpha-1a2b3c', command: ['/opt/run']),
+      ],
     ).save(path);
 
-    final saved = jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
+    final saved =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
     expect(saved['version'], 1);
     expect(File('$path.tmp').existsSync(), isFalse);
     // The key survives the round trip.
@@ -113,6 +129,38 @@ void main() {
     if (Platform.isLinux || Platform.isMacOS) {
       expect(File(path).statSync().mode & 0x3F, 0);
     }
+  });
+
+  test('saving over a permissive config restricts the replacement', () {
+    // A hand edit might leave the config group-readable; the save must not
+    // carry those permissions over the rename.
+    File(path).writeAsStringSync('{}');
+    if (Platform.isLinux || Platform.isMacOS) {
+      Process.runSync('chmod', ['644', path]);
+      expect(File(path).statSync().mode & 0x3F, isNot(0));
+    }
+    AppConfig().save(path);
+    if (Platform.isLinux || Platform.isMacOS) {
+      expect(File(path).statSync().mode & 0x3F, 0);
+    }
+  });
+
+  test('steamgriddb misses round trip, and malformed entries are dropped', () {
+    final now = DateTime(2026, 10, 22).millisecondsSinceEpoch;
+    AppConfig(sgdbMisses: {'steam:1': now}).save(path);
+    expect(AppConfig.load(path).sgdbMisses, {'steam:1': now});
+
+    final loaded = loadJson({
+      'sgdb_misses': {
+        'steam:1': now,
+        'steam:2': 'junk',
+        'steam:3': -5,
+        'steam:4': 1.9,
+      },
+    });
+    expect(loaded.sgdbMisses, {'steam:1': now, 'steam:4': 1});
+    // A wholly wrong type loads as empty rather than failing the load.
+    expect(loadJson({'sgdb_misses': 'junk'}).sgdbMisses, isEmpty);
   });
 
   test('an unknown sort mode falls back to name', () {
@@ -138,7 +186,8 @@ void main() {
 
     // And absent stays absent, so the key is not written.
     AppConfig().save(path);
-    final saved = jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
+    final saved =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
     expect(saved.containsKey('window'), isFalse);
   });
 }

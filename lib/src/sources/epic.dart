@@ -123,7 +123,12 @@ String? _launchUri(String namespace, String itemId, String appName) {
 }
 
 /// The catalog title, else something readable from the record itself.
-String _displayName(String title, String executable, String dir, String fallback) {
+String _displayName(
+  String title,
+  String executable,
+  String dir,
+  String fallback,
+) {
   if (title.isNotEmpty) return title;
   final stem = _stem(executable);
   if (stem.isNotEmpty) return stem;

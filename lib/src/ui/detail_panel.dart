@@ -64,7 +64,9 @@ class DetailPanel extends StatelessWidget {
                 icon: Icon(
                   favorite ? Icons.star_rounded : Icons.star_border_rounded,
                   size: 20,
-                  color: favorite ? context.palette.accent : context.palette.textDim,
+                  color: favorite
+                      ? context.palette.accent
+                      : context.palette.textDim,
                 ),
                 onPressed: () => controller.toggleFavorite(game.id),
               ),
@@ -87,7 +89,10 @@ class DetailPanel extends StatelessWidget {
                 const SizedBox(height: 18),
                 Text(
                   game.name,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -116,14 +121,18 @@ class DetailPanel extends StatelessWidget {
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     value: controller.config.closesWithGame(game.id),
-                    onChanged: (value) => controller.setCloseWithGame(game.id, value),
+                    onChanged: (value) =>
+                        controller.setCloseWithGame(game.id, value),
                     title: const Text(
                       'Close the launcher with the game',
                       style: TextStyle(fontSize: 14),
                     ),
                     subtitle: Text(
                       'Asks the launcher window to close once the game exits',
-                      style: TextStyle(fontSize: 12, color: context.palette.textDim),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.palette.textDim,
+                      ),
                     ),
                   ),
                 ),
@@ -155,7 +164,10 @@ class DetailPanel extends StatelessWidget {
                     value: _size(game.extra['size']),
                   ),
                 if (game.extra['store'] != null)
-                  LabelledValue(label: 'Store', value: '${game.extra['store']}'),
+                  LabelledValue(
+                    label: 'Store',
+                    value: '${game.extra['store']}',
+                  ),
                 LabelledValue(
                   label: 'Command',
                   value: Launcher.formatCommand(game),
@@ -289,16 +301,17 @@ class DetailPanel extends StatelessWidget {
                           cacheWidth: (constraints.maxWidth * dpr).round(),
                           cacheHeight: (constraints.maxHeight * dpr).round(),
                           semanticLabel: 'Cover art for ${game.name}',
-                          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                            // Artwork fades in instead of popping.
-                            if (wasSynchronouslyLoaded) return child;
-                            return AnimatedOpacity(
-                              opacity: frame == null ? 0 : 1,
-                              duration: const Duration(milliseconds: 150),
-                              curve: Curves.easeOutCubic,
-                              child: child,
-                            );
-                          },
+                          frameBuilder:
+                              (context, child, frame, wasSynchronouslyLoaded) {
+                                // Artwork fades in instead of popping.
+                                if (wasSynchronouslyLoaded) return child;
+                                return AnimatedOpacity(
+                                  opacity: frame == null ? 0 : 1,
+                                  duration: const Duration(milliseconds: 150),
+                                  curve: Curves.easeOutCubic,
+                                  child: child,
+                                );
+                              },
                           errorBuilder: (context, error, stack) =>
                               const SizedBox.shrink(),
                         ),

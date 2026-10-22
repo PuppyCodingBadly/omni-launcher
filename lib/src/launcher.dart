@@ -21,10 +21,7 @@ class Launcher {
     try {
       AppPaths.ensureDirs();
       final stamp = DateTime.now().toIso8601String();
-      File(logPath).writeAsStringSync(
-        '$stamp $line\n',
-        mode: FileMode.append,
-      );
+      File(logPath).writeAsStringSync('$stamp $line\n', mode: FileMode.append);
     } on FileSystemException {
       // Logging must never stop a launch.
     }
@@ -37,10 +34,15 @@ class Launcher {
   static void ensureExecutable(String program, {String? cwd}) {
     final path = _programPath(program, cwd);
     if (path == null) return;
-    final file = File(path);
-    if (!file.existsSync()) return;
-    final mode = file.statSync().mode;
-    if (mode & 0x49 != 0) return; // any of the three exec bits
+    // One stat answers both "is it there" and "does it need the exec bit".
+    final FileStat stat;
+    try {
+      stat = File(path).statSync();
+    } on FileSystemException {
+      return;
+    }
+    if (stat.type != FileSystemEntityType.file) return;
+    if (stat.mode & 0x49 != 0) return; // any of the three exec bits
     try {
       final host = Host.command(['chmod', '+x', path]);
       if (Process.runSync(host.first, host.sublist(1)).exitCode == 0) {
@@ -112,7 +114,49 @@ class Launcher {
     // Without a PATH the shell falls back to its own default, which we cannot
     // reproduce here; let it try rather than refusing a launch that may work.
     if ((Platform.environment['PATH'] ?? '').isEmpty) return program;
-    return which(program);
+    final found = which(program);
+    if (found != null) return found;
+    // Inside the sandbox [Host.binaryDirs] cannot see every directory the
+    // host's PATH holds, so a program that lives elsewhere would be refused
+    // here even though the host shell would run it: ask the host shell
+    // itself before giving up.
+    if (Host.inFlatpak) return _hostLookup(program);
+    return null;
+  }
+
+  /// Where the host's shell finds the bare [program], or null when it does
+  /// not.
+  ///
+  /// One `command -v` on the host answers with the path the host would run,
+  /// whatever directories the host's PATH holds that the sandbox cannot see.
+  static String? _hostLookup(String program) {
+    try {
+      final host = Host.command([
+        'sh',
+        '-c',
+        r'command -v "$1"',
+        'sh',
+        program,
+      ]);
+      final result = Process.runSync(host.first, host.sublist(1));
+      if (result.exitCode != 0) return null;
+      final path = (result.stdout as String).trim();
+      return path.isEmpty ? null : path;
+    } on ProcessException {
+      return null;
+    }
+  }
+
+  /// The argv [launch] starts: [command] under a shell that appends its
+  /// output to the log, wrapped for the host, in [cwd] when one is set.
+  ///
+  /// `exec` keeps the game's pid, the redirection keeps its output in the
+  /// log. The host gets the directory too: the sandbox's own working
+  /// directory means nothing there.
+  static List<String> launchScript(List<String> command, {String? cwd}) {
+    final script =
+        'exec ${quoteCommand(command)} >> ${quoteCommand([logPath])} 2>&1';
+    return Host.command(['sh', '-c', script], directory: cwd);
   }
 
   /// Start [game] detached from us; returns its pid.
@@ -120,16 +164,18 @@ class Launcher {
     if (!game.launchable) {
       throw StateError('${game.name}: no launch command known');
     }
-    final cwd = game.cwd != null && Directory(game.cwd!).existsSync() ? game.cwd : null;
+    final cwd = game.cwd != null && Directory(game.cwd!).existsSync()
+        ? game.cwd
+        : null;
     final command = expandPaths(game.command);
     ensureExecutable(command.first, cwd: cwd);
     if (resolveProgram(command, cwd: cwd) == null) {
-      throw StateError('${game.name}: command not found: ${game.command.first}');
+      throw StateError(
+        '${game.name}: command not found: ${game.command.first}',
+      );
     }
     AppPaths.ensureDirs();
-    // `exec` keeps the game's pid, the redirection keeps its output in the log.
-    final script = 'exec ${quoteCommand(command)} >> ${quoteCommand([logPath])} 2>&1';
-    final host = Host.command(['sh', '-c', script]);
+    final host = launchScript(command, cwd: cwd);
     final process = await Process.start(
       host.first,
       host.sublist(1),
@@ -143,12 +189,20 @@ class Launcher {
   /// Open a file manager at the game's folder, or the folder itself.
   static Future<void> openFolder(String path) async {
     final host = Host.command(['xdg-open', path]);
-    await Process.start(host.first, host.sublist(1), mode: ProcessStartMode.detached);
+    await Process.start(
+      host.first,
+      host.sublist(1),
+      mode: ProcessStartMode.detached,
+    );
   }
 
   /// Open a URL in whatever the desktop uses for links.
   static Future<void> openUrl(String url) async {
     final host = Host.command(['xdg-open', url]);
-    await Process.start(host.first, host.sublist(1), mode: ProcessStartMode.detached);
+    await Process.start(
+      host.first,
+      host.sublist(1),
+      mode: ProcessStartMode.detached,
+    );
   }
 }

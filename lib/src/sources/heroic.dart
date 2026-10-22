@@ -38,7 +38,11 @@ Iterable<HeroicInstalledFile> _defaultInstalledFiles() sync* {
     }
   }
   // Standalone clients keep installed.json directly in their config root.
-  yield (_epicStore, '${AppPaths.home}/.config/legendary/installed.json', 'legendary');
+  yield (
+    _epicStore,
+    '${AppPaths.home}/.config/legendary/installed.json',
+    'legendary',
+  );
   yield ('Amazon', '${AppPaths.home}/.config/nile/installed.json', null);
 }
 
@@ -69,7 +73,9 @@ Iterable<(String, Map<String, Object?>)> _entries(Object? data) sync* {
   if (data is Map) {
     for (final entry in data.entries) {
       final value = entry.value;
-      if (value is Map) yield (entry.key.toString(), value.cast<String, Object?>());
+      if (value is Map) {
+        yield (entry.key.toString(), value.cast<String, Object?>());
+      }
     }
   } else if (data is List) {
     for (final value in data) {
@@ -95,7 +101,9 @@ class HeroicSource extends GameSource {
 
   @override
   Future<List<Game>> discover(AppConfig cfg) async {
-    final heroic = which('heroic') != null || (await flatpakAppIds()).contains(heroicFlatpakId);
+    final heroic =
+        which('heroic') != null ||
+        (await flatpakAppIds()).contains(heroicFlatpakId);
     // A store's own CLI is the fallback when Heroic is absent, but only when
     // it is actually installed; a game nobody can launch is noise.
     final cliFound = <String, bool>{};
@@ -114,11 +122,14 @@ class HeroicSource extends GameSource {
           continue;
         }
         seen.add(key);
-        final installPath = _or([entry['install_path'], entry['path']])?.toString() ?? '';
+        final installPath =
+            _or([entry['install_path'], entry['path']])?.toString() ?? '';
         final exists =
             installPath.isNotEmpty &&
-            await FileSystemEntity.type(installPath) != FileSystemEntityType.notFound;
-        final name = _or([entry['title'], entry['app_title']])?.toString() ?? key;
+            await FileSystemEntity.type(installPath) !=
+                FileSystemEntityType.notFound;
+        final name =
+            _or([entry['title'], entry['app_title']])?.toString() ?? key;
         final extra = <String, Object?>{
           'store': store,
           'install_path': installPath.isEmpty ? null : installPath,

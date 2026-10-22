@@ -44,47 +44,37 @@ void main() {
   });
 
   test('a stored archive unpacks too', () {
-    unpackZip(
-      archive(const [Entry('plugin.json', '{}', method: 0)]),
-      target,
-    );
+    unpackZip(archive(const [Entry('plugin.json', '{}', method: 0)]), target);
 
     expect(File('$target/plugin.json').readAsStringSync(), '{}');
   });
 
-  test(
-    'an archive made elsewhere unpacks',
-    () async {
-      // The reader is shown a real archive, not one this file wrote: python3's
-      // zipfile decides the layout, so a misunderstanding of the format cannot
-      // cancel itself out.
-      final script = '''
+  test('an archive made elsewhere unpacks', () async {
+    // The reader is shown a real archive, not one this file wrote: python3's
+    // zipfile decides the layout, so a misunderstanding of the format cannot
+    // cancel itself out.
+    final script = '''
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as archive:
     archive.writestr('plugin.json', '{"id":"outside"}')
     archive.writestr('nested/dir/run.py', 'print("outside")\\n')
 ''';
-      final built = '${dir.path}/outside.zip';
-      final result = await Process.run('python3', ['-c', script, built]);
-      expect(result.exitCode, 0, reason: '${result.stderr}');
+    final built = '${dir.path}/outside.zip';
+    final result = await Process.run('python3', ['-c', script, built]);
+    expect(result.exitCode, 0, reason: '${result.stderr}');
 
-      unpackZip(File(built).readAsBytesSync(), target);
+    unpackZip(File(built).readAsBytesSync(), target);
 
-      expect(File('$target/plugin.json').readAsStringSync(), '{"id":"outside"}');
-      expect(
-        File('$target/nested/dir/run.py').readAsStringSync(),
-        'print("outside")\n',
-      );
-    },
-    skip: !hasPython3 ? 'no python3 on this host' : false,
-  );
+    expect(File('$target/plugin.json').readAsStringSync(), '{"id":"outside"}');
+    expect(
+      File('$target/nested/dir/run.py').readAsStringSync(),
+      'print("outside")\n',
+    );
+  }, skip: !hasPython3 ? 'no python3 on this host' : false);
 
   test('a file that climbs out of the folder is refused', () {
     expect(
-      () => unpackZip(
-        archive(const [Entry('../escaped.txt', 'nope')]),
-        target,
-      ),
+      () => unpackZip(archive(const [Entry('../escaped.txt', 'nope')]), target),
       throwsA(isA<FormatException>()),
     );
     expect(File('${dir.path}/escaped.txt').existsSync(), isFalse);
@@ -171,6 +161,27 @@ with zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as archive:
     );
   });
 
+  test('an index entry whose name length runs off the end is refused', () {
+    final whole = archive(const [Entry('plugin.json', '{}')]);
+    // The central directory's copy of the name length, found by its
+    // signature, is set far past the end of the archive: the reader must
+    // complain, not read out of bounds.
+    var central = -1;
+    for (var at = whole.length - 4; at >= 0; at--) {
+      if (whole[at] == 0x50 &&
+          whole[at + 1] == 0x4b &&
+          whole[at + 2] == 0x01 &&
+          whole[at + 3] == 0x02) {
+        central = at;
+        break;
+      }
+    }
+    expect(central, isNonNegative);
+    whole[central + 28] = 0xff;
+    whole[central + 29] = 0xff;
+    expect(() => unpackZip(whole, target), throwsA(isA<FormatException>()));
+  });
+
   test('a truncated archive is refused', () {
     final whole = archive(const [Entry('plugin.json', '{}')]);
     expect(
@@ -187,9 +198,6 @@ with zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as archive:
     final data = 30 + nameLength;
     whole[data + 2] = whole[data + 2] ^ 0xff;
     whole[data + 3] = whole[data + 3] ^ 0x55;
-    expect(
-      () => unpackZip(whole, target),
-      throwsA(isA<FormatException>()),
-    );
+    expect(() => unpackZip(whole, target), throwsA(isA<FormatException>()));
   });
 }

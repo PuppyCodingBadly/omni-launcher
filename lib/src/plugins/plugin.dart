@@ -151,7 +151,8 @@ class PluginAnswer {
   }
 
   Map<String, Object?> toJson() => {
-    if (fields.isNotEmpty) 'fields': [for (final field in fields) field.toJson()],
+    if (fields.isNotEmpty)
+      'fields': [for (final field in fields) field.toJson()],
     if (url != null) 'url': url,
     if (error != null) 'error': error,
   };

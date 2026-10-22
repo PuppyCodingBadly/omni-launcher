@@ -175,77 +175,77 @@ class _GameTileState extends State<GameTile> {
           onEnter: (_) => setState(() => _hovered = true),
           onExit: (_) => setState(() => _hovered = false),
           child: GestureDetector(
-          onTap: () => widget.controller.select(game),
-          onDoubleTap: () => widget.controller.launch(game),
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapUp: (_) => setState(() => _pressed = false),
-          onTapCancel: () => setState(() => _pressed = false),
-          child: AnimatedOpacity(
-            duration: _motionDuration,
-            opacity: hidden ? 0.45 : 1,
-            child: AnimatedScale(
-              scale: _pressed
-                  ? _pressScale
-                  : _highlighted
-                  ? _hoverScale
-                  : 1,
+            onTap: () => widget.controller.select(game),
+            onDoubleTap: () => widget.controller.launch(game),
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapUp: (_) => setState(() => _pressed = false),
+            onTapCancel: () => setState(() => _pressed = false),
+            child: AnimatedOpacity(
               duration: _motionDuration,
-              curve: _motionCurve,
-              // A tile's hover repaints (shadow, scrim, scale) stay inside the
-              // tile: without the boundary a blur this size would drag the
-              // neighbouring covers into the same repaint.
-              child: RepaintBoundary(
-                // The strip is a horizontal list, which hands a tile as much
-                // width as it asks for: without this the labels decide the
-                // tile's width, and a long name widens it past its cover
-                // instead of trailing off.
-                child: SizedBox(
-                  width: widget.tileWidth,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _Cover(
-                        artwork: _artwork,
-                        name: game.name,
-                        highlighted: _highlighted,
-                        selected: widget.selected,
-                        favorite: widget.controller.isFavorite(game.id),
-                        themeIcon: widget.controller.covers.themeIconPath,
-                        onPlay: () => widget.controller.launch(game),
-                        menu: _menu(context, game, hidden),
-                        width: widget.tileWidth,
-                        height: widget.tileHeight,
-                        compact: widget.compact,
-                      ),
-                      SizedBox(height: widget.compact ? 8 : 10),
-                      Text(
-                        game.name,
-                        maxLines: widget.compact ? 1 : 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: widget.compact ? 12.5 : 14,
-                          height: 1.2,
+              opacity: hidden ? 0.45 : 1,
+              child: AnimatedScale(
+                scale: _pressed
+                    ? _pressScale
+                    : _highlighted
+                    ? _hoverScale
+                    : 1,
+                duration: _motionDuration,
+                curve: _motionCurve,
+                // A tile's hover repaints (shadow, scrim, scale) stay inside the
+                // tile: without the boundary a blur this size would drag the
+                // neighbouring covers into the same repaint.
+                child: RepaintBoundary(
+                  // The strip is a horizontal list, which hands a tile as much
+                  // width as it asks for: without this the labels decide the
+                  // tile's width, and a long name widens it past its cover
+                  // instead of trailing off.
+                  child: SizedBox(
+                    width: widget.tileWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _Cover(
+                          artwork: _artwork,
+                          name: game.name,
+                          highlighted: _highlighted,
+                          selected: widget.selected,
+                          favorite: widget.controller.isFavorite(game.id),
+                          themeIcon: widget.controller.covers.themeIconPath,
+                          onPlay: () => widget.controller.launch(game),
+                          menu: _menu(context, game, hidden),
+                          width: widget.tileWidth,
+                          height: widget.tileHeight,
+                          compact: widget.compact,
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _subtitle(game),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: palette.textDim,
-                          fontSize: widget.compact ? 11 : 12,
-                          height: widget.compact ? 1.2 : null,
+                        SizedBox(height: widget.compact ? 8 : 10),
+                        Text(
+                          game.name,
+                          maxLines: widget.compact ? 1 : 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: widget.compact ? 12.5 : 14,
+                            height: 1.2,
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        Text(
+                          _subtitle(game),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: palette.textDim,
+                            fontSize: widget.compact ? 11 : 12,
+                            height: widget.compact ? 1.2 : null,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           ),
         ),
       ),
@@ -413,10 +413,15 @@ class _Cover extends StatelessWidget {
                   Align(
                     alignment: Alignment.topRight,
                     child: AnimatedSlide(
-                      offset: highlighted ? Offset.zero : const Offset(0, -0.25),
+                      offset: highlighted
+                          ? Offset.zero
+                          : const Offset(0, -0.25),
                       duration: _overlayDuration,
                       curve: _motionCurve,
-                      child: Padding(padding: const EdgeInsets.all(2), child: menu),
+                      child: Padding(
+                        padding: const EdgeInsets.all(2),
+                        child: menu,
+                      ),
                     ),
                   ),
                   Align(
@@ -433,16 +438,24 @@ class _Cover extends StatelessWidget {
                             ? IconButton.filled(
                                 tooltip: 'Play',
                                 onPressed: onPlay,
-                                icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                                icon: const Icon(
+                                  Icons.play_arrow_rounded,
+                                  size: 20,
+                                ),
                               )
                             : SizedBox(
                                 width: double.infinity,
                                 child: FilledButton.icon(
                                   onPressed: onPlay,
-                                  icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                                  icon: const Icon(
+                                    Icons.play_arrow_rounded,
+                                    size: 20,
+                                  ),
                                   label: const Text('Play'),
                                   style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 10,
+                                    ),
                                   ),
                                 ),
                               ),

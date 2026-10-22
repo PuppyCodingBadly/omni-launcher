@@ -61,6 +61,7 @@ class AppConfig {
     List<ManualEntry>? manual,
     Map<String, String>? artOverrides,
     Map<String, String>? autoArt,
+    Map<String, int>? sgdbMisses,
     Map<String, String>? nameOverrides,
     this.steamgriddbKey = '',
     this.steamgriddbAuto = false,
@@ -79,6 +80,7 @@ class AppConfig {
        manual = manual ?? <ManualEntry>[],
        artOverrides = artOverrides ?? <String, String>{},
        autoArt = autoArt ?? <String, String>{},
+       sgdbMisses = sgdbMisses ?? <String, int>{},
        nameOverrides = nameOverrides ?? <String, String>{},
        closeWithGame = closeWithGame ?? <String>{},
        favorites = favorites ?? <String>[];
@@ -102,6 +104,12 @@ class AppConfig {
 
   /// Artwork the launcher fetched per game (game id -> cached file path).
   final Map<String, String> autoArt;
+
+  /// Automatic SteamGridDB lookups that found nothing (game id -> when the
+  /// lookup ran, in milliseconds since the epoch), so an artless game is not
+  /// re-queried on every run. Entries older than the controller's TTL count
+  /// as absent.
+  final Map<String, int> sgdbMisses;
 
   /// Names the user picked, per game id (game id -> the name to show).
   ///
@@ -163,10 +171,12 @@ class AppConfig {
     return AppConfig(
       hidden: _stringList(data['hidden'])?.toSet() ?? <String>{},
       appimageDirs:
-          _stringList(data['appimage_dirs']) ?? List<String>.from(defaultAppimageDirs),
+          _stringList(data['appimage_dirs']) ??
+          List<String>.from(defaultAppimageDirs),
       manual: _manualList(data['manual']),
       artOverrides: _stringMap(data['art_overrides']),
       autoArt: _autoArt(data['auto_art']),
+      sgdbMisses: _sgdbMisses(data['sgdb_misses']),
       nameOverrides: _nameOverrides(data['name_overrides']),
       steamgriddbKey: '${data['steamgriddb_key'] ?? ''}',
       steamgriddbAuto: data['steamgriddb_auto'] == true,
@@ -205,7 +215,8 @@ class AppConfig {
     return (_asDouble(value['width']), _asDouble(value['height']));
   }
 
-  static double? _asDouble(Object? value) => value is num ? value.toDouble() : null;
+  static double? _asDouble(Object? value) =>
+      value is num ? value.toDouble() : null;
 
   /// A [sortModes] value; unknown or wrongly typed values fall back to
   /// ordering by name, the way [_themeMode] falls back to dark.
@@ -240,6 +251,25 @@ class AppConfig {
   static Map<String, String> _stringMap(Object? value) => value is Map
       ? value.map((key, item) => MapEntry('$key', '$item'))
       : <String, String>{};
+
+  /// `{game id: millis}` of SteamGridDB lookups that found nothing, dropping
+  /// every entry whose value is not a usable timestamp: a hand-edited file
+  /// must not take the load down, and a junk entry is simply forgotten.
+  static Map<String, int> _sgdbMisses(Object? value) {
+    if (value is! Map) return <String, int>{};
+    final result = <String, int>{};
+    for (final entry in value.entries) {
+      final raw = entry.value;
+      final millis = raw is int
+          ? raw
+          : raw is num
+          ? raw.toInt()
+          : null;
+      if (millis == null || millis < 0) continue;
+      result['${entry.key}'] = millis;
+    }
+    return result;
+  }
 
   static List<ManualEntry> _manualList(Object? value) {
     if (value is! List) return <ManualEntry>[];
@@ -294,6 +324,7 @@ class AppConfig {
       'manual': manual.map((m) => m.toJson()).toList(),
       'art_overrides': artOverrides,
       'auto_art': autoArt,
+      'sgdb_misses': sgdbMisses,
       'name_overrides': nameOverrides,
       'steamgriddb_key': steamgriddbKey,
       'steamgriddb_auto': steamgriddbAuto,
@@ -316,9 +347,14 @@ class AppConfig {
     // Through a sibling file and a rename: a crash halfway through writing
     // must not leave a half written config behind.
     final temporary = File('$path.tmp');
-    temporary.writeAsStringSync('${const JsonEncoder.withIndent('  ').convert(payload)}\n');
+    temporary.writeAsStringSync(
+      '${const JsonEncoder.withIndent('  ').convert(payload)}\n',
+    );
+    // Restrict the temp file before it becomes the config: the file holds the
+    // SteamGridDB key, so it must never sit at the target path — however
+    // briefly — with group or world read from the umask.
+    _restrictPermissions(temporary.path, always: true);
     temporary.renameSync(path);
-    _restrictPermissions(path, always: true);
   }
 
   /// Configured AppImage directories, with `~` and env vars expanded.
@@ -347,6 +383,7 @@ class AppConfig {
     List<ManualEntry>? manual,
     Map<String, String>? artOverrides,
     Map<String, String>? autoArt,
+    Map<String, int>? sgdbMisses,
     Map<String, String>? nameOverrides,
     String? steamgriddbKey,
     bool? steamgriddbAuto,
@@ -366,6 +403,7 @@ class AppConfig {
     manual: manual ?? this.manual,
     artOverrides: artOverrides ?? this.artOverrides,
     autoArt: autoArt ?? this.autoArt,
+    sgdbMisses: sgdbMisses ?? this.sgdbMisses,
     nameOverrides: nameOverrides ?? this.nameOverrides,
     steamgriddbKey: steamgriddbKey ?? this.steamgriddbKey,
     steamgriddbAuto: steamgriddbAuto ?? this.steamgriddbAuto,
@@ -383,8 +421,13 @@ class AppConfig {
 }
 
 class ManualEntry {
-  ManualEntry({required this.name, required this.command, String? key, this.cwd, this.icon})
-    : key = key ?? generateKey(name);
+  ManualEntry({
+    required this.name,
+    required this.command,
+    String? key,
+    this.cwd,
+    this.icon,
+  }) : key = key ?? generateKey(name);
 
   final String name;
   final List<String> command;

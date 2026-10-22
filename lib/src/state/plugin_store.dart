@@ -19,20 +19,49 @@ class PluginStore {
   /// still load, so a cache survived the upgrade.
   static const int schemaVersion = 1;
 
+  /// The most answers kept: the cache is a shortcut, not an archive. When it
+  /// is full, the answer untouched the longest is the one forgotten.
+  static const int maxEntries = 500;
+
   final String _path;
+
+  /// Insertion-ordered, and every lookup moves its entry to the back, so the
+  /// front is always the answer untouched the longest.
   final Map<String, PluginAnswer> _entries = <String, PluginAnswer>{};
 
-  PluginAnswer? answer(String pluginId, String gameId) =>
-      _entries[keyFor(pluginId, gameId)];
+  PluginAnswer? answer(String pluginId, String gameId) {
+    final key = keyFor(pluginId, gameId);
+    final found = _entries.remove(key);
+    if (found == null) return null;
+    _entries[key] = found;
+    return found;
+  }
 
   void put(String pluginId, String gameId, PluginAnswer answer) {
-    _entries[keyFor(pluginId, gameId)] = answer;
+    final key = keyFor(pluginId, gameId);
+    final previous = _entries.remove(key);
+    _entries[key] = answer;
+    var evicted = false;
+    while (_entries.length > maxEntries) {
+      _entries.remove(_entries.keys.first);
+      evicted = true;
+    }
+    // The same answer for an entry that was already there — and nothing
+    // pushed out — leaves the file holding exactly what a rewrite would
+    // write: the lookup is remembered without paying for the disk again.
+    // Recency alone is not written down; it is rebuilt from the file's order
+    // at the next start.
+    if (!evicted && previous != null && _sameAnswer(previous, answer)) return;
     _save();
   }
 
   /// The key a plugin and a query share. A plugin id cannot contain a slash, so
   /// one key cannot be read as another.
   static String keyFor(String pluginId, String queryId) => '$pluginId/$queryId';
+
+  /// Whether two answers say the same thing, field for field.
+  static bool _sameAnswer(PluginAnswer a, PluginAnswer b) =>
+      jsonEncode(a.toJson()) == jsonEncode(b.toJson());
 
   void _load() {
     final file = File(_path);
@@ -66,7 +95,8 @@ class PluginStore {
         jsonEncode({
           'version': schemaVersion,
           'answers': {
-            for (final entry in _entries.entries) entry.key: entry.value.toJson(),
+            for (final entry in _entries.entries)
+              entry.key: entry.value.toJson(),
           },
         }),
       );

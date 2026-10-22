@@ -43,11 +43,21 @@ bool _isGame(Map<String, String> entry) {
 }
 
 /// `Path.stem`: the file name without its final `.desktop` suffix.
-String _stem(String name) =>
-    name.endsWith('.desktop') ? name.substring(0, name.length - '.desktop'.length) : name;
+String _stem(String name) => name.endsWith('.desktop')
+    ? name.substring(0, name.length - '.desktop'.length)
+    : name;
 
 /// Marker that starts an entry line of a host dump.
 const String _dumpMarker = '@@';
+
+/// Test seam for the sandbox dump: watches the argv instead of spawning it,
+/// so a test can see the host wrap is left to [runCapture].
+Future<String> Function(List<String> argv)? _dumpRunnerForTest;
+
+/// Test seam for the sandbox dump of [_desktopEntries].
+void setFlatpakDumpRunnerForTest(
+  Future<String> Function(List<String> argv)? runner,
+) => _dumpRunnerForTest = runner;
 
 /// Parse the `@@<file name> <base64>` lines of a host dump.
 ///
@@ -91,10 +101,16 @@ Future<List<(String, Map<String, String>)>> _desktopEntries() async {
       r'for d in /var/lib/flatpak/exports/share/applications "$HOME/.local/share/flatpak/exports/share/applications"; do '
       r'for f in "$d"/*.desktop; do [ -f "$f" ] || continue; '
       r'printf "@@%s " "${f##*/}"; base64 -w0 "$f"; echo; done; done';
-  final dump = await runCapture(
-    Host.command(['sh', '-c', script]),
-    timeout: const Duration(seconds: 20),
-  );
+  // runCapture wraps the argv for the host itself; wrapping it here too would
+  // spawn `flatpak-spawn --host flatpak-spawn --host ...`.
+  final runner = _dumpRunnerForTest;
+  final dump = runner != null
+      ? await runner(const ['sh', '-c', script])
+      : await runCapture(const [
+          'sh',
+          '-c',
+          script,
+        ], timeout: const Duration(seconds: 20));
   return parseDesktopDump(dump);
 }
 

@@ -148,7 +148,9 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// it reads on the background) and [onAccent] (white, or dark when the
   /// accent is too pale for white to read).
   static AppPalette forMode(Brightness brightness, Color accent) {
-    final base = brightness == Brightness.dark ? AppPalette.dark : AppPalette.light;
+    final base = brightness == Brightness.dark
+        ? AppPalette.dark
+        : AppPalette.light;
     if (accent == base.accent) return base;
     final towards = brightness == Brightness.dark ? Colors.white : Colors.black;
     return base.copyWith(
@@ -182,7 +184,9 @@ class AppPalette extends ThemeExtension<AppPalette> {
   }
 
   static Color _onAccent(Color accent) =>
-      _contrast(Colors.white, accent) >= _minLargeTextContrast ? Colors.white : Colors.black;
+      _contrast(Colors.white, accent) >= _minLargeTextContrast
+      ? Colors.white
+      : Colors.black;
 
   @override
   AppPalette copyWith({
@@ -246,14 +250,16 @@ class AppPalette extends ThemeExtension<AppPalette> {
       onAccent: Color.lerp(onAccent, other.onAccent, t)!,
       shadow: Color.lerp(shadow, other.shadow, t)!,
       shadowAlpha: shadowAlpha + (other.shadowAlpha - shadowAlpha) * t,
-      shadowHoverAlpha: shadowHoverAlpha + (other.shadowHoverAlpha - shadowHoverAlpha) * t,
+      shadowHoverAlpha:
+          shadowHoverAlpha + (other.shadowHoverAlpha - shadowHoverAlpha) * t,
     );
   }
 }
 
 /// `context.palette` — the colours of the appearance mode in effect.
 extension AppPaletteContext on BuildContext {
-  AppPalette get palette => Theme.of(this).extension<AppPalette>() ?? AppPalette.dark;
+  AppPalette get palette =>
+      Theme.of(this).extension<AppPalette>() ?? AppPalette.dark;
 }
 
 /// Flutter's [ThemeMode] for the persisted appearance choice.
@@ -270,30 +276,37 @@ ThemeMode materialThemeMode(AppThemeMode mode) => switch (mode) {
 /// be wasted work.
 class AppTheme {
   /// Dark, cover-forward theme in the spirit of Cartridges / Playnite.
-  static final ThemeData dark = themeFor(Brightness.dark, AppPalette.dark.accent);
+  static final ThemeData dark = themeFor(
+    Brightness.dark,
+    AppPalette.dark.accent,
+  );
 
   /// Light counterpart of [dark].
-  static final ThemeData light = themeFor(Brightness.light, AppPalette.light.accent);
+  static final ThemeData light = themeFor(
+    Brightness.light,
+    AppPalette.light.accent,
+  );
 
   static final Map<(Brightness, Color), ThemeData> _themes = {};
 
   /// `mode + accent -> theme`, memoized.
   static ThemeData themeFor(Brightness brightness, Color accent) =>
-      _themes.putIfAbsent(
-        (brightness, accent),
-        () => _build(AppPalette.forMode(brightness, accent), brightness),
-      );
+      _themes.putIfAbsent((
+        brightness,
+        accent,
+      ), () => _build(AppPalette.forMode(brightness, accent), brightness));
 
   static ThemeData _build(AppPalette palette, Brightness brightness) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: palette.accent,
-      brightness: brightness,
-    ).copyWith(
-      surface: palette.background,
-      primary: palette.accent,
-      secondary: palette.accentSoft,
-      onSurface: palette.text,
-    );
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: palette.accent,
+          brightness: brightness,
+        ).copyWith(
+          surface: palette.background,
+          primary: palette.accent,
+          secondary: palette.accentSoft,
+          onSurface: palette.text,
+        );
     final typography = brightness == Brightness.dark
         ? Typography.whiteMountainView
         : Typography.blackMountainView;
@@ -304,7 +317,10 @@ class AppTheme {
       scaffoldBackgroundColor: palette.background,
       splashFactory: InkSparkle.splashFactory,
       extensions: [palette],
-      textTheme: typography.apply(bodyColor: palette.text, displayColor: palette.text),
+      textTheme: typography.apply(
+        bodyColor: palette.text,
+        displayColor: palette.text,
+      ),
       tooltipTheme: const TooltipThemeData(
         waitDuration: Duration(milliseconds: 500),
       ),
@@ -316,7 +332,10 @@ class AppTheme {
         filled: true,
         fillColor: palette.surface,
         hintStyle: TextStyle(color: palette.textDim),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
@@ -327,7 +346,9 @@ class AppTheme {
           backgroundColor: palette.accent,
           foregroundColor: palette.onAccent,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         ),
       ),
@@ -336,12 +357,14 @@ class AppTheme {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (states) =>
-              states.contains(WidgetState.selected) ? Colors.white : palette.textDim,
+          (states) => states.contains(WidgetState.selected)
+              ? Colors.white
+              : palette.textDim,
         ),
         trackColor: WidgetStateProperty.resolveWith(
-          (states) =>
-              states.contains(WidgetState.selected) ? palette.accent : palette.surfaceHigh,
+          (states) => states.contains(WidgetState.selected)
+              ? palette.accent
+              : palette.surfaceHigh,
         ),
       ),
     );

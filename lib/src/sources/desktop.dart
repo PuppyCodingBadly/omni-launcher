@@ -44,7 +44,9 @@ Future<String?> _dedupeKey(Map<String, String> entry) async {
     try {
       return 'path:${await file.resolveSymbolicLinks()}';
     } on FileSystemException {
-      return 'path:$token';
+      // Mirror the AppImage source: fall back to the absolute path so both
+      // still agree on one dedupe key.
+      return 'path:${file.absolute.path}';
     }
   }
   return null;
@@ -72,9 +74,7 @@ class DesktopSource extends GameSource {
       if (command.isEmpty) continue;
       final icon = (entry['Icon'] ?? '').isEmpty ? null : entry['Icon'];
       var iconIsName = true;
-      if (icon != null &&
-          icon.startsWith('/') &&
-          await File(icon).exists()) {
+      if (icon != null && icon.startsWith('/') && await File(icon).exists()) {
         iconIsName = false;
       }
       final extra = <String, Object?>{};

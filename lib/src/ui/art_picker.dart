@@ -67,7 +67,10 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
                     child: Text(
                       'Artwork for ${widget.game.name}',
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   if (_applying)
@@ -91,7 +94,10 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
                 hasKey
                     ? 'SteamGridDB grids, best match first.'
                     : 'SteamGridDB needs an API key.',
-                style: TextStyle(color: context.palette.textDim, fontSize: 12.5),
+                style: TextStyle(
+                  color: context.palette.textDim,
+                  fontSize: 12.5,
+                ),
               ),
               const SizedBox(height: 16),
               Flexible(child: hasKey ? _results() : _noKey()),
@@ -191,7 +197,8 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
     return Tooltip(
       message: [
         if (grid.style != null) grid.style!,
-        if (grid.width != null && grid.height != null) '${grid.width}x${grid.height}',
+        if (grid.width != null && grid.height != null)
+          '${grid.width}x${grid.height}',
         if (grid.author != null) 'by ${grid.author}',
       ].join(' · '),
       child: InkWell(
@@ -219,10 +226,12 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
                   fit: BoxFit.cover,
                   // Decode at the pixels the cell actually shows.
                   cacheWidth:
-                      (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
+                      (constraints.maxWidth *
+                              MediaQuery.devicePixelRatioOf(context))
                           .round(),
                   cacheHeight:
-                      (constraints.maxHeight * MediaQuery.devicePixelRatioOf(context))
+                      (constraints.maxHeight *
+                              MediaQuery.devicePixelRatioOf(context))
                           .round(),
                   semanticLabel: 'Artwork candidate for ${widget.game.name}',
                   loadingBuilder: (context, child, progress) => progress == null
@@ -263,7 +272,9 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
         return;
       }
       setState(() {
-        _failure = widget.controller.failure ?? 'That artwork could not be downloaded.';
+        _failure =
+            widget.controller.failure ??
+            'That artwork could not be downloaded.';
       });
     } catch (error) {
       // Nothing may leave the dialog stuck on "applying": every candidate

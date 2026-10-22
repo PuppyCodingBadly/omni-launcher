@@ -72,6 +72,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.1" date="2026-10-22">
+      <description>
+        <p>A bug-fix and responsiveness release. Source discovery now runs concurrently; Steam non-Steam shortcuts match real quoted shortcut paths, no longer hijack a second game with the same name, and keep Steam Input and playtime; Flatpak builds discover their games and launch with the configured working directory again. Cover art and API calls are bounded in time and size, cached images are written atomically, an offline first run no longer suppresses Steam covers for a month, and SteamGridDB misses are remembered instead of re-queried. Plugins are killed on the host when the launcher runs in a sandbox, interrupted installs are not loaded, and archive and HowLongToBeat inputs are bounded. The wall's keyboard and gamepad walk reaches tiles beyond the viewport, transient errors stop resurfacing, and sorting, filtering, scans and config writes do less repeated work.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-17">
       <description>
         <p>A stability and polish release. Discovery is asynchronous and finds Flatpak Steam, Prism Launcher and Bottles libraries; plugin installs are checksum-verified, HTTPS-only and confirmed before they run; config, playtime and caches are written atomically with a schema version; the wall is keyboard and gamepad navigable, with favorites, sorting, bulk hide and a persisted window size; and the release workflow now gates the flatpak build on analysis and tests.</p>

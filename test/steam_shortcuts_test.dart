@@ -68,6 +68,7 @@ Game game({
   String name = 'RetroDECK',
   SourceKind source = SourceKind.flatpak,
   List<String> command = const ['flatpak', 'run', 'net.retrodeck.retrodeck'],
+  String path = '/games/retrodeck',
   Map<String, Object?> extra = const {},
 }) => Game(
   id: id,
@@ -77,7 +78,7 @@ Game game({
   command: command,
   icon: 'net.retrodeck.retrodeck',
   iconIsName: true,
-  path: '/games/retrodeck',
+  path: path,
   extra: extra,
 );
 
@@ -103,16 +104,19 @@ void main() {
       expect(entry['IsHidden'], 0);
     });
 
-    test('a truncated or foreign file yields what was readable, never throws', () {
-      final bytes = shortcutFile([
-        {'appid': 1, 'appname': 'Kept'},
-        {'appid': 2, 'appname': 'Lost'},
-      ]);
-      final truncated = parseBinaryVdf(bytes.sublist(0, bytes.length - 6));
-      expect(truncated, isA<Map<String, Object?>>());
-      expect(parseBinaryVdf(const []), isEmpty);
-      expect(parseBinaryVdf(utf8.encode('not a vdf at all')), isEmpty);
-    });
+    test(
+      'a truncated or foreign file yields what was readable, never throws',
+      () {
+        final bytes = shortcutFile([
+          {'appid': 1, 'appname': 'Kept'},
+          {'appid': 2, 'appname': 'Lost'},
+        ]);
+        final truncated = parseBinaryVdf(bytes.sublist(0, bytes.length - 6));
+        expect(truncated, isA<Map<String, Object?>>());
+        expect(parseBinaryVdf(const []), isEmpty);
+        expect(parseBinaryVdf(utf8.encode('not a vdf at all')), isEmpty);
+      },
+    );
   });
 
   group('shortcut files', () {
@@ -127,28 +131,33 @@ void main() {
       file.writeAsBytesSync(shortcutFile(shortcuts));
     }
 
-    test('reads every userdata directory and converts the app id unsigned', () async {
-      writeShortcuts('1', [
-        {
-          'appid': retroDeckSignedId,
-          'appname': 'RetroDECK',
-          'FlatpakAppID': 'net.retrodeck.retrodeck',
-          'IsHidden': 0,
-        },
-      ]);
-      writeShortcuts('2', [
-        {'appid': 42, 'AppName': 'Older Steam', 'exe': '/usr/bin/thing'},
-      ]);
-      final shortcuts = await readSteamShortcuts(roots: [dir.path]);
-      expect(shortcuts, hasLength(2));
-      final byName = {for (final shortcut in shortcuts) shortcut.name: shortcut};
-      final retrodeck = byName['RetroDECK']!;
-      expect(retrodeck.appId, retroDeckUnsignedId);
-      expect(retrodeck.flatpakAppId, 'net.retrodeck.retrodeck');
-      expect(retrodeck.matchesFlatpak('net.retrodeck.retrodeck'), isTrue);
-      expect(byName['Older Steam']!.name, 'Older Steam');
-      expect(byName['Older Steam']!.appId, 42);
-    });
+    test(
+      'reads every userdata directory and converts the app id unsigned',
+      () async {
+        writeShortcuts('1', [
+          {
+            'appid': retroDeckSignedId,
+            'appname': 'RetroDECK',
+            'FlatpakAppID': 'net.retrodeck.retrodeck',
+            'IsHidden': 0,
+          },
+        ]);
+        writeShortcuts('2', [
+          {'appid': 42, 'AppName': 'Older Steam', 'exe': '/usr/bin/thing'},
+        ]);
+        final shortcuts = await readSteamShortcuts(roots: [dir.path]);
+        expect(shortcuts, hasLength(2));
+        final byName = {
+          for (final shortcut in shortcuts) shortcut.name: shortcut,
+        };
+        final retrodeck = byName['RetroDECK']!;
+        expect(retrodeck.appId, retroDeckUnsignedId);
+        expect(retrodeck.flatpakAppId, 'net.retrodeck.retrodeck');
+        expect(retrodeck.matchesFlatpak('net.retrodeck.retrodeck'), isTrue);
+        expect(byName['Older Steam']!.name, 'Older Steam');
+        expect(byName['Older Steam']!.appId, 42);
+      },
+    );
 
     test('the same file behind two roots is only read once', () async {
       writeShortcuts('1', [
@@ -169,6 +178,47 @@ void main() {
       ]);
       final shortcuts = await readSteamShortcuts(roots: [dir.path]);
       expect(shortcuts.map((s) => s.name).toList(), ['Kept']);
+    });
+
+    test(
+      'one pair of surrounding quotes is stripped from exe and startDir',
+      () async {
+        writeShortcuts('1', [
+          {
+            'appid': 9,
+            'appname': 'Quoted',
+            'exe': '"/games/quoted/Game.AppImage"',
+            'StartDir': '"/games/quoted"',
+          },
+        ]);
+        final shortcuts = await readSteamShortcuts(roots: [dir.path]);
+        expect(shortcuts.single.exe, '/games/quoted/Game.AppImage');
+        expect(shortcuts.single.startDir, '/games/quoted');
+      },
+    );
+
+    test('an unquoted exe path-matches the game a source discovered', () async {
+      // Real Valve files quote the exe; without the strip the name match can
+      // never verify the install path and the game keeps its bare command.
+      writeShortcuts('1', [
+        {
+          'appid': retroDeckSignedId,
+          'appname': 'RetroDECK',
+          'exe': '"/games/retrodeck/RetroDECK.AppImage"',
+        },
+      ]);
+      final shortcuts = await readSteamShortcuts(roots: [dir.path]);
+      final games = await preferSteamShortcuts([
+        game(
+          id: 'appimage:/games/retrodeck/RetroDECK.AppImage',
+          key: '/games/retrodeck/RetroDECK.AppImage',
+          name: 'retrodeck',
+          source: SourceKind.appimage,
+          command: ['/games/retrodeck/RetroDECK.AppImage'],
+        ),
+      ], shortcuts);
+      expect(games.single.command.last, '$retroDeckUnsignedId');
+      expect(games.single.extra['launchedViaSteam'], isTrue);
     });
 
     test('a missing root is not an error', () async {
@@ -200,10 +250,10 @@ void main() {
       // The prefix is resolved from the machine (steam on PATH, or the flatpak
       // when that is the only one installed), so only the launch form is
       // asserted here.
-      expect(
-        result.command.sublist(result.command.length - 2),
-        ['-applaunch', '$retroDeckUnsignedId'],
-      );
+      expect(result.command.sublist(result.command.length - 2), [
+        '-applaunch',
+        '$retroDeckUnsignedId',
+      ]);
       expect(result.extra['launchedViaSteam'], isTrue);
       expect(result.extra['steamShortcut'], retroDeckUnsignedId);
       // Identity and presentation must not move.
@@ -270,8 +320,46 @@ void main() {
       expect(games.single.extra['steamShortcut'], retroDeckUnsignedId);
     });
 
+    test(
+      'a name-only shortcut is consumed by the first flatpak game',
+      () async {
+        // Two flatpak games share the shortcut's display name; without a
+        // `FlatpakAppID` the shortcut can only safely take over one of them.
+        const nameOnly = SteamShortcut(
+          appId: retroDeckUnsignedId,
+          name: 'RetroDECK',
+        );
+        final first = game(id: 'flatpak:one.retrodeck', key: 'one.retrodeck');
+        final second = game(id: 'flatpak:two.retrodeck', key: 'two.retrodeck');
+        final games = await preferSteamShortcuts([first, second], [nameOnly]);
+        expect(games, hasLength(2));
+        expect(games[0].extra['launchedViaSteam'], isTrue);
+        expect(games[0].command.last, '$retroDeckUnsignedId');
+        expect(games[1].extra.containsKey('launchedViaSteam'), isFalse);
+        expect(games[1].command, second.command);
+      },
+    );
+
+    test(
+      'an exact flatpak appId match is never consumed by a name match',
+      () async {
+        final games = await preferSteamShortcuts(
+          [game(id: 'flatpak:impostor', key: 'impostor'), game()],
+          [shortcut],
+        );
+        // The impostor shares only the name; the shortcut carries the real
+        // flatpak key, so it must reach the genuine game instead.
+        expect(games[0].extra.containsKey('launchedViaSteam'), isFalse);
+        expect(games[1].extra['steamShortcut'], retroDeckUnsignedId);
+      },
+    );
+
     test('nothing matches, nothing changes', () async {
-      final original = game(name: 'Terraria', key: '105600', id: 'flatpak:105600');
+      final original = game(
+        name: 'Terraria',
+        key: '105600',
+        id: 'flatpak:105600',
+      );
       final games = await preferSteamShortcuts([original], [shortcut]);
       expect(games.single.command, original.command);
       expect(games.single.extra.containsKey('launchedViaSteam'), isFalse);
@@ -288,10 +376,7 @@ void main() {
       final games = await discoverAll(
         AppConfig(),
         sources: [
-          _FixedSource(
-            SourceKind.flatpak,
-            [game()],
-          ),
+          _FixedSource(SourceKind.flatpak, [game()]),
         ],
         shortcuts: [
           const SteamShortcut(

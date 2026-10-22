@@ -26,8 +26,8 @@ void main() {
 
   /// Write a playtime history: game id -> seconds played, and when it was last
   /// played. Anything not listed was never played.
-  void seed(Map<String, (int, DateTime)> entries) => File(playtimePath)
-      .writeAsStringSync(
+  void seed(Map<String, (int, DateTime)> entries) =>
+      File(playtimePath).writeAsStringSync(
         jsonEncode({
           for (final entry in entries.entries)
             entry.key: {
@@ -73,14 +73,41 @@ void main() {
       ]);
     });
 
-    test('history for a game that is no longer in the library is not offered', () {
-      seed({'steam:9': (60, DateTime(2026, 10, 15))});
+    test('a caller that already computed the visible list hands it over', () {
+      final now = DateTime(2026, 10, 15, 12);
+      seed({
+        'steam:1': (60, now.subtract(const Duration(hours: 1))),
+        'steam:2': (60, now.subtract(const Duration(hours: 2))),
+      });
       final controller = build();
       addTearDown(controller.dispose);
-      controller.games = [game('steam:1', 'Alpha', SourceKind.steam)];
+      controller.games = [
+        game('steam:1', 'Alpha', SourceKind.steam),
+        game('steam:2', 'Beta', SourceKind.steam),
+      ];
 
-      expect(controller.recentlyPlayed(), isEmpty);
+      // The handed-over list is the one consulted: steam:1 was played more
+      // recently, but it is not in it.
+      expect(
+        controller
+            .recentlyPlayed(visible: [controller.games.last])
+            .map((entry) => entry.id)
+            .toList(),
+        ['steam:2'],
+      );
     });
+
+    test(
+      'history for a game that is no longer in the library is not offered',
+      () {
+        seed({'steam:9': (60, DateTime(2026, 10, 15))});
+        final controller = build();
+        addTearDown(controller.dispose);
+        controller.games = [game('steam:1', 'Alpha', SourceKind.steam)];
+
+        expect(controller.recentlyPlayed(), isEmpty);
+      },
+    );
 
     test('the shelf follows the wall: hidden games and the source filter', () {
       final now = DateTime(2026, 10, 15, 12);
@@ -194,7 +221,10 @@ void main() {
             ),
           )
           .toList();
-      expect(shelf.map((tile) => tile.game.id).toList(), ['steam:1', 'steam:2']);
+      expect(shelf.map((tile) => tile.game.id).toList(), [
+        'steam:1',
+        'steam:2',
+      ]);
       expect(shelf.every((tile) => tile.compact), isTrue);
       // A shelf tile says how much and how recently, not which source.
       expect(find.text('1h · today'), findsOneWidget);
@@ -227,7 +257,9 @@ void main() {
       expect(find.byType(GameTile), findsNWidgets(3));
     });
 
-    testWidgets('a long name trails off instead of widening the tile', (tester) async {
+    testWidgets('a long name trails off instead of widening the tile', (
+      tester,
+    ) async {
       // The strip is a horizontal list, so a tile is handed as much width as it
       // asks for: a name that did not trail off made its tile wider than its
       // cover and pushed the next tile along, which is what made the row's
@@ -261,7 +293,12 @@ void main() {
       // The name is ellipsized, not clipped: it takes the tile's width.
       expect(
         tester
-            .getSize(find.descendant(of: find.byType(ListView), matching: find.text(long)))
+            .getSize(
+              find.descendant(
+                of: find.byType(ListView),
+                matching: find.text(long),
+              ),
+            )
             .width,
         GameTile.compactWidth,
       );

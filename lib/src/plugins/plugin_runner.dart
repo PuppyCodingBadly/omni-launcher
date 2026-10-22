@@ -42,6 +42,9 @@ List<Plugin> discoverPlugins(
   final plugins = <Plugin>[];
   for (final entry in entries) {
     if (entry is! Directory) continue;
+    // A folder whose name starts with a dot is an install's staging or
+    // backup (".<id>.new", ".<id>.old"), not a plugin to run.
+    if (entry.path.split('/').last.startsWith('.')) continue;
     final manifest = File('${entry.path}/plugin.json');
     try {
       if (!manifest.existsSync()) continue;
@@ -69,13 +72,9 @@ List<Plugin> discoverPlugins(
 /// about a name the user typed. A plugin is told which, so it can use the id
 /// when there is one and fall back to the name when there is not.
 class PluginQuery {
-  PluginQuery.forGame(Game game)
-    : game = game,
-      name = game.name;
+  PluginQuery.forGame(Game game) : game = game, name = game.name;
 
-  PluginQuery.byName(String name)
-    : game = null,
-      name = name.trim();
+  PluginQuery.byName(String name) : game = null, name = name.trim();
 
   /// The game, when the query came from one.
   final Game? game;
@@ -113,10 +112,26 @@ Future<PluginAnswer> runPlugin(
   // own, so a timeout can kill everything it started, not just the plugin
   // itself. It goes inside any sandbox wrapper: the group has to be made on
   // the host, where the plugin runs.
-  final argv = Host.command(
-    ['setsid', ...plugin.command],
-    directory: plugin.dir,
-  );
+  //
+  // Under Flatpak the direct child is flatpak-spawn, whose host-side plugin is
+  // not in its process group or its descendant tree. The host shell records
+  // the plugin's own pid file before `exec`-ing it, so a timeout can signal
+  // the real process group on the host rather than only the wrapper.
+  final pidFile = '${plugin.dir}/.run.pid';
+  try {
+    File(pidFile).deleteSync();
+  } on FileSystemException {
+    // No stale pid file to clear.
+  }
+  final argv = Host.command([
+    'setsid',
+    'sh',
+    '-c',
+    r'echo $$ > "$1"; shift; exec "$@"',
+    'sh',
+    pidFile,
+    ...plugin.command,
+  ], directory: plugin.dir);
   final Process process;
   try {
     process = await Process.start(
@@ -134,7 +149,7 @@ Future<PluginAnswer> runPlugin(
     process.stdout,
     // A flooding plugin is killed the same way a timed-out one is: a helper
     // it forked does not get to stay behind and hold the pipes.
-    onOverflow: () => unawaited(_killGroup(process)),
+    onOverflow: () => unawaited(_killGroup(process, pidFile: pidFile)),
   );
   final err = _Pipe(process.stderr);
   try {
@@ -148,7 +163,7 @@ Future<PluginAnswer> runPlugin(
   try {
     code = await process.exitCode.timeout(timeout);
   } on TimeoutException {
-    await _killGroup(process);
+    await _killGroup(process, pidFile: pidFile);
     await process.exitCode;
     out.stop();
     err.stop();
@@ -157,6 +172,8 @@ Future<PluginAnswer> runPlugin(
     );
   }
 
+  // The plugin is gone; the pid file has done its job.
+  _deletePidFile(pidFile);
   await Future.wait([out.finished, err.finished]).timeout(
     pluginOutputGrace,
     onTimeout: () {
@@ -189,7 +206,9 @@ Future<PluginAnswer> runPlugin(
     return PluginAnswer.failure('${plugin.name}: the answer made no sense');
   }
   if (parsed.fields.isEmpty && parsed.url == null && parsed.ok) {
-    return PluginAnswer.failure('${plugin.name} found nothing for ${query.name}');
+    return PluginAnswer.failure(
+      '${plugin.name} found nothing for ${query.name}',
+    );
   }
   return parsed;
 }
@@ -201,19 +220,69 @@ Future<PluginAnswer> runPlugin(
 /// loses the helper too. When the group is gone already — or a sandbox
 /// renumbered the pid, so the group only exists on the host — the plugin
 /// itself is still killed on its own.
-Future<void> _killGroup(Process process) async {
+Future<void> _killGroup(Process process, {String? pidFile}) async {
   try {
     await Process.run('kill', ['-KILL', '-${process.pid}']);
   } on ProcessException {
     // No kill(1) on this machine: the sweep below still has the plugin.
   }
+  if (Host.inFlatpak && pidFile != null) {
+    // The pid above is flatpak-spawn's; the plugin lives on the host, outside
+    // both the wrapper's group and its descendant tree. The pid file records
+    // the group leader created by setsid, so signal it on the host.
+    final hostPid = await _readHostPid(pidFile);
+    if (hostPid != null) {
+      for (final signal in ['-$hostPid', '$hostPid']) {
+        final argv = Host.command(['kill', '-KILL', signal]);
+        try {
+          await Process.run(argv.first, argv.sublist(1));
+        } on ProcessException {
+          // The group may be gone; the bare pid above is the fallback, and a
+          // plugin that already exited needs neither.
+        }
+      }
+    }
+  }
   // The group signal can be missing or refused — a sandbox that renumbered the
   // pid, a PATH without kill(1) — so the process tree is walked as well.
   // Children first: once the plugin is gone they are reparented out of reach.
+  final children = <int, int>{};
   for (final pid in descendants(process.pid)) {
-    Process.killPid(pid, ProcessSignal.sigkill);
+    final started = processStartTime(pid);
+    if (started != null) children[pid] = started;
+  }
+  for (final child in children.entries) {
+    // A pid is recycled the moment its process dies: signal it only while it
+    // is still the process that was found, start time and all, never the
+    // stranger that has taken its number since.
+    if (processStartTime(child.key) != child.value) continue;
+    Process.killPid(child.key, ProcessSignal.sigkill);
   }
   process.kill(ProcessSignal.sigkill);
+  if (pidFile != null) _deletePidFile(pidFile);
+}
+
+/// The plugin pid recorded by the host shell, or null when it did not get far
+/// enough to write one (a plugin killed for flooding while still starting).
+Future<int?> _readHostPid(String path) async {
+  for (var attempt = 0; attempt < 5; attempt++) {
+    try {
+      final pid = int.tryParse(File(path).readAsStringSync().trim());
+      if (pid != null && pid > 0) return pid;
+    } on FileSystemException {
+      // Not written yet.
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+  return null;
+}
+
+void _deletePidFile(String path) {
+  try {
+    File(path).deleteSync();
+  } on FileSystemException {
+    // Already gone.
+  }
 }
 
 /// The last line of a plugin's stderr: a traceback ends with the actual
@@ -254,7 +323,8 @@ class _Pipe {
   String? _text;
 
   /// Everything that arrived, read once and kept.
-  String get text => _text ??= utf8.decode(_bytes.takeBytes(), allowMalformed: true);
+  String get text =>
+      _text ??= utf8.decode(_bytes.takeBytes(), allowMalformed: true);
 
   /// Completes when the pipe closes.
   Future<void> get finished => _finished.future;

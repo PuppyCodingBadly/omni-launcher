@@ -52,7 +52,9 @@ Map<String, String> parseGameYaml(String text) {
       } else if (_topKeys.contains(key) && value.isNotEmpty) {
         result[key] = value;
       }
-    } else if (block == 'game' && value.isNotEmpty && _blockKeys.contains(key)) {
+    } else if (block == 'game' &&
+        value.isNotEmpty &&
+        _blockKeys.contains(key)) {
       result[key] = value;
     }
   }
@@ -97,8 +99,12 @@ class LutrisSource extends GameSource {
       } on FileSystemException {
         continue;
       }
-      final files = entries.whereType<File>().where((f) => f.path.endsWith('.yml')).toList()
-        ..sort((a, b) => a.path.compareTo(b.path));
+      final files =
+          entries
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.yml'))
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path));
 
       for (final file in files) {
         Map<String, String> data;
@@ -128,7 +134,9 @@ class LutrisSource extends GameSource {
             name: (name != null && name.isNotEmpty) ? name : slug,
             source: SourceKind.lutris,
             command: ['lutris', uri],
-            path: (directory0 != null && directory0.isNotEmpty) ? directory0 : null,
+            path: (directory0 != null && directory0.isNotEmpty)
+                ? directory0
+                : null,
             subtitle: 'Lutris',
             extra: {'slug': slug},
           ),

@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:omni_launcher/src/art/steamgriddb.dart';
 import 'package:omni_launcher/src/config.dart';
 import 'package:omni_launcher/src/covers.dart';
+import 'package:omni_launcher/src/launcher.dart';
 import 'package:omni_launcher/src/model/game.dart';
 import 'package:omni_launcher/src/plugins/plugin.dart';
 import 'package:omni_launcher/src/plugins/plugin_runner.dart';
@@ -29,14 +31,16 @@ void main() {
   setUp(() {
     dir = Directory.systemTemp.createTempSync('omni-controller');
     configPath = '${dir.path}/config.json';
-    controller = LibraryController(
-      configPath: configPath,
-      config: AppConfig(hidden: {'steam:2'}),
-    )..games = [
-      game('steam:1', 'Alpha', SourceKind.steam),
-      game('steam:2', 'Beta', SourceKind.steam),
-      game('flatpak:gamma', 'Gamma', SourceKind.flatpak),
-    ];
+    controller =
+        LibraryController(
+            configPath: configPath,
+            config: AppConfig(hidden: {'steam:2'}),
+          )
+          ..games = [
+            game('steam:1', 'Alpha', SourceKind.steam),
+            game('steam:2', 'Beta', SourceKind.steam),
+            game('flatpak:gamma', 'Gamma', SourceKind.flatpak),
+          ];
   });
 
   tearDown(() => dir.deleteSync(recursive: true));
@@ -58,13 +62,19 @@ void main() {
 
   test('the query matches name, id and subtitle', () {
     controller.setQuery('gamm');
-    expect(controller.visibleGames.map((entry) => entry.id).toList(), ['flatpak:gamma']);
+    expect(controller.visibleGames.map((entry) => entry.id).toList(), [
+      'flatpak:gamma',
+    ]);
 
     controller.setQuery('steam:1');
-    expect(controller.visibleGames.map((entry) => entry.id).toList(), ['steam:1']);
+    expect(controller.visibleGames.map((entry) => entry.id).toList(), [
+      'steam:1',
+    ]);
 
     controller.setQuery('flatpak');
-    expect(controller.visibleGames.map((entry) => entry.id).toList(), ['flatpak:gamma']);
+    expect(controller.visibleGames.map((entry) => entry.id).toList(), [
+      'flatpak:gamma',
+    ]);
 
     controller.setQuery('nothing-here');
     expect(controller.visibleGames, isEmpty);
@@ -72,7 +82,9 @@ void main() {
 
   test('source filters toggle on and off', () {
     controller.toggleSource(SourceKind.steam);
-    expect(controller.visibleGames.map((entry) => entry.id).toList(), ['steam:1']);
+    expect(controller.visibleGames.map((entry) => entry.id).toList(), [
+      'steam:1',
+    ]);
 
     controller.toggleSource(SourceKind.flatpak);
     expect(controller.visibleGames.map((entry) => entry.id).toList(), [
@@ -81,7 +93,9 @@ void main() {
     ]);
 
     controller.toggleSource(SourceKind.steam);
-    expect(controller.visibleGames.map((entry) => entry.id).toList(), ['flatpak:gamma']);
+    expect(controller.visibleGames.map((entry) => entry.id).toList(), [
+      'flatpak:gamma',
+    ]);
 
     controller.clearSources();
     expect(controller.visibleGames, hasLength(2));
@@ -91,7 +105,9 @@ void main() {
     final gamma = controller.games.last;
     controller.setHidden(gamma, hidden: true);
     expect(controller.hiddenCount, 2);
-    expect(controller.visibleGames.map((entry) => entry.id).toList(), ['steam:1']);
+    expect(controller.visibleGames.map((entry) => entry.id).toList(), [
+      'steam:1',
+    ]);
     expect(AppConfig.load(configPath).hidden, {'steam:2', 'flatpak:gamma'});
 
     controller.setHidden(gamma, hidden: false);
@@ -131,7 +147,8 @@ void main() {
 
   test('a missing pinned file falls back to the automatic artwork', () {
     final gamma = controller.games.last;
-    AppConfig(artOverrides: {gamma.id: '${dir.path}/gone.png'}).save(configPath);
+    AppConfig(artOverrides: {gamma.id: '${dir.path}/gone.png'})
+        .save(configPath);
     final reloaded = LibraryController(configPath: configPath);
     expect(reloaded.covers.overrideFor(gamma), isNull);
     expect(reloaded.covers.resolve(gamma).kind, ArtworkKind.letter);
@@ -140,16 +157,29 @@ void main() {
   test('no artwork is requested when both sources are off', () async {
     final off = LibraryController(
       configPath: configPath,
-      config: AppConfig(coverFetch: false, steamgriddbKey: '', steamgriddbAuto: false),
+      config: AppConfig(
+        coverFetch: false,
+        steamgriddbKey: '',
+        steamgriddbAuto: false,
+      ),
     );
-    expect(await off.requestCoverArt(game('flatpak:x', 'X', SourceKind.flatpak)), isNull);
-    expect(await off.searchArt(game('flatpak:x', 'X', SourceKind.flatpak)), isEmpty);
+    expect(
+      await off.requestCoverArt(game('flatpak:x', 'X', SourceKind.flatpak)),
+      isNull,
+    );
+    expect(
+      await off.searchArt(game('flatpak:x', 'X', SourceKind.flatpak)),
+      isEmpty,
+    );
   });
 
   group('fetched artwork', () => _fetchedArtTests(() => dir));
 
   test('source counts follow the library', () {
-    expect(controller.countsBySource, {SourceKind.steam: 2, SourceKind.flatpak: 1});
+    expect(controller.countsBySource, {
+      SourceKind.steam: 2,
+      SourceKind.flatpak: 1,
+    });
   });
 
   group('scanning', () {
@@ -161,32 +191,40 @@ void main() {
       sources: sources,
     );
 
-    test('a source that fails is reported, and the rest arrives anyway', () async {
-      final broken = _ThrowingSource(SourceKind.flatpak, StateError('no permission'));
-      final also = _ThrowingSource(SourceKind.epic, StateError('gone'));
-      final controller = scanning([
-        _FixedSource(SourceKind.steam, [game('steam:1', 'Alpha', SourceKind.steam)]),
-        broken,
-        also,
-      ]);
-      addTearDown(controller.dispose);
+    test(
+      'a source that fails is reported, and the rest arrives anyway',
+      () async {
+        final broken = _ThrowingSource(
+          SourceKind.flatpak,
+          StateError('no permission'),
+        );
+        final also = _ThrowingSource(SourceKind.epic, StateError('gone'));
+        final controller = scanning([
+          _FixedSource(SourceKind.steam, [
+            game('steam:1', 'Alpha', SourceKind.steam),
+          ]),
+          broken,
+          also,
+        ]);
+        addTearDown(controller.dispose);
 
-      await controller.rescan();
+        await controller.rescan();
 
-      expect(controller.status, LibraryStatus.ready);
-      expect(controller.games.map((entry) => entry.id).toList(), ['steam:1']);
-      // Every broken source is named, not just the last one asked.
-      expect(controller.failure, contains('Flatpak'));
-      expect(controller.failure, contains('no permission'));
-      expect(controller.failure, contains('Epic Games Launcher'));
-      expect(controller.failure, contains('gone'));
+        expect(controller.status, LibraryStatus.ready);
+        expect(controller.games.map((entry) => entry.id).toList(), ['steam:1']);
+        // Every broken source is named, not just the last one asked.
+        expect(controller.failure, contains('Flatpak'));
+        expect(controller.failure, contains('no permission'));
+        expect(controller.failure, contains('Epic Games Launcher'));
+        expect(controller.failure, contains('gone'));
 
-      // A clean scan clears the report.
-      broken.error = null;
-      also.error = null;
-      await controller.rescan();
-      expect(controller.failure, isNull);
-    });
+        // A clean scan clears the report.
+        broken.error = null;
+        also.error = null;
+        await controller.rescan();
+        expect(controller.failure, isNull);
+      },
+    );
 
     test('the cache is versioned, and a bare list still loads', () async {
       final path = '${dir.path}/games.json';
@@ -194,7 +232,9 @@ void main() {
         jsonEncode([game('steam:9', 'Old', SourceKind.steam).toJson()]),
       );
       final controller = scanning([
-        _FixedSource(SourceKind.steam, [game('steam:1', 'Alpha', SourceKind.steam)]),
+        _FixedSource(SourceKind.steam, [
+          game('steam:1', 'Alpha', SourceKind.steam),
+        ]),
       ]);
       addTearDown(controller.dispose);
 
@@ -229,23 +269,28 @@ void main() {
       expect(controller.status, LibraryStatus.ready);
     });
 
-    test('the selection survives a scan by id, and clears when the game goes', () async {
-      final source = _FixedSource(SourceKind.steam, [
-        game('steam:1', 'Alpha', SourceKind.steam),
-        game('steam:2', 'Beta', SourceKind.steam),
-      ]);
-      final controller = scanning([source]);
-      addTearDown(controller.dispose);
-      await controller.rescan();
+    test(
+      'the selection survives a scan by id, and clears when the game goes',
+      () async {
+        final source = _FixedSource(SourceKind.steam, [
+          game('steam:1', 'Alpha', SourceKind.steam),
+          game('steam:2', 'Beta', SourceKind.steam),
+        ]);
+        final controller = scanning([source]);
+        addTearDown(controller.dispose);
+        await controller.rescan();
 
-      controller.select(controller.games.firstWhere((entry) => entry.id == 'steam:1'));
-      await controller.rescan();
-      expect(controller.selected?.id, 'steam:1');
+        controller.select(
+          controller.games.firstWhere((entry) => entry.id == 'steam:1'),
+        );
+        await controller.rescan();
+        expect(controller.selected?.id, 'steam:1');
 
-      source.games = [game('steam:2', 'Beta', SourceKind.steam)];
-      await controller.rescan();
-      expect(controller.selected, isNull);
-    });
+        source.games = [game('steam:2', 'Beta', SourceKind.steam)];
+        await controller.rescan();
+        expect(controller.selected, isNull);
+      },
+    );
   });
 
   group('ordering', () {
@@ -255,17 +300,27 @@ void main() {
     LibraryController ordered({AppConfig? config}) {
       File('${dir.path}/playtime.json').writeAsStringSync(
         jsonEncode({
-          'steam:1': {'total': 3600, 'played': DateTime(2026, 10, 14, 9).millisecondsSinceEpoch},
-          'steam:2': {'total': 60, 'played': DateTime(2026, 10, 15, 9).millisecondsSinceEpoch},
-          'desktop:delta': {'total': 60, 'played': DateTime(2026, 10, 15, 9).millisecondsSinceEpoch},
+          'steam:1': {
+            'total': 3600,
+            'played': DateTime(2026, 10, 14, 9).millisecondsSinceEpoch,
+          },
+          'steam:2': {
+            'total': 60,
+            'played': DateTime(2026, 10, 15, 9).millisecondsSinceEpoch,
+          },
+          'desktop:delta': {
+            'total': 60,
+            'played': DateTime(2026, 10, 15, 9).millisecondsSinceEpoch,
+          },
         }),
       );
       return LibraryController(
-        configPath: configPath,
-        cachePath: '${dir.path}/games.json',
-        playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
-        config: config ?? AppConfig(appimageDirs: const []),
-      )..games = [
+          configPath: configPath,
+          cachePath: '${dir.path}/games.json',
+          playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+          config: config ?? AppConfig(appimageDirs: const []),
+        )
+        ..games = [
           game('flatpak:gamma', 'Gamma', SourceKind.flatpak),
           game('desktop:delta', 'Delta', SourceKind.desktop),
           game('steam:2', 'beta', SourceKind.steam),
@@ -281,7 +336,12 @@ void main() {
       addTearDown(controller.dispose);
 
       expect(controller.sortMode, 'name');
-      expect(ids(controller), ['steam:1', 'steam:2', 'desktop:delta', 'flatpak:gamma']);
+      expect(ids(controller), [
+        'steam:1',
+        'steam:2',
+        'desktop:delta',
+        'flatpak:gamma',
+      ]);
     });
 
     test('by last played, never played last, ties by name', () async {
@@ -289,7 +349,12 @@ void main() {
       addTearDown(controller.dispose);
 
       // beta and Delta played at the same moment, so the name decides.
-      expect(ids(controller), ['steam:2', 'desktop:delta', 'steam:1', 'flatpak:gamma']);
+      expect(ids(controller), [
+        'steam:2',
+        'desktop:delta',
+        'steam:1',
+        'flatpak:gamma',
+      ]);
     });
 
     test('by most played, nothing played last, ties by name', () async {
@@ -297,18 +362,31 @@ void main() {
       addTearDown(controller.dispose);
 
       // beta and Delta both played a minute, so the name decides.
-      expect(ids(controller), ['steam:1', 'steam:2', 'desktop:delta', 'flatpak:gamma']);
+      expect(ids(controller), [
+        'steam:1',
+        'steam:2',
+        'desktop:delta',
+        'flatpak:gamma',
+      ]);
     });
 
     test('favourites come first, ordered among themselves', () async {
       final controller = ordered(
-        config: AppConfig(sortMode: 'lastPlayed', favorites: ['flatpak:gamma', 'steam:2']),
+        config: AppConfig(
+          sortMode: 'lastPlayed',
+          favorites: ['flatpak:gamma', 'steam:2'],
+        ),
       );
       addTearDown(controller.dispose);
 
       // Gamma never played still leads, as a favourite; behind the favourites
       // the last played order is untouched.
-      expect(ids(controller), ['steam:2', 'flatpak:gamma', 'desktop:delta', 'steam:1']);
+      expect(ids(controller), [
+        'steam:2',
+        'flatpak:gamma',
+        'desktop:delta',
+        'steam:1',
+      ]);
     });
 
     test('the sort mode persists and re-orders the wall', () async {
@@ -351,34 +429,40 @@ void main() {
   });
 
   group('notices', () {
-    test('a notice clears itself, and a new one reschedules the clear', () async {
-      final controller = LibraryController(
-        configPath: configPath,
-        config: AppConfig(),
-        noticeDuration: const Duration(milliseconds: 200),
-      );
-      addTearDown(controller.dispose);
-      var clears = 0;
-      controller.addListener(() {
-        if (controller.notice == null) clears++;
-      });
+    test(
+      'a notice clears itself, and a new one reschedules the clear',
+      () async {
+        final controller = LibraryController(
+          configPath: configPath,
+          config: AppConfig(),
+          noticeDuration: const Duration(milliseconds: 200),
+        );
+        addTearDown(controller.dispose);
+        var clears = 0;
+        controller.addListener(() {
+          if (controller.notice == null) clears++;
+        });
 
-      controller.announce('one');
-      expect(controller.notice, 'one');
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      // A new notice pushes the clear back: 'one' would be gone by now.
-      controller.announce('two');
-      await Future<void>.delayed(const Duration(milliseconds: 120));
-      expect(controller.notice, 'two');
+        controller.announce('one');
+        expect(controller.notice, 'one');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        // A new notice pushes the clear back: 'one' would be gone by now.
+        controller.announce('two');
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(controller.notice, 'two');
 
-      await untilTrue(() => controller.notice == null);
-      expect(controller.notice, isNull);
-      expect(clears, greaterThan(0));
-    });
+        await untilTrue(() => controller.notice == null);
+        expect(controller.notice, isNull);
+        expect(clears, greaterThan(0));
+      },
+    );
   });
 
   test('a failed launch is a failure, not a notice', () async {
-    final controller = LibraryController(configPath: configPath, config: AppConfig());
+    final controller = LibraryController(
+      configPath: configPath,
+      config: AppConfig(),
+    );
     addTearDown(controller.dispose);
     const gone = Game(
       id: 'manual:gone',
@@ -394,36 +478,45 @@ void main() {
     expect(controller.notice, isNull);
   });
 
-  test('a lookup that throws is reported, and the guard still clears', () async {
-    final controller = _FailingLookupController(
-      configPath: configPath,
-      cachePath: '${dir.path}/games.json',
-      config: AppConfig(appimageDirs: const []),
-      pluginAnswers: PluginStore(path: '${dir.path}/answers.json'),
-    );
-    addTearDown(controller.dispose);
-    const plugin = Plugin(
-      id: 'beat',
-      name: 'Beat',
-      description: '',
-      action: 'Ask',
-      command: ['true'],
-      dir: '/tmp',
-    );
-    final query = PluginQuery.byName('Alpha');
+  test(
+    'a lookup that throws is reported, and the guard still clears',
+    () async {
+      final controller = _FailingLookupController(
+        configPath: configPath,
+        cachePath: '${dir.path}/games.json',
+        config: AppConfig(appimageDirs: const []),
+        pluginAnswers: PluginStore(path: '${dir.path}/answers.json'),
+      );
+      addTearDown(controller.dispose);
+      const plugin = Plugin(
+        id: 'beat',
+        name: 'Beat',
+        description: '',
+        action: 'Ask',
+        command: ['true'],
+        dir: '/tmp',
+      );
+      final query = PluginQuery.byName('Alpha');
 
-    await controller.lookUp(plugin, query);
+      await controller.lookUp(plugin, query);
 
-    expect(controller.failure, contains('boom'));
-    expect(controller.isLookingUp(plugin.id, query.id), isFalse);
+      expect(controller.failure, contains('boom'));
+      expect(controller.isLookingUp(plugin.id, query.id), isFalse);
 
-    // The guard cleared: asking again really asks again.
-    await controller.lookUp(plugin, query);
-    expect(controller.pluginAnswer(plugin.id, query.id)?.ok, isTrue);
-  });
+      // The guard cleared: asking again really asks again.
+      await controller.lookUp(plugin, query);
+      expect(controller.pluginAnswer(plugin.id, query.id)?.ok, isTrue);
+      // And the success cleared the earlier failure instead of letting it
+      // resurface once the transient notice fades.
+      expect(controller.failure, isNull);
+    },
+  );
 
   test('the window size is saved without repainting', () async {
-    final controller = LibraryController(configPath: configPath, config: AppConfig());
+    final controller = LibraryController(
+      configPath: configPath,
+      config: AppConfig(),
+    );
     addTearDown(controller.dispose);
     var repaints = 0;
     controller.addListener(() => repaints++);
@@ -436,6 +529,171 @@ void main() {
     final saved = AppConfig.load(configPath);
     expect(saved.windowWidth, 1440);
     expect(saved.windowHeight, 900);
+  });
+
+  test('a successful launch clears an earlier failure', () async {
+    Launcher.logPathOverrideForTest = '${dir.path}/launch.log';
+    addTearDown(() => Launcher.logPathOverrideForTest = null);
+    final controller = LibraryController(
+      configPath: configPath,
+      playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+      config: AppConfig(),
+    );
+    addTearDown(controller.dispose);
+    const gone = Game(
+      id: 'manual:gone',
+      key: 'gone',
+      name: 'Gone',
+      source: SourceKind.manual,
+      command: ['definitely-not-a-program-xyz'],
+    );
+
+    await controller.launch(gone);
+    expect(controller.failure, contains('Could not launch Gone'));
+
+    await controller.launch(game('manual:ok', 'Ok', SourceKind.manual));
+    expect(controller.failure, isNull);
+    expect(controller.notice, 'Launched Ok');
+  });
+
+  test('async work finishing after dispose does not notify', () async {
+    final source = _GatedSource();
+    final controller = LibraryController(
+      configPath: configPath,
+      cachePath: '${dir.path}/games.json',
+      playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+      config: AppConfig(appimageDirs: const []),
+      sources: [source],
+    );
+
+    final scan = controller.rescan();
+    expect(source.calls, 1);
+    controller.dispose();
+    source.gates.single.complete();
+
+    // Without the dispose guard, the scan's closing notifyListeners would
+    // complete this future with a "used after being disposed" error.
+    await scan;
+    expect(controller.status, LibraryStatus.ready);
+  });
+
+  test('recentlyPlayed takes a precomputed visible list', () {
+    final controller = LibraryController(
+      configPath: configPath,
+      playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+      config: AppConfig(),
+    )..games = [game('steam:1', 'Alpha', SourceKind.steam)];
+    addTearDown(controller.dispose);
+    final at = DateTime(2026, 10, 20);
+    controller.playtime.begin('steam:1', at);
+    controller.playtime.end('steam:1', at.add(const Duration(hours: 1)));
+
+    expect(controller.recentlyPlayed().map((entry) => entry.id), ['steam:1']);
+    // A caller that already filtered the library hands its own list in.
+    expect(controller.recentlyPlayed(visible: const []), isEmpty);
+  });
+
+  group('steamgriddb misses', () {
+    LibraryController artController(
+      CoverStore covers, {
+      AppConfig? config,
+      Duration? artSaveDelay,
+    }) => LibraryController(
+      configPath: configPath,
+      cachePath: '${dir.path}/games.json',
+      playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
+      covers: covers,
+      config:
+          config ??
+          AppConfig(
+            steamgriddbKey: 'key',
+            steamgriddbAuto: true,
+            coverFetch: false,
+          ),
+      artSaveDelay: artSaveDelay,
+    );
+
+    test(
+      'a game with no grids is not asked about again within the TTL',
+      () async {
+        final covers = _EmptySearchCovers();
+        final controller = artController(covers);
+        final artless = game('steam:1', 'Artless', SourceKind.steam);
+
+        expect(await controller.requestCoverArt(artless), isNull);
+        expect(covers.searches, 1);
+        expect(controller.config.sgdbMisses.keys, ['steam:1']);
+
+        // Asked again — another tile, another rebuild: no new lookup.
+        expect(await controller.requestCoverArt(artless), isNull);
+        expect(covers.searches, 1);
+
+        // Disposing flushes the debounced write, so the next run skips the
+        // lookup too.
+        controller.dispose();
+        expect(AppConfig.load(configPath).sgdbMisses.keys, ['steam:1']);
+      },
+    );
+
+    test('a stale miss is asked about again, and remembered afresh', () async {
+      final covers = _EmptySearchCovers();
+      final stale = DateTime.now()
+          .subtract(LibraryController.sgdbMissTtl + const Duration(days: 1))
+          .millisecondsSinceEpoch;
+      final controller = artController(
+        covers,
+        config: AppConfig(
+          steamgriddbKey: 'key',
+          steamgriddbAuto: true,
+          coverFetch: false,
+          sgdbMisses: {'steam:1': stale},
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      expect(
+        await controller.requestCoverArt(
+          game('steam:1', 'Artless', SourceKind.steam),
+        ),
+        isNull,
+      );
+      expect(covers.searches, 1);
+      expect(controller.config.sgdbMisses['steam:1'], greaterThan(stale));
+    });
+
+    test('a burst of automatic art saves the config once', () async {
+      final covers = _FoundSearchCovers(dir.path);
+      final controller = artController(
+        covers,
+        artSaveDelay: const Duration(milliseconds: 50),
+      );
+      addTearDown(controller.dispose);
+      final saves = <FileSystemMoveEvent>[];
+      final sub = Directory(dir.path).watch().listen((event) {
+        if (event is FileSystemMoveEvent && event.destination == configPath) {
+          saves.add(event);
+        }
+      });
+      addTearDown(sub.cancel);
+
+      final art = await Future.wait([
+        controller.requestCoverArt(game('steam:11', 'One', SourceKind.steam)),
+        controller.requestCoverArt(game('steam:12', 'Two', SourceKind.steam)),
+        controller.requestCoverArt(game('steam:13', 'Three', SourceKind.steam)),
+      ]);
+      expect(
+        art.map((entry) => entry?.kind).toList(),
+        everyElement(ArtworkKind.cover),
+      );
+      // The picks are in the config at once…
+      expect(controller.config.autoArt, hasLength(3));
+      // …but the file is written only once the burst settles.
+      expect(File(configPath).existsSync(), isFalse);
+
+      await untilTrue(() => saves.isNotEmpty);
+      expect(saves, hasLength(1));
+      expect(AppConfig.load(configPath).autoArt, hasLength(3));
+    });
   });
 }
 
@@ -452,8 +710,10 @@ void _fetchedArtTests(Directory Function() dir) {
   );
 
   test('fetched art is what the tile shows, until the file is gone', () {
-    final fetched = File('${dir().path}/fetched.png')..writeAsBytesSync([1, 2, 3]);
-    final capsule = File('${dir().path}/capsule.png')..writeAsBytesSync([1, 2, 3]);
+    final fetched = File('${dir().path}/fetched.png')
+      ..writeAsBytesSync([1, 2, 3]);
+    final capsule = File('${dir().path}/capsule.png')
+      ..writeAsBytesSync([1, 2, 3]);
     final store = CoverStore(
       settings: ArtSettings(autoArt: {'steam:424242': fetched.path}),
       coverDir: '${dir().path}/covers',
@@ -471,9 +731,7 @@ void _fetchedArtTests(Directory Function() dir) {
   test('auto_art round trips, and reads the old shape-keyed files', () {
     final path = '${dir().path}/a.png';
     final configPath = '${dir().path}/config.json';
-    AppConfig(
-      autoArt: {'steam:1': path},
-    ).save(configPath);
+    AppConfig(autoArt: {'steam:1': path}).save(configPath);
     expect(AppConfig.load(configPath).autoArt, {'steam:1': path});
 
     // Files written back when a fetch was keyed by poster shape: the portrait
@@ -491,7 +749,9 @@ void _fetchedArtTests(Directory Function() dir) {
 
   test('one fetch per game, however many tiles are showing it', () async {
     final cover = File('${dir().path}/cover.png')..writeAsBytesSync([1, 2, 3]);
-    final covers = _CountingCovers(Artwork(ArtworkKind.cover, value: cover.path));
+    final covers = _CountingCovers(
+      Artwork(ArtworkKind.cover, value: cover.path),
+    );
     final controller = LibraryController(
       configPath: '${dir().path}/config.json',
       cachePath: '${dir().path}/games.json',
@@ -597,7 +857,9 @@ class _FailingLookupController extends LibraryController {
     lookups++;
     if (lookups == 1) return Future.error(StateError('boom'));
     return Future.value(
-      const PluginAnswer(fields: [PluginField(label: 'Main story', value: '3h')]),
+      const PluginAnswer(
+        fields: [PluginField(label: 'Main story', value: '3h')],
+      ),
     );
   }
 }
@@ -616,4 +878,42 @@ class _CountingCovers extends CoverStore {
     fetches++;
     return answer;
   }
+}
+
+/// A cover store whose SteamGridDB never has anything, counting the lookups.
+class _EmptySearchCovers extends CoverStore {
+  int searches = 0;
+
+  @override
+  Future<Artwork?> fetchSteamCover(Game game) async => null;
+
+  @override
+  Future<List<SgdbGrid>> searchArt(Game game) async {
+    searches++;
+    return const [];
+  }
+}
+
+/// A cover store whose SteamGridDB always finds one grid, "downloaded" to a
+/// local path without any network.
+class _FoundSearchCovers extends CoverStore {
+  _FoundSearchCovers(this.folder);
+
+  final String folder;
+
+  @override
+  Future<Artwork?> fetchSteamCover(Game game) async => null;
+
+  @override
+  Future<List<SgdbGrid>> searchArt(Game game) async => [
+    SgdbGrid(
+      id: 1,
+      url: 'https://example.invalid/${game.key}.jpg',
+      thumb: 'https://example.invalid/${game.key}-thumb.jpg',
+    ),
+  ];
+
+  @override
+  Future<String?> downloadArt(Game game, SgdbGrid grid) async =>
+      '$folder/${game.key}.jpg';
 }

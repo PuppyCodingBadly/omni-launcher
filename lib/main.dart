@@ -26,7 +26,8 @@ class OmniLauncherApp extends StatefulWidget {
   State<OmniLauncherApp> createState() => _OmniLauncherAppState();
 }
 
-class _OmniLauncherAppState extends State<OmniLauncherApp> with WidgetsBindingObserver {
+class _OmniLauncherAppState extends State<OmniLauncherApp>
+    with WidgetsBindingObserver {
   late final LibraryController _controller = LibraryController();
 
   /// The appearance [MaterialApp] was last built with. The controller
@@ -92,7 +93,8 @@ class _OmniLauncherAppState extends State<OmniLauncherApp> with WidgetsBindingOb
   void _syncWindowTheme() {
     final mode = materialThemeMode(_controller.config.themeMode);
     final platformDark =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark;
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+        Brightness.dark;
     final dark = switch (mode) {
       ThemeMode.dark => true,
       ThemeMode.light => false,
@@ -134,11 +136,9 @@ class _OmniLauncherAppState extends State<OmniLauncherApp> with WidgetsBindingOb
       darkTheme: AppTheme.themeFor(Brightness.dark, accent),
       themeMode: materialThemeMode(_themeMode),
       // The page, not the app, follows the controller: the library changes
-      // far more often than the appearance.
-      home: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) => LibraryPage(controller: _controller),
-      ),
+      // far more often than the appearance, and the page subscribes itself
+      // around the body that reads it.
+      home: LibraryPage(controller: _controller),
     );
   }
 }

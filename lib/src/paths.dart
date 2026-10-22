@@ -1,11 +1,12 @@
 import 'dart:io';
+
 import 'host.dart';
 
 /// XDG paths for this launcher's own config, cache and state.
 class AppPaths {
   static const String appId = 'io.github.PuppyCodingBadly.OmniLauncher';
   static const String appName = 'Omni Launcher';
-  static const String version = '0.3.0';
+  static const String version = '0.3.1';
 
   static String get home => Host.home;
 
@@ -24,9 +25,12 @@ class AppPaths {
     return '$home/$fallback';
   }
 
-  static String get configDir => '${_xdg('XDG_CONFIG_HOME', '.config')}/omnilauncher-flutter';
-  static String get cacheDir => '${_xdg('XDG_CACHE_HOME', '.cache')}/omnilauncher-flutter';
-  static String get stateDir => '${_xdg('XDG_STATE_HOME', '.local/state')}/omnilauncher-flutter';
+  static String get configDir =>
+      '${_xdg('XDG_CONFIG_HOME', '.config')}/omnilauncher-flutter';
+  static String get cacheDir =>
+      '${_xdg('XDG_CACHE_HOME', '.cache')}/omnilauncher-flutter';
+  static String get stateDir =>
+      '${_xdg('XDG_STATE_HOME', '.local/state')}/omnilauncher-flutter';
 
   static String get configFile => '$configDir/config.json';
   static String get cacheFile => '$cacheDir/games.json';
@@ -37,12 +41,15 @@ class AppPaths {
 
   /// Where plugins live: the host's data directory rather than the sandbox's,
   /// so a plugin can be dropped in from outside the flatpak.
-  static String get pluginDir => '${Host.dataHome}/omnilauncher-flutter/plugins';
+  static String get pluginDir =>
+      '${Host.dataHome}/omnilauncher-flutter/plugins';
 
   /// `XDG_DATA_DIRS`, defaulted like the spec says.
   static List<String> get dataDirs {
     final value = Platform.environment['XDG_DATA_DIRS'];
-    final raw = (value == null || value.isEmpty) ? '/usr/local/share:/usr/share' : value;
+    final raw = (value == null || value.isEmpty)
+        ? '/usr/local/share:/usr/share'
+        : value;
     return raw.split(':').where((p) => p.isNotEmpty).toList();
   }
 

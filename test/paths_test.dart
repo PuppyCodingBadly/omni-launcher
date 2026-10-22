@@ -23,7 +23,10 @@ void main() {
 
       expect(AppPaths.configDir, '${Host.home}/.config/omnilauncher-flutter');
       expect(AppPaths.cacheDir, '${Host.home}/.cache/omnilauncher-flutter');
-      expect(AppPaths.stateDir, '${Host.home}/.local/state/omnilauncher-flutter');
+      expect(
+        AppPaths.stateDir,
+        '${Host.home}/.local/state/omnilauncher-flutter',
+      );
       expect(
         AppPaths.pluginDir,
         '${Host.home}/.local/share/omnilauncher-flutter/plugins',
@@ -41,13 +44,15 @@ void main() {
       expect(
         pubspec.existsSync(),
         isTrue,
-        reason: 'pubspec.yaml not found from ${Directory.current.path}: '
+        reason:
+            'pubspec.yaml not found from ${Directory.current.path}: '
             'this test must run from the package root',
       );
       expect(
         metainfo.existsSync(),
         isTrue,
-        reason: 'metainfo.xml not found from ${Directory.current.path}: '
+        reason:
+            'metainfo.xml not found from ${Directory.current.path}: '
             'this test must run from the package root',
       );
 
@@ -63,9 +68,10 @@ void main() {
         reason: 'AppPaths.version drifted from pubspec.yaml',
       );
 
-      final releases = RegExp(
-        r'<release\s+version="([^"]+)"',
-      ).allMatches(metainfo.readAsStringSync()).map((m) => m.group(1)).toSet();
+      final releases = RegExp(r'<release\s+version="([^"]+)"')
+          .allMatches(metainfo.readAsStringSync())
+          .map((m) => m.group(1))
+          .toSet();
       expect(
         releases,
         contains(AppPaths.version),
@@ -103,13 +109,19 @@ void main() {
       final written = AppPaths.adoptFiles(from.path, to.path);
 
       expect(written, ['${to.path}/playtime.json']);
-      expect(File('${to.path}/config.json').readAsStringSync(), 'the host\'s own');
+      expect(
+        File('${to.path}/config.json').readAsStringSync(),
+        'the host\'s own',
+      );
       expect(File('${to.path}/playtime.json').readAsStringSync(), '{ }');
       expect(Directory('${to.path}/covers').existsSync(), isFalse);
     });
 
     test('a folder that is not there is nothing to take over', () {
-      expect(AppPaths.adoptFiles('${dir.path}/gone', '${dir.path}/to'), isEmpty);
+      expect(
+        AppPaths.adoptFiles('${dir.path}/gone', '${dir.path}/to'),
+        isEmpty,
+      );
     });
 
     test('there is nothing to take over outside a sandbox', () {

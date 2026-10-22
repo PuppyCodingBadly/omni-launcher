@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omni_launcher/src/config.dart';
+import 'package:omni_launcher/src/host.dart';
 import 'package:omni_launcher/src/model/game.dart';
 import 'package:omni_launcher/src/plugins/bundled.dart';
 import 'package:omni_launcher/src/plugins/catalog.dart';
@@ -224,7 +225,13 @@ void main() {
     test('is refused when the launcher could not run it', () {
       expect(Plugin.fromManifest('/plugins/x', null), isNull);
       expect(Plugin.fromManifest('/plugins/x', 'not a map'), isNull);
-      expect(Plugin.fromManifest('/plugins/x', {'name': 'X', 'command': ['x']}), isNull);
+      expect(
+        Plugin.fromManifest('/plugins/x', {
+          'name': 'X',
+          'command': ['x'],
+        }),
+        isNull,
+      );
       expect(
         Plugin.fromManifest('/plugins/x', {
           'id': 'Not An Id',
@@ -233,9 +240,16 @@ void main() {
         }),
         isNull,
       );
-      expect(Plugin.fromManifest('/plugins/x', {'id': 'x', 'name': 'X'}), isNull);
       expect(
-        Plugin.fromManifest('/plugins/x', {'id': 'x', 'name': 'X', 'command': []}),
+        Plugin.fromManifest('/plugins/x', {'id': 'x', 'name': 'X'}),
+        isNull,
+      );
+      expect(
+        Plugin.fromManifest('/plugins/x', {
+          'id': 'x',
+          'name': 'X',
+          'command': [],
+        }),
         isNull,
       );
       expect(
@@ -260,11 +274,12 @@ void main() {
     /// Write a plugin folder; [manifest] `null` means a folder with no
     /// manifest at all.
     void write(String name, Object? manifest) {
-      final folder = Directory('${dir.path}/$name')..createSync(recursive: true);
+      final folder = Directory('${dir.path}/$name')
+        ..createSync(recursive: true);
       if (manifest == null) return;
-      File('${folder.path}/plugin.json').writeAsStringSync(
-        manifest is String ? manifest : jsonEncode(manifest),
-      );
+      File(
+        '${folder.path}/plugin.json',
+      ).writeAsStringSync(manifest is String ? manifest : jsonEncode(manifest));
     }
 
     test('finds every folder that describes a plugin', () {
@@ -293,9 +308,15 @@ void main() {
     });
 
     test('reports a plugin it cannot read, and keeps the others', () {
-      write('alpha', {'id': 'alpha', 'name': 'Alpha', 'command': ['/bin/true']});
+      write('alpha', {
+        'id': 'alpha',
+        'name': 'Alpha',
+        'command': ['/bin/true'],
+      });
       write('broken', '{not json');
-      write('nameless', {'command': ['/bin/true']});
+      write('nameless', {
+        'command': ['/bin/true'],
+      });
 
       final problems = <String>[];
       final plugins = discoverPlugins(
@@ -312,14 +333,42 @@ void main() {
     test('a folder that is not there holds no plugins', () {
       expect(discoverPlugins('${dir.path}/gone'), isEmpty);
     });
+
+    test('an install\'s staging and backup folders are not plugins', () {
+      write('alpha', {
+        'id': 'alpha',
+        'name': 'Alpha',
+        'command': ['/bin/true'],
+      });
+      write('.alpha.new', {
+        'id': 'alpha',
+        'name': 'Alpha',
+        'command': ['/bin/true'],
+      });
+      write('.alpha.old', null);
+
+      final problems = <String>[];
+      final plugins = discoverPlugins(
+        dir.path,
+        onError: (folder, error) => problems.add('$folder: $error'),
+      );
+
+      expect(plugins.map((plugin) => plugin.id).toList(), ['alpha']);
+      expect(problems, isEmpty);
+    });
   });
 
   group('running a plugin', () {
     /// A plugin whose program is [script], in a folder of its own.
     Plugin pluginWith(String script, {String name = 'Test'}) {
-      final folder = Directory('${dir.path}/$name')..createSync(recursive: true);
+      final folder = Directory('${dir.path}/$name')
+        ..createSync(recursive: true);
       File('${folder.path}/plugin.json').writeAsStringSync(
-        jsonEncode({'id': name, 'name': name, 'command': ['/bin/sh', 'run.sh']}),
+        jsonEncode({
+          'id': name,
+          'name': name,
+          'command': ['/bin/sh', 'run.sh'],
+        }),
       );
       File('${folder.path}/run.sh').writeAsStringSync(script);
       return Plugin(
@@ -339,9 +388,12 @@ void main() {
         '"url":"https://example.com/game/1"}\'\n',
       );
 
-      final answer = await runPlugin(plugin, PluginQuery.forGame(
-        game('steam:427410', 'Abiotic Factor', SourceKind.steam),
-      ));
+      final answer = await runPlugin(
+        plugin,
+        PluginQuery.forGame(
+          game('steam:427410', 'Abiotic Factor', SourceKind.steam),
+        ),
+      );
 
       expect(answer.ok, isTrue);
       expect(answer.url, 'https://example.com/game/1');
@@ -388,7 +440,9 @@ void main() {
     });
 
     test('a plugin that answers with something else is refused', () async {
-      final plugin = pluginWith('cat > /dev/null\nprintf \'%s\' \'not json\'\n');
+      final plugin = pluginWith(
+        'cat > /dev/null\nprintf \'%s\' \'not json\'\n',
+      );
 
       final answer = await runPlugin(plugin, PluginQuery.byName('Foo'));
 
@@ -437,6 +491,52 @@ void main() {
       expect(File(marker).existsSync(), isFalse);
     });
 
+    test('under Flatpak the host-side plugin is killed, not just the '
+        'wrapper', () async {
+      final marker = '${dir.path}/survived-flatpak';
+      final plugin = pluginWith(
+        'cat > /dev/null\n(sleep 0.8; touch "$marker") &\nsleep 30\n',
+      );
+      // flatpak-spawn hands the plugin to the host and waits for it. The
+      // wrapper is the launcher's direct child; the plugin is neither its
+      // descendant nor in its process group, exactly as in a sandbox.
+      final spawn = File('${dir.path}/flatpak-spawn')
+        ..writeAsStringSync(
+          '#!/bin/sh\n'
+          'while [ \$# -gt 0 ]; do\n'
+          '  case "\$1" in\n'
+          '    --host) shift ;;\n'
+          '    --directory=*) shift ;;\n'
+          '    *) break ;;\n'
+          '  esac\n'
+          'done\n'
+          '"\$@" &\n'
+          'child=\$!\n'
+          'wait "\$child"\n',
+        );
+      Process.runSync('chmod', ['+x', spawn.path]);
+      Host.setInFlatpakForTest(true);
+      Host.setHostSpawnForTest(spawn.path);
+      addTearDown(() {
+        Host.setInFlatpakForTest(null);
+        Host.setHostSpawnForTest(null);
+      });
+
+      final answer = await runPlugin(
+        plugin,
+        PluginQuery.byName('Foo'),
+        timeout: const Duration(milliseconds: 400),
+      );
+
+      expect(answer.ok, isFalse);
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(
+        File(marker).existsSync(),
+        isFalse,
+        reason: 'the host-side plugin outlived the timeout',
+      );
+    });
+
     test('a plugin that floods its output is stopped', () async {
       final plugin = pluginWith('cat > /dev/null\nyes omni-launcher\n');
 
@@ -480,13 +580,22 @@ void main() {
       );
 
       final reloaded = PluginStore(path: path);
-      expect(reloaded.answer('howlongtobeat', 'steam:1')?.fields.single.value, '54h 32m');
-      expect(reloaded.answer('howlongtobeat', 'steam:1')?.url, 'https://example.com/game/1');
+      expect(
+        reloaded.answer('howlongtobeat', 'steam:1')?.fields.single.value,
+        '54h 32m',
+      );
+      expect(
+        reloaded.answer('howlongtobeat', 'steam:1')?.url,
+        'https://example.com/game/1',
+      );
       // One game, two plugins: two entries.
       expect(reloaded.answer('other', 'steam:1'), isNull);
 
       File(path).writeAsStringSync('not json at all');
-      expect(PluginStore(path: path).answer('howlongtobeat', 'steam:1'), isNull);
+      expect(
+        PluginStore(path: path).answer('howlongtobeat', 'steam:1'),
+        isNull,
+      );
     });
   });
 
@@ -519,7 +628,10 @@ void main() {
         'howlongtobeat',
       ]);
       expect(File('$pluginDir/howlongtobeat/hltb.py').existsSync(), isTrue);
-      expect(controller.plugin('howlongtobeat')?.action, 'Look up on HowLongToBeat');
+      expect(
+        controller.plugin('howlongtobeat')?.action,
+        'Look up on HowLongToBeat',
+      );
       expect(controller.plugin('nothing'), isNull);
     });
 
@@ -540,13 +652,17 @@ void main() {
       await controller.reloadPlugins();
 
       // The installed copy is newer than the shipped one, so it stays.
-      expect(File('$pluginDir/howlongtobeat/hltb.py').readAsStringSync(), 'mine');
+      expect(
+        File('$pluginDir/howlongtobeat/hltb.py').readAsStringSync(),
+        'mine',
+      );
     });
 
     test('a lookup is remembered, and shown to the panel', () async {
       final controller = build();
       addTearDown(controller.dispose);
-      final folder = Directory('$pluginDir/answer')..createSync(recursive: true);
+      final folder = Directory('$pluginDir/answer')
+        ..createSync(recursive: true);
       File('${folder.path}/plugin.json').writeAsStringSync(
         jsonEncode({
           'id': 'answer',
@@ -559,7 +675,9 @@ void main() {
       );
       await controller.reloadPlugins();
       final plugin = controller.plugin('answer')!;
-      final query = PluginQuery.forGame(game('steam:1', 'Alpha', SourceKind.steam));
+      final query = PluginQuery.forGame(
+        game('steam:1', 'Alpha', SourceKind.steam),
+      );
 
       expect(controller.pluginAnswer(plugin.id, query.id), isNull);
       final notified = <int>[];
@@ -570,7 +688,10 @@ void main() {
       // One notification to say "asking", one to say "answered".
       expect(notified.length, 2);
       expect(controller.isLookingUp(plugin.id, query.id), isFalse);
-      expect(controller.pluginAnswer(plugin.id, query.id)?.fields.single.value, '3h');
+      expect(
+        controller.pluginAnswer(plugin.id, query.id)?.fields.single.value,
+        '3h',
+      );
       // And it is on disk, so the next start shows it without asking again.
       expect(
         PluginStore(path: '${dir.path}/plugin_answers.json')
@@ -585,7 +706,8 @@ void main() {
     test('a name lookup is remembered under the name', () async {
       final controller = build();
       addTearDown(controller.dispose);
-      final folder = Directory('$pluginDir/answer')..createSync(recursive: true);
+      final folder = Directory('$pluginDir/answer')
+        ..createSync(recursive: true);
       File('${folder.path}/plugin.json').writeAsStringSync(
         jsonEncode({
           'id': 'answer',
@@ -630,18 +752,28 @@ void main() {
       return entries.single;
     }
 
-    test('a catalogue is read, with its archives resolved against it', () async {
-      final server = await storeServer(id: 'answer', name: 'Answer', version: 4);
+    test(
+      'a catalogue is read, with its archives resolved against it',
+      () async {
+        final server = await storeServer(
+          id: 'answer',
+          name: 'Answer',
+          version: 4,
+        );
 
-      final entry = await entryFrom(server);
+        final entry = await entryFrom(server);
 
-      expect(entry.id, 'answer');
-      expect(entry.name, 'Answer');
-      expect(entry.author, 'Someone');
-      expect(entry.version, 4);
-      expect(entry.url.toString(), 'http://127.0.0.1:${server.port}/answer.zip');
-      expect(entry.sha256, matches(RegExp(r'^[0-9a-f]{64}$')));
-    });
+        expect(entry.id, 'answer');
+        expect(entry.name, 'Answer');
+        expect(entry.author, 'Someone');
+        expect(entry.version, 4);
+        expect(
+          entry.url.toString(),
+          'http://127.0.0.1:${server.port}/answer.zip',
+        );
+        expect(entry.sha256, matches(RegExp(r'^[0-9a-f]{64}$')));
+      },
+    );
 
     test('an entry that makes no sense is left out', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -652,11 +784,21 @@ void main() {
             jsonEncode({
               'plugins': [
                 {'name': 'No id', 'file': 'x.zip', 'sha256': '0' * 64},
-                {'id': 'Not An Id', 'name': 'X', 'file': 'x.zip', 'sha256': '0' * 64},
+                {
+                  'id': 'Not An Id',
+                  'name': 'X',
+                  'file': 'x.zip',
+                  'sha256': '0' * 64,
+                },
                 // An entry without a checksum cannot be verified, so it is
                 // not offered either.
                 {'id': 'no-hash', 'name': 'X', 'file': 'x.zip'},
-                {'id': 'fine', 'name': 'Fine', 'file': 'fine.zip', 'sha256': '0' * 64},
+                {
+                  'id': 'fine',
+                  'name': 'Fine',
+                  'file': 'fine.zip',
+                  'sha256': '0' * 64,
+                },
               ],
             }),
           ),
@@ -688,24 +830,24 @@ void main() {
       );
     });
 
-    test('an archive whose checksum does not match the catalogue is refused', () async {
-      final server = await storeServer(
-        id: 'answer',
-        name: 'Answer',
-        sha256: '0' * 64,
-      );
-      final controller = build();
-      addTearDown(controller.dispose);
+    test(
+      'an archive whose checksum does not match the catalogue is refused',
+      () async {
+        final server = await storeServer(
+          id: 'answer',
+          name: 'Answer',
+          sha256: '0' * 64,
+        );
+        final controller = build();
+        addTearDown(controller.dispose);
 
-      await controller.installPlugin(await entryFrom(server));
+        await controller.installPlugin(await entryFrom(server));
 
-      expect(controller.failure, contains('checksum'));
-      expect(Directory('${dir.path}/plugins/answer').existsSync(), isFalse);
-      expect(
-        File('${dir.path}/plugins/.answer.new').existsSync(),
-        isFalse,
-      );
-    });
+        expect(controller.failure, contains('checksum'));
+        expect(Directory('${dir.path}/plugins/answer').existsSync(), isFalse);
+        expect(File('${dir.path}/plugins/.answer.new').existsSync(), isFalse);
+      },
+    );
 
     test('a plain http address away from the loopback is refused', () async {
       await expectLater(
@@ -753,7 +895,10 @@ void main() {
       server.listen((request) async {
         if (request.uri.path == '/moved.json') {
           request.response.statusCode = HttpStatus.found;
-          request.response.headers.set(HttpHeaders.locationHeader, '/here.json');
+          request.response.headers.set(
+            HttpHeaders.locationHeader,
+            '/here.json',
+          );
         } else {
           request.response.add(utf8.encode('found it'));
         }
@@ -768,6 +913,57 @@ void main() {
       expect(utf8.decode(body), 'found it');
     });
 
+    test(
+      'a server that stalls in the middle of its answer is given up on',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        server.listen((request) async {
+          // The first chunk arrives, and then nothing ever again: the response
+          // is deliberately never closed.
+          request.response.add(utf8.encode('partial'));
+          await request.response.flush();
+        });
+
+        await expectLater(
+          readUrl(
+            Uri.parse('http://127.0.0.1:${server.port}/stalled.json'),
+            limit: 1024,
+            timeout: const Duration(milliseconds: 300),
+          ),
+          throwsA(
+            isA<PluginStoreException>().having(
+              (error) => error.message,
+              'message',
+              contains('took too long'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('a server that never answers is given up on', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      // The connection is taken and then ignored entirely.
+      server.listen((request) async {});
+
+      await expectLater(
+        readUrl(
+          Uri.parse('http://127.0.0.1:${server.port}/silent.json'),
+          limit: 1024,
+          timeout: const Duration(milliseconds: 300),
+        ),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (error) => error.message,
+            'message',
+            contains('took too long'),
+          ),
+        ),
+      );
+    });
+
     test('installing unpacks the archive into the plugin folder', () async {
       final server = await storeServer(id: 'answer', name: 'Answer');
       final controller = build();
@@ -776,7 +972,10 @@ void main() {
       await controller.installPlugin(await entryFrom(server));
 
       expect(File('${dir.path}/plugins/answer/run.sh').existsSync(), isTrue);
-      expect(File('${dir.path}/plugins/answer/plugin.json').existsSync(), isTrue);
+      expect(
+        File('${dir.path}/plugins/answer/plugin.json').existsSync(),
+        isTrue,
+      );
       // The launcher picks it up as part of the install, which is what makes it
       // apply to the panel.
       expect(controller.plugins.map((plugin) => plugin.id), [
@@ -811,34 +1010,40 @@ void main() {
       expect(Directory('${dir.path}/plugins/answer').existsSync(), isFalse);
     });
 
-    test('an install that goes wrong leaves the installed copy alone', () async {
-      final controller = build();
-      addTearDown(controller.dispose);
-      Directory('${dir.path}/plugins/answer').createSync(recursive: true);
-      File('${dir.path}/plugins/answer/plugin.json').writeAsStringSync(
-        jsonEncode({
-          'id': 'answer',
-          'name': 'Answer',
-          'command': ['/bin/true'],
-          'version': 1,
-        }),
-      );
-      final server = await storeServer(
-        id: 'answer',
-        name: 'Answer',
-        version: 2,
-        files: [Entry('plugin.json', 'not json')],
-      );
+    test(
+      'an install that goes wrong leaves the installed copy alone',
+      () async {
+        final controller = build();
+        addTearDown(controller.dispose);
+        Directory('${dir.path}/plugins/answer').createSync(recursive: true);
+        File('${dir.path}/plugins/answer/plugin.json').writeAsStringSync(
+          jsonEncode({
+            'id': 'answer',
+            'name': 'Answer',
+            'command': ['/bin/true'],
+            'version': 1,
+          }),
+        );
+        final server = await storeServer(
+          id: 'answer',
+          name: 'Answer',
+          version: 2,
+          files: [Entry('plugin.json', 'not json')],
+        );
 
-      await controller.installPlugin(await entryFrom(server));
+        await controller.installPlugin(await entryFrom(server));
 
-      expect(controller.failure, contains('not JSON'));
-      expect(
-        File('${dir.path}/plugins/answer/plugin.json').readAsStringSync(),
-        contains('"version":1'),
-      );
-      expect(File('${dir.path}/plugins/answer/../.answer.new').existsSync(), isFalse);
-    });
+        expect(controller.failure, contains('not JSON'));
+        expect(
+          File('${dir.path}/plugins/answer/plugin.json').readAsStringSync(),
+          contains('"version":1'),
+        );
+        expect(
+          File('${dir.path}/plugins/answer/../.answer.new').existsSync(),
+          isFalse,
+        );
+      },
+    );
 
     test('removing a plugin takes its folder with it', () async {
       final server = await storeServer(id: 'answer', name: 'Answer');
@@ -861,7 +1066,8 @@ void main() {
       UrlReader? reader,
     }) async {
       final pluginDir = '${dir.path}/plugins';
-      final folder = Directory('$pluginDir/answer')..createSync(recursive: true);
+      final folder = Directory('$pluginDir/answer')
+        ..createSync(recursive: true);
       File('${folder.path}/plugin.json').writeAsStringSync(
         jsonEncode({
           'id': 'answer',
@@ -904,7 +1110,8 @@ void main() {
           home: Scaffold(
             body: ListenableBuilder(
               listenable: controller,
-              builder: (context, _) => DetailPanel(controller: controller, game: alpha),
+              builder: (context, _) =>
+                  DetailPanel(controller: controller, game: alpha),
             ),
           ),
         ),
@@ -919,7 +1126,10 @@ void main() {
       expect(find.text('Looking up…'), findsOneWidget);
       expect(controller.isLookingUp('answer', 'steam:1'), isTrue);
 
-      await settleWhile(tester, () => controller.isLookingUp('answer', 'steam:1'));
+      await settleWhile(
+        tester,
+        () => controller.isLookingUp('answer', 'steam:1'),
+      );
       expect(find.text('MAIN STORY'), findsOneWidget);
       expect(find.text('54h 32m'), findsOneWidget);
       expect(find.text('Open the page'), findsOneWidget);
@@ -929,7 +1139,9 @@ void main() {
       controller.notice = null;
     });
 
-    testWidgets('the settings page installs what the store offers', (tester) async {
+    testWidgets('the settings page installs what the store offers', (
+      tester,
+    ) async {
       final controller = await build(
         tester,
         reader: memoryStore(id: 'beats', name: 'Beats'),
@@ -1021,13 +1233,71 @@ void main() {
       store.put(
         'plugin',
         'other',
-        const PluginAnswer(fields: [PluginField(label: 'Main', value: '2h')]),
+        const PluginAnswer(
+          fields: [PluginField(label: 'Main', value: '2h')],
+        ),
       );
       final decoded = jsonDecode(File(path).readAsStringSync()) as Map;
       expect(decoded['version'], PluginStore.schemaVersion);
       expect(decoded['answers'], isA<Map>());
       expect(File('$path.tmp').existsSync(), isFalse);
-      expect(PluginStore(path: path).answer('plugin', 'other')?.fields.single.value, '2h');
+      expect(
+        PluginStore(path: path).answer('plugin', 'other')?.fields.single.value,
+        '2h',
+      );
+    });
+
+    test(
+      'keeps only so many answers, forgetting the one untouched the longest',
+      () {
+        final dir = Directory.systemTemp.createTempSync('omni-answers');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final path = '${dir.path}/answers.json';
+        const answer = PluginAnswer(
+          fields: [PluginField(label: 'Main', value: '1h')],
+        );
+        final store = PluginStore(path: path);
+
+        for (var index = 0; index < PluginStore.maxEntries + 10; index++) {
+          store.put('plugin', 'game$index', answer);
+        }
+
+        // The ten oldest are gone, and looking one survivor up keeps it alive.
+        expect(store.answer('plugin', 'game9'), isNull);
+        expect(store.answer('plugin', 'game10'), isNotNull);
+        store.put('plugin', 'another', answer);
+        expect(store.answer('plugin', 'game11'), isNull);
+        expect(store.answer('plugin', 'game10'), isNotNull);
+
+        // And the bound holds across a restart.
+        final reloaded = PluginStore(path: path);
+        expect(reloaded.answer('plugin', 'another'), isNotNull);
+        expect(reloaded.answer('plugin', 'game10'), isNotNull);
+        expect(reloaded.answer('plugin', 'game11'), isNull);
+        var kept = 0;
+        for (var index = 0; index < PluginStore.maxEntries + 10; index++) {
+          if (reloaded.answer('plugin', 'game$index') != null) kept++;
+        }
+        expect(kept, PluginStore.maxEntries - 1);
+      },
+    );
+
+    test('writing the same answer again does not touch the file', () {
+      final dir = Directory.systemTemp.createTempSync('omni-answers');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/answers.json';
+      const answer = PluginAnswer(
+        fields: [PluginField(label: 'Main', value: '1h')],
+      );
+      final store = PluginStore(path: path);
+
+      store.put('plugin', 'game', answer);
+      File(path).writeAsStringSync('sentinel');
+      store.put('plugin', 'game', answer);
+
+      // A second save would have replaced the sentinel with the answers file.
+      expect(File(path).readAsStringSync(), 'sentinel');
+      expect(store.answer('plugin', 'game')?.fields.single.value, '1h');
     });
   });
 
@@ -1048,7 +1318,11 @@ void main() {
         expect(plugin.action, isNotEmpty);
 
         for (final file in bundled.files) {
-          expect(File('$folder/$file').existsSync(), isTrue, reason: '$folder/$file');
+          expect(
+            File('$folder/$file').existsSync(),
+            isTrue,
+            reason: '$folder/$file',
+          );
         }
         // Everything the command names is part of the plugin.
         for (final argument in plugin.command.skip(1)) {
@@ -1057,15 +1331,41 @@ void main() {
       }
     });
 
+    test('the HowLongToBeat plugin is valid python', () async {
+      final result = await Process.run('python3', [
+        '-c',
+        'import ast, sys; ast.parse(open(sys.argv[1]).read())',
+        'plugins/howlongtobeat/hltb.py',
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+    }, skip: !hasPython3 ? 'no python3 on this host' : false);
+
     test(
-      'the HowLongToBeat plugin is valid python',
+      'the HowLongToBeat plugin answers a malformed request in JSON',
       () async {
-        final result = await Process.run('python3', [
-          '-c',
-          'import ast, sys; ast.parse(open(sys.argv[1]).read())',
-          'plugins/howlongtobeat/hltb.py',
-        ]);
-        expect(result.exitCode, 0, reason: '${result.stderr}');
+        Future<Object?> ask(String request) async {
+          final process = await Process.start('python3', [
+            'plugins/howlongtobeat/hltb.py',
+          ]);
+          process.stdin.write(request);
+          await process.stdin.close();
+          final out = await process.stdout.transform(utf8.decoder).join();
+          expect(await process.exitCode, 0, reason: request);
+          return jsonDecode(out);
+        }
+
+        // Not JSON at all, JSON that is not an object, and an object whose
+        // game is not one: each gets a JSON error answer, not a traceback.
+        for (final raw in [
+          'not json',
+          '[1, 2]',
+          '"just a name"',
+          '{"game": "Celeste"}',
+        ]) {
+          final answer = await ask(raw);
+          expect(answer, isA<Map>(), reason: raw);
+          expect((answer as Map)['error'], isA<String>(), reason: raw);
+        }
       },
       skip: !hasPython3 ? 'no python3 on this host' : false,
     );

@@ -46,9 +46,24 @@ class _LibraryPageState extends State<LibraryPage> {
   /// re-sort keeps the focus where it was.
   final Map<String, FocusNode> _gridNodes = <String, FocusNode>{};
 
+  /// The reverse of [_gridNodes]: which wall position a focus node belongs
+  /// to, so a key press finds the focused tile in O(1) instead of scanning
+  /// every node. Rebuilt alongside [_gridNodes] in the grid build, so the
+  /// two never disagree.
+  final Map<FocusNode, int> _gridNodeIndex = <FocusNode, int>{};
+
+  /// The wall's scroll position: an arrow that lands on a tile past the
+  /// built viewport jumps its row into view so the focus request has
+  /// somewhere to land.
+  final ScrollController _gridScroll = ScrollController();
+
   /// The wall's column count, refreshed every grid build; the up and down
   /// arrows move by one row.
   int _gridColumns = 1;
+
+  /// The height of one grid row including its gap, refreshed every grid
+  /// build; the jump for a tile past the built viewport goes by whole rows.
+  double _gridRowStride = 0;
 
   /// The game the detail panel showed last, kept through its exit animation
   /// so the panel never animates out empty.
@@ -74,10 +89,8 @@ class _LibraryPageState extends State<LibraryPage> {
     // A D-pad arrives as plain arrow keys on most Linux mappings; the
     // gameButton13-16 constants catch the hat-style pads.
     final delta = switch (event.logicalKey) {
-      LogicalKeyboardKey.arrowLeft ||
-      LogicalKeyboardKey.gameButton14 => -1,
-      LogicalKeyboardKey.arrowRight ||
-      LogicalKeyboardKey.gameButton15 => 1,
+      LogicalKeyboardKey.arrowLeft || LogicalKeyboardKey.gameButton14 => -1,
+      LogicalKeyboardKey.arrowRight || LogicalKeyboardKey.gameButton15 => 1,
       LogicalKeyboardKey.arrowUp ||
       LogicalKeyboardKey.gameButton13 => -_gridColumns,
       LogicalKeyboardKey.arrowDown ||
@@ -92,8 +105,7 @@ class _LibraryPageState extends State<LibraryPage> {
     // left the search field) starts a walk; a sidebar or panel control keeps
     // its arrows for the platform's default traversal.
     final focused = FocusManager.instance.primaryFocus;
-    final inGrid =
-        focused != null && _gridNodes.values.any((n) => identical(n, focused));
+    final inGrid = focused != null && _gridNodeIndex.containsKey(focused);
     final nowhere =
         focused == null || focused == node || focused is FocusScopeNode;
     if (!inGrid && !nowhere) return KeyEventResult.ignored;
@@ -104,30 +116,52 @@ class _LibraryPageState extends State<LibraryPage> {
   void _moveGridFocus(int delta) {
     final games = widget.controller.visibleGames;
     if (games.isEmpty) return;
-    var index = -1;
-    for (var i = 0; i < games.length; i++) {
-      if (_gridNodes[games[i].id]?.hasFocus ?? false) {
-        index = i;
-        break;
-      }
-    }
+    final focused = FocusManager.instance.primaryFocus;
+    final index = focused == null ? -1 : (_gridNodeIndex[focused] ?? -1);
     // Nothing focused yet: the first arrow lands on the first tile.
-    final next =
-        index < 0 ? 0 : (index + delta).clamp(0, games.length - 1).toInt();
+    final next = index < 0
+        ? 0
+        : (index + delta).clamp(0, games.length - 1).toInt();
     if (next == index) return;
     final target = _gridNodes[games[next].id];
     if (target == null) return;
+    final tileContext = target.context;
+    if (tileContext == null) {
+      // The destination tile is past the built viewport, so it has no
+      // element to focus yet. Jump its row in first; the focus request
+      // stays pending on the detached node and lands when the tile
+      // attaches during the build the jump starts.
+      if (_gridScroll.hasClients && _gridRowStride > 0) {
+        final position = _gridScroll.position;
+        final row = next ~/ _gridColumns;
+        final offset = (row * _gridRowStride - position.viewportDimension / 2)
+            .clamp(0.0, position.maxScrollExtent);
+        _gridScroll.jumpTo(offset);
+      }
+      target.requestFocus();
+      // The jump only lands near the row: once the tile exists, settle it
+      // into view the way an already-built destination is settled.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final built = target.context;
+        if (built != null) {
+          Scrollable.ensureVisible(
+            built,
+            duration: _motion,
+            curve: _motionCurve,
+            alignment: 0.5,
+          );
+        }
+      });
+      return;
+    }
     target.requestFocus();
     // A move off the screen scrolls the destination tile back into view.
-    final tileContext = target.context;
-    if (tileContext != null) {
-      Scrollable.ensureVisible(
-        tileContext,
-        duration: _motion,
-        curve: _motionCurve,
-        alignment: 0.5,
-      );
-    }
+    Scrollable.ensureVisible(
+      tileContext,
+      duration: _motion,
+      curve: _motionCurve,
+      alignment: 0.5,
+    );
   }
 
   /// Hide every marked game and leave selection mode.
@@ -152,6 +186,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();
+    _gridScroll.dispose();
     for (final node in _gridNodes.values) {
       node.dispose();
     }
@@ -161,23 +196,17 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    final games = controller.visibleGames;
-    // The shelf is a shortcut to what was just played. While a search is
-    // running the wall already shows the matches, so it steps aside rather
-    // than repeating a few of them.
-    final recent = controller.query.isEmpty
-        ? controller.recentlyPlayed()
-        : const <Game>[];
-    // Remember the open game so the detail panel can animate out with its
-    // content still on it.
-    _lastShown = controller.selected ?? _lastShown;
+    // The shortcuts, the actions and the wall's key handling read no library
+    // state, so they sit above the subscription: a controller notification
+    // rebuilds the body alone, not this shell. Every value the body shows is
+    // read inside the ListenableBuilder, so the display stays live.
     return Shortcuts(
-      shortcuts: {
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.keyF, control: true):
             _FocusSearchIntent(),
-        const SingleActivator(LogicalKeyboardKey.keyR, control: true):
-            const _RescanIntent(),
-        const SingleActivator(LogicalKeyboardKey.escape): const _ClearIntent(),
+        SingleActivator(LogicalKeyboardKey.keyR, control: true):
+            _RescanIntent(),
+        SingleActivator(LogicalKeyboardKey.escape): _ClearIntent(),
       },
       child: Actions(
         actions: {
@@ -210,38 +239,56 @@ class _LibraryPageState extends State<LibraryPage> {
         child: Focus(
           autofocus: true,
           onKeyEvent: _onGridKey,
-          child: Scaffold(
-            body: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Sidebar(controller: controller),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => Column(
-                      children: [
-                        _header(controller),
-                        // A window this short has no room for a strip above the
-                        // wall: the shelf steps aside rather than pushing the
-                        // wall off the bottom of the page.
-                        if (recent.isNotEmpty && constraints.maxHeight >= _shelfMinBody)
-                          _shelf(controller, recent),
-                        Expanded(child: _grid(controller, games)),
-                        if (_selecting)
-                          _selectionBar(controller)
-                        else
-                          _statusBar(controller, games.length),
-                      ],
-                    ),
-                  ),
-                ),
-                // The panel slides and fades in on selection instead of
-                // popping; the last shown game stays through the exit so the
-                // column never animates out empty.
-                _panelReveal(controller),
-              ],
+          child: ListenableBuilder(listenable: controller, builder: _buildBody),
+        ),
+      ),
+    );
+  }
+
+  /// Everything that reads the controller: rebuilt on each of its
+  /// notifications, while the shortcut shell above stays put.
+  Widget _buildBody(BuildContext context, Widget? _) {
+    final controller = widget.controller;
+    final games = controller.visibleGames;
+    // The shelf is a shortcut to what was just played. While a search is
+    // running the wall already shows the matches, so it steps aside rather
+    // than repeating a few of them.
+    final recent = controller.query.isEmpty
+        ? controller.recentlyPlayed(visible: games)
+        : const <Game>[];
+    // Remember the open game so the detail panel can animate out with its
+    // content still on it.
+    _lastShown = controller.selected ?? _lastShown;
+    return Scaffold(
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Sidebar(controller: controller),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Column(
+                children: [
+                  _header(controller),
+                  // A window this short has no room for a strip above the
+                  // wall: the shelf steps aside rather than pushing the
+                  // wall off the bottom of the page.
+                  if (recent.isNotEmpty &&
+                      constraints.maxHeight >= _shelfMinBody)
+                    _shelf(controller, recent),
+                  Expanded(child: _grid(controller, games)),
+                  if (_selecting)
+                    _selectionBar(controller)
+                  else
+                    _statusBar(controller, games.length),
+                ],
+              ),
             ),
           ),
-        ),
+          // The panel slides and fades in on selection instead of
+          // popping; the last shown game stays through the exit so the
+          // column never animates out empty.
+          _panelReveal(controller),
+        ],
       ),
     );
   }
@@ -318,7 +365,11 @@ class _LibraryPageState extends State<LibraryPage> {
         onPressed: () async {
           final entry = await showAddGameDialog(context);
           if (entry != null) {
-            await controller.addManual(entry.name, entry.command, cwd: entry.cwd);
+            await controller.addManual(
+              entry.name,
+              entry.command,
+              cwd: entry.cwd,
+            );
           }
         },
         icon: const Icon(Icons.add),
@@ -482,7 +533,11 @@ class _LibraryPageState extends State<LibraryPage> {
                         color: palette.accent,
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(Icons.check, size: 16, color: palette.onAccent),
+                      child: Icon(
+                        Icons.check,
+                        size: 16,
+                        color: palette.onAccent,
+                      ),
                     ),
                   ),
                 ),
@@ -579,29 +634,40 @@ class _LibraryPageState extends State<LibraryPage> {
       node.dispose();
       return true;
     });
-    for (final game in games) {
-      _gridNodes.putIfAbsent(game.id, FocusNode.new);
+    _gridNodeIndex.clear();
+    for (var index = 0; index < games.length; index++) {
+      final node = _gridNodes.putIfAbsent(games[index].id, FocusNode.new);
+      _gridNodeIndex[node] = index;
     }
     return LayoutBuilder(
       builder: (context, constraints) {
         const spacing = 18.0;
+        const mainAxisSpacing = 22.0;
         final columns =
-            ((constraints.maxWidth - 28 * 2 + spacing) / (GameTile.width + spacing))
+            ((constraints.maxWidth - 28 * 2 + spacing) /
+                    (GameTile.width + spacing))
                 .floor()
                 .clamp(1, 12);
         _gridColumns = columns;
+        final aspectRatio =
+            GameTile.width /
+            GameTile.heightFor(
+              compact: false,
+              textScaler: MediaQuery.textScalerOf(context),
+            );
+        // One row's height plus its gap: an arrow that lands past the built
+        // viewport jumps by whole rows.
+        final tileWidth =
+            (constraints.maxWidth - 28 * 2 - spacing * (columns - 1)) / columns;
+        _gridRowStride = tileWidth / aspectRatio + mainAxisSpacing;
         return GridView.builder(
+          controller: _gridScroll,
           padding: const EdgeInsets.fromLTRB(28, 6, 28, 24),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            mainAxisSpacing: 22,
+            mainAxisSpacing: mainAxisSpacing,
             crossAxisSpacing: spacing,
-            childAspectRatio:
-                GameTile.width /
-                GameTile.heightFor(
-                  compact: false,
-                  textScaler: MediaQuery.textScalerOf(context),
-                ),
+            childAspectRatio: aspectRatio,
           ),
           itemCount: games.length,
           itemBuilder: (context, index) {
@@ -913,7 +979,9 @@ class _Sidebar extends StatelessWidget {
                 Icon(
                   icon,
                   size: 17,
-                  color: selected ? context.palette.accentSoft : context.palette.textDim,
+                  color: selected
+                      ? context.palette.accentSoft
+                      : context.palette.textDim,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -928,7 +996,10 @@ class _Sidebar extends StatelessWidget {
                 ),
                 Text(
                   '$count',
-                  style: TextStyle(fontSize: 12, color: context.palette.textDim),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.palette.textDim,
+                  ),
                 ),
               ],
             ),

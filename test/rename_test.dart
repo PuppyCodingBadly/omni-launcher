@@ -30,7 +30,10 @@ Widget dialogHost(
   home: Builder(
     builder: (context) => Scaffold(
       body: Center(
-        child: TextButton(onPressed: () => open(context), child: const Text('open')),
+        child: TextButton(
+          onPressed: () => open(context),
+          child: const Text('open'),
+        ),
       ),
     ),
   ),
@@ -124,7 +127,9 @@ void main() {
   });
 
   group('rename dialog', () {
-    testWidgets('is prefilled with the effective name and saves it', (tester) async {
+    testWidgets('is prefilled with the effective name and saves it', (
+      tester,
+    ) async {
       RenameChoice? result;
       await tester.pumpWidget(
         dialogHost((context) async {
@@ -138,7 +143,10 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, 'Alpha');
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'Alpha',
+      );
       expect(find.text('Reset'), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'Beta');
@@ -149,19 +157,18 @@ void main() {
       expect(result?.reset, isFalse);
     });
 
-    testWidgets('says what the launcher found and offers a reset', (tester) async {
+    testWidgets('says what the launcher found and offers a reset', (
+      tester,
+    ) async {
       RenameChoice? result;
       await tester.pumpWidget(
-        dialogHost(
-          (context) async {
-            result = await showRenameGameDialog(
-              context,
-              currentName: 'Beta',
-              discoveredName: 'Alpha',
-            );
-          },
-          theme: AppTheme.light,
-        ),
+        dialogHost((context) async {
+          result = await showRenameGameDialog(
+            context,
+            currentName: 'Beta',
+            discoveredName: 'Alpha',
+          );
+        }, theme: AppTheme.light),
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
@@ -326,7 +333,10 @@ void main() {
         MaterialApp(
           theme: AppTheme.dark,
           home: Scaffold(
-            body: DetailPanel(controller: controller, game: controller.games.single),
+            body: DetailPanel(
+              controller: controller,
+              game: controller.games.single,
+            ),
           ),
         ),
       );
@@ -337,7 +347,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Rename game'), findsOneWidget);
-      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, 'Alpha');
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'Alpha',
+      );
 
       await tester.enterText(find.byType(TextField), 'Beta');
       await tester.tap(find.text('Save'));

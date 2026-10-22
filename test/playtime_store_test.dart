@@ -24,7 +24,10 @@ void main() {
     store.end('steam:1', start.add(const Duration(minutes: 42, seconds: 30)));
     expect(store.totalFor('steam:1'), const Duration(minutes: 42, seconds: 30));
     expect(store.isOpen('steam:1'), isFalse);
-    expect(store.lastPlayedFor('steam:1'), start.add(const Duration(minutes: 42, seconds: 30)));
+    expect(
+      store.lastPlayedFor('steam:1'),
+      start.add(const Duration(minutes: 42, seconds: 30)),
+    );
   });
 
   test('sessions accumulate', () {
@@ -83,6 +86,35 @@ void main() {
     expect(store.entries['steam:1']!.isOpen, isFalse);
   });
 
+  test('begin over an open session writes the file once', () async {
+    store.begin('steam:1', start);
+    final saves = <FileSystemMoveEvent>[];
+    final sub = Directory(dir.path).watch().listen((event) {
+      // A save is a rename of the sibling temp file onto the history.
+      if (event is FileSystemMoveEvent && event.destination == path) {
+        saves.add(event);
+      }
+    });
+    addTearDown(sub.cancel);
+
+    store.begin('steam:1', start.add(const Duration(minutes: 15)));
+    // Let inotify deliver.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    // One save for the replace, not one for the close and one for the open.
+    expect(saves, hasLength(1));
+
+    // And the arithmetic is unchanged: the replaced session's 15 minutes
+    // count, and the new session is the open one.
+    store.end('steam:1', start.add(const Duration(minutes: 20)));
+    expect(store.totalFor('steam:1'), const Duration(minutes: 20));
+    final reloaded = PlaytimeStore(path: path);
+    expect(reloaded.totalFor('steam:1'), const Duration(minutes: 20));
+    expect(
+      reloaded.lastPlayedFor('steam:1'),
+      start.add(const Duration(minutes: 20)),
+    );
+  });
+
   test('end without a session is a no-op', () {
     store.end('steam:1', start);
     expect(store.totalFor('steam:1'), Duration.zero);
@@ -94,7 +126,10 @@ void main() {
     store.end('steam:1', start.add(const Duration(hours: 3)));
     final reloaded = PlaytimeStore(path: path);
     expect(reloaded.totalFor('steam:1'), const Duration(hours: 3));
-    expect(reloaded.lastPlayedFor('steam:1'), start.add(const Duration(hours: 3)));
+    expect(
+      reloaded.lastPlayedFor('steam:1'),
+      start.add(const Duration(hours: 3)),
+    );
   });
 
   test('a corrupt or foreign file is ignored', () {
@@ -131,7 +166,8 @@ void main() {
 
   test('saving writes a schema version and leaves no temporary file', () {
     store.begin('steam:1', start);
-    final saved = jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
+    final saved =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
     expect(saved['version'], 1);
     expect(saved['steam:1'], isA<Map>());
     expect(File('$path.tmp').existsSync(), isFalse);

@@ -58,7 +58,8 @@ void main() {
 \t"name"\t\t"TF2"\t[\$LINUX]
 }
 ''';
-      final manifest = parseKeyValues(text)['appmanifest'] as Map<String, Object?>;
+      final manifest =
+          parseKeyValues(text)['appmanifest'] as Map<String, Object?>;
       expect(manifest['appid'], '440');
       expect(manifest['installdir'], 'Team Fortress 2');
       expect(manifest['name'], 'TF2');
@@ -97,7 +98,10 @@ Name=Ignored
         'com.example.Other',
       };
       expect(
-        flatpakAppForDesktop('net.retrodeck.retrodeck.Configurator.desktop', ids),
+        flatpakAppForDesktop(
+          'net.retrodeck.retrodeck.Configurator.desktop',
+          ids,
+        ),
         'net.retrodeck.retrodeck.Configurator',
       );
       expect(
@@ -106,7 +110,9 @@ Name=Ignored
       );
       expect(flatpakAppForDesktop('org.unknown.Thing.desktop', ids), isNull);
       expect(
-        isFlatpakExport('/home/x/.local/share/flatpak/exports/share/applications/a.desktop'),
+        isFlatpakExport(
+          '/home/x/.local/share/flatpak/exports/share/applications/a.desktop',
+        ),
         isTrue,
       );
       expect(isFlatpakExport('/usr/share/applications/a.desktop'), isFalse);
@@ -121,12 +127,21 @@ Name=Ignored
         'two words',
         '--x',
       ]);
-      expect(splitShellWords(r'game "a \"quoted\" arg"'), ['game', 'a "quoted" arg']);
+      expect(splitShellWords(r'game "a \"quoted\" arg"'), [
+        'game',
+        'a "quoted" arg',
+      ]);
       expect(splitShellWords(''), isEmpty);
     });
 
     test('quoteCommand round-trips through splitShellWords', () {
-      final argv = ['/opt/My Game/run', '--title', "it's here", r'back\slash', ''];
+      final argv = [
+        '/opt/My Game/run',
+        '--title',
+        "it's here",
+        r'back\slash',
+        '',
+      ];
       expect(splitShellWords(quoteCommand(argv)), argv);
     });
   });
@@ -177,7 +192,10 @@ game:
     });
 
     test('rejects records without a known source', () {
-      expect(Game.fromJson({'id': 'x:1', 'name': 'x', 'source': 'nope'}), isNull);
+      expect(
+        Game.fromJson({'id': 'x:1', 'name': 'x', 'source': 'nope'}),
+        isNull,
+      );
     });
 
     test('equality is by id alone', () {
@@ -232,13 +250,18 @@ game:
       );
       expect(dedupeKey(fromDesktop), 'steam:427410');
       expect(dedupeKey(fromSteam), 'steam:427410');
-      expect(dedupeKey(const Game(
-        id: 'flatpak:x',
-        key: 'x',
-        name: 'x',
-        source: SourceKind.flatpak,
-        command: ['flatpak', 'run', 'x'],
-      )), isNull);
+      expect(
+        dedupeKey(
+          const Game(
+            id: 'flatpak:x',
+            key: 'x',
+            name: 'x',
+            source: SourceKind.flatpak,
+            command: ['flatpak', 'run', 'x'],
+          ),
+        ),
+        isNull,
+      );
     });
 
     test('sorts by name, then by source order', () {
@@ -282,7 +305,11 @@ game:
         hidden: {'steam:105600'},
         appimageDirs: ['~/AppImages', '/opt'],
         manual: [
-          ManualEntry(name: 'Quake', command: ['flatpak', 'run', 'com.example.Quake'], cwd: '/games/quake'),
+          ManualEntry(
+            name: 'Quake',
+            command: ['flatpak', 'run', 'com.example.Quake'],
+            cwd: '/games/quake',
+          ),
         ],
         coverFetch: false,
         showHidden: true,
@@ -293,7 +320,11 @@ game:
       expect(loaded.isHidden('steam:105600'), isTrue);
       expect(loaded.appimageDirs, ['~/AppImages', '/opt']);
       expect(loaded.manual.single.name, 'Quake');
-      expect(loaded.manual.single.command, ['flatpak', 'run', 'com.example.Quake']);
+      expect(loaded.manual.single.command, [
+        'flatpak',
+        'run',
+        'com.example.Quake',
+      ]);
       expect(loaded.coverFetch, isFalse);
       expect(loaded.showHidden, isTrue);
     });
@@ -317,7 +348,8 @@ game:
         '@@$name ${base64.encode(utf8.encode(body))}';
 
     test('reads one base64 line per entry', () {
-      final dump = '${line('net.retrodeck.retrodeck.desktop', '[Desktop Entry]\nName=RetroDECK\nCategories=Game;\n')}\n'
+      final dump =
+          '${line('net.retrodeck.retrodeck.desktop', '[Desktop Entry]\nName=RetroDECK\nCategories=Game;\n')}\n'
           '${line('com.example.Other.desktop', '[Desktop Entry]\nName=Other\nCategories=Utility;\n')}\n';
       final entries = parseDesktopDump(dump);
       expect(entries.map((entry) => entry.$1).toList(), [
@@ -332,9 +364,12 @@ game:
     test('a body containing the marker cannot split an entry', () {
       // The old protocol concatenated the files and split on `@@`, so a file
       // that contains the marker was cut in half and lost its Categories.
-      final body = '[Desktop Entry]\nName=Tricky\nComment=@@ marker @@\n'
+      final body =
+          '[Desktop Entry]\nName=Tricky\nComment=@@ marker @@\n'
           'Exec=/usr/bin/tricky --flag @@\nCategories=Game;\n';
-      final entries = parseDesktopDump(line('com.example.Tricky.desktop', body));
+      final entries = parseDesktopDump(
+        line('com.example.Tricky.desktop', body),
+      );
       expect(entries, hasLength(1));
       expect(desktopCategories(entries.single.$2), ['Game']);
       expect(entries.single.$2['Exec'], '/usr/bin/tricky --flag @@');
@@ -345,7 +380,12 @@ game:
       expect(parseDesktopDump('@@not-a-desktop-file YWJj'), isEmpty);
       expect(parseDesktopDump('@@a.desktop'), isEmpty);
       expect(parseDesktopDump('@@a.desktop not*base64'), isEmpty);
-      expect(parseDesktopDump('@@a.desktop ${base64.encode(utf8.encode('nonsense'))}'), isEmpty);
+      expect(
+        parseDesktopDump(
+          '@@a.desktop ${base64.encode(utf8.encode('nonsense'))}',
+        ),
+        isEmpty,
+      );
     });
   });
 }

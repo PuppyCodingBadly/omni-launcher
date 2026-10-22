@@ -86,5 +86,9 @@ Uint8List archive(List<Entry> files, {int flags = 0, int? centralFlags}) {
 
 List<int> _u16(int value) => [value & 0xff, value >> 8 & 0xff];
 
-List<int> _u32(int value) =>
-    [value & 0xff, value >> 8 & 0xff, value >> 16 & 0xff, value >> 24 & 0xff];
+List<int> _u32(int value) => [
+  value & 0xff,
+  value >> 8 & 0xff,
+  value >> 16 & 0xff,
+  value >> 24 & 0xff,
+];

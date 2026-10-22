@@ -119,8 +119,14 @@ class AppImageSource extends GameSource {
   }
 
   static String _displayName(String stem) {
-    final spaced = stem.replaceAll('-', ' ').replaceAll('_', ' ').replaceAll('.', ' ');
-    return spaced.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).join(' ');
+    final spaced = stem
+        .replaceAll('-', ' ')
+        .replaceAll('_', ' ')
+        .replaceAll('.', ' ');
+    return spaced
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .join(' ');
   }
 
   /// `~/AppImages/.icons`: every file name in it, sorted.
@@ -131,9 +137,10 @@ class AppImageSource extends GameSource {
   static Future<List<String>> _iconNames() async {
     final icons = '${AppPaths.home}/AppImages/.icons';
     try {
-      final names = await Directory(
-        icons,
-      ).list().map((entity) => _baseName(entity.path)).toList();
+      final names = await Directory(icons)
+          .list()
+          .map((entity) => _baseName(entity.path))
+          .toList();
       return names..sort();
     } on FileSystemException {
       // Missing/unreadable icon directory: no glob matches.
@@ -166,9 +173,11 @@ class AppImageSource extends GameSource {
     final candidates = <String>['$icons/$stem'];
     // `sorted(icons.glob(f"{stem}.*"))`: every name with that prefix, and they
     // are contiguous in the sorted listing.
-    for (var i = _lowerBound(iconNames, prefix);
-        i < iconNames.length && iconNames[i].startsWith(prefix);
-        i++) {
+    for (
+      var i = _lowerBound(iconNames, prefix);
+      i < iconNames.length && iconNames[i].startsWith(prefix);
+      i++
+    ) {
       candidates.add('$icons/${iconNames[i]}');
     }
     for (final ext in _iconExts) {

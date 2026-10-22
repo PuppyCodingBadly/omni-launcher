@@ -11,12 +11,15 @@ final RegExp _execFieldCode = RegExp(r'^%[fFuUdDnNickvm]$');
 
 /// Turn an `Exec=` line into argv, dropping field codes.
 List<String> desktopExecArgv(String execLine) =>
-    splitShellWords(execLine).where((part) => !_execFieldCode.hasMatch(part)).toList();
+    splitShellWords(execLine)
+        .where((part) => !_execFieldCode.hasMatch(part))
+        .toList();
 
-List<String> desktopCategories(Map<String, String> entry) => (entry['Categories'] ?? '')
-    .split(';')
-    .where((category) => category.isNotEmpty)
-    .toList();
+List<String> desktopCategories(Map<String, String> entry) =>
+    (entry['Categories'] ?? '')
+        .split(';')
+        .where((category) => category.isNotEmpty)
+        .toList();
 
 /// `net.retrodeck.retrodeck.Configurator.desktop` -> `net.retrodeck.retrodeck`.
 String? flatpakAppForDesktop(String desktopName, Set<String> appIds) {
@@ -34,8 +37,14 @@ bool isFlatpakExport(String path) =>
     path.contains('flatpak/exports/share/applications');
 
 /// argv that starts whatever this desktop entry describes.
-Future<List<String>> desktopLaunchCommand(String path, Map<String, String> entry) async {
-  final appId = flatpakAppForDesktop(File(path).uri.pathSegments.last, await flatpakAppIds());
+Future<List<String>> desktopLaunchCommand(
+  String path,
+  Map<String, String> entry,
+) async {
+  final appId = flatpakAppForDesktop(
+    File(path).uri.pathSegments.last,
+    await flatpakAppIds(),
+  );
   if (appId != null && (isFlatpakExport(path) || which('flatpak') != null)) {
     return ['flatpak', 'run', appId];
   }
