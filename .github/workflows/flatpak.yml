@@ -1,8 +1,8 @@
 name: Flatpak
 
-# Builds the flatpak, publishes an OSTree repo and the landing page to the
-# gh-pages branch, and attaches the standalone bundle plus the .flatpakref to a
-# release. Tag a version (`git tag v0.1.0 && git push --tags`) to run it.
+# Builds the flatpak, publishes an OSTree repo and the landing page on GitHub
+# Pages, and attaches the standalone bundle plus the .flatpakref to a release.
+# Tag a version (`git tag v0.1.0 && git push --tags`) to run it.
 on:
   push:
     tags: ['v*']
@@ -10,6 +10,10 @@ on:
 
 permissions:
   contents: write
+  # Deploying the Pages artifact needs both, and the job below is the only
+  # thing that publishes; a branch push does not deploy a workflow-sourced site.
+  pages: write
+  id-token: write
 
 jobs:
   test:
@@ -42,6 +46,9 @@ jobs:
   flatpak:
     needs: test
     runs-on: ubuntu-latest
+    # deploy-pages refuses to run outside the environment Pages is bound to;
+    # the environment's branch policy allows main and gh-pages.
+    environment: github-pages
     container:
       image: bilelmoussaoui/flatpak-github-actions:gnome-47
       options: --privileged
@@ -124,15 +131,25 @@ jobs:
           # The page is written with placeholders so it works in any fork.
           sed -i "s|OWNER/REPO|${{ github.repository }}|g" public/index.html
 
-      - name: Publish the Pages branch
-        uses: peaceiris/actions-gh-pages@v4
+      # The site is deployed from this run's artifact. The page used to be
+      # pushed to a gh-pages branch, which does not deploy a Pages site whose
+      # source is "GitHub Actions" — that left the published repo at whatever
+      # was last built by hand.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the Pages site
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: public
-          publish_branch: gh-pages
-          keep_files: true
+          path: public
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
       - name: Release
+        # A manual dispatch builds and publishes the site without a release.
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |

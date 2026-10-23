@@ -413,7 +413,7 @@ points at you, or push a `v*` tag, and `.github/workflows/flatpak.yml` runs
 `flutter analyze`, `flutter test`, validates the AppStream metadata and checks
 that `plugins/` still matches the sources it was built from before it builds
 the bundle, publishes the repository and the landing page in `site/` to
-`gh-pages`, and attaches the bundle plus the generated `.flatpakref` to the
+GitHub Pages, and attaches the bundle plus the generated `.flatpakref` to the
 release. A tag whose manifest pins a commit it does not contain is refused,
 rather than released as the wrong code.
 
