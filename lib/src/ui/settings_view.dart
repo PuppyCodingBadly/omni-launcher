@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../config.dart';
+import '../model/game.dart';
 import '../paths.dart';
 import '../plugins/bundled.dart';
 import '../plugins/catalog.dart' as catalogue;
@@ -109,6 +110,15 @@ class SettingsView extends StatelessWidget {
         listenable: controller,
         builder: (context, _) {
           final config = controller.config;
+          // The launcher clients the library holds, plus one whose setting
+          // outlived its games: a switch that is not shown cannot be turned
+          // off. Direct sources (AppImage, flatpak, desktop entries) have no
+          // launcher window to close and are not offered.
+          final launchers = <SourceKind>{
+            for (final game in controller.games)
+              if (game.source.isLauncher) game.source,
+            for (final id in config.closeWithGame) ?SourceKind.byId(id),
+          }.toList()..sort((a, b) => a.index.compareTo(b.index));
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
             children: [
@@ -196,6 +206,46 @@ class SettingsView extends StatelessWidget {
                     label: const Text('Add game by hand'),
                   ),
                 ],
+              ),
+              const SizedBox(height: 24),
+              _section(context, 'Launchers'),
+              if (launchers.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'No games from a launcher yet, so there is nothing to '
+                    'close.',
+                    style: TextStyle(color: palette.textDim),
+                  ),
+                ),
+              for (final source in launchers)
+                SwitchListTile(
+                  value: config.closesWithGame(source),
+                  onChanged: (value) =>
+                      controller.setCloseWithGame(source, value),
+                  title: Text(source.label),
+                  subtitle: const Text(
+                    'Close it once the game it started exits',
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              const SizedBox(height: 24),
+              _section(context, 'Window'),
+              SwitchListTile(
+                value: config.minimizeOnLaunch,
+                onChanged: controller.setMinimizeOnLaunch,
+                title: const Text('Hide the launcher while a game runs'),
+                subtitle: const Text('It comes back when the game exits'),
+                contentPadding: EdgeInsets.zero,
+              ),
+              SwitchListTile(
+                value: config.trayIcon,
+                onChanged: controller.setTrayIcon,
+                title: const Text('Show a tray icon'),
+                subtitle: const Text(
+                  'Brings the window back; needs a desktop with tray support',
+                ),
+                contentPadding: EdgeInsets.zero,
               ),
               const SizedBox(height: 24),
               _section(context, 'Artwork'),
@@ -378,9 +428,14 @@ class _PluginStoreState extends State<_PluginStore> {
                     : 'Installed here, and not in the list',
                 style: TextStyle(fontSize: 12.5, color: palette.textDim),
               ),
-              trailing: isBundledPlugin(plugin.id)
-                  ? null
-                  : _RemoveButton(controller: controller, plugin: plugin),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _PermissionsButton(controller: controller, plugin: plugin),
+                  if (!isBundledPlugin(plugin.id))
+                    _RemoveButton(controller: controller, plugin: plugin),
+                ],
+              ),
             ),
         _pathTile('Plugins folder', controller.pluginDir),
       ],
@@ -439,6 +494,7 @@ class _CatalogRow extends StatelessWidget {
                     child: const Text('Install'),
                   )
                 else ...[
+                  _PermissionsButton(controller: controller, plugin: current),
                   if (newer)
                     FilledButton(
                       onPressed: () => controller.installPlugin(entry),
@@ -493,6 +549,12 @@ class _CatalogRow extends StatelessWidget {
                   'you. Install only plugins you trust.',
                   style: TextStyle(fontSize: 12.5, color: palette.warning),
                 ),
+                const SizedBox(height: 10),
+                Text(
+                  'Its actions and launch hooks stay off until you allow them '
+                  'from its shield button in this list.',
+                  style: TextStyle(fontSize: 12.5, color: palette.textDim),
+                ),
               ],
             ),
           ),
@@ -514,6 +576,117 @@ class _CatalogRow extends StatelessWidget {
     }
   }
 }
+
+/// What an installed plugin declared it may do, and what the user allows.
+class _PermissionsButton extends StatelessWidget {
+  const _PermissionsButton({required this.controller, required this.plugin});
+
+  final LibraryController controller;
+  final Plugin plugin;
+
+  @override
+  Widget build(BuildContext context) {
+    if (plugin.capabilities.isEmpty) return const SizedBox.shrink();
+    return IconButton(
+      tooltip: 'Permissions for ${plugin.name}',
+      icon: const Icon(Icons.shield_outlined, size: 18),
+      onPressed: () => showPluginPermissionsDialog(
+        context,
+        controller: controller,
+        plugin: plugin,
+      ),
+    );
+  }
+}
+
+/// Let the user allow or refuse each capability [plugin] declared.
+Future<void> showPluginPermissionsDialog(
+  BuildContext context, {
+  required LibraryController controller,
+  required Plugin plugin,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) {
+      final palette = context.palette;
+      return AlertDialog(
+        backgroundColor: palette.surface,
+        title: Text('Permissions: ${plugin.name}'),
+        // A plugin can declare many capabilities, actions and hooks: the
+        // dialog keeps a bounded height and scrolls so the list cannot push
+        // the title and buttons off the screen.
+        content: SizedBox(
+          width: 480,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: SingleChildScrollView(
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'A plugin runs as you, outside the sandbox. It is only '
+                      'called for what is allowed here.',
+                      style: TextStyle(fontSize: 12.5, color: palette.textDim),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final capability in plugin.capabilities)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        value: controller.pluginGranted(plugin, capability),
+                        onChanged: (value) => controller.setPluginGrant(
+                          plugin,
+                          capability,
+                          value ?? false,
+                        ),
+                        title: Text(capability.label),
+                        subtitle: _capabilityDetail(capability),
+                      ),
+                    if (plugin.actions.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Actions: ${plugin.actions.map((action) => action.name).join(', ')}',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: palette.textDim,
+                        ),
+                      ),
+                    ],
+                    if (plugin.hooks.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Hooks: ${plugin.hooks.map((hook) => hook.label).join(', ')}',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: palette.textDim,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Widget? _capabilityDetail(PluginCapability capability) => switch (capability) {
+  PluginCapability.lookup => const Text('An answer shown for a game'),
+  PluginCapability.actions => const Text('Buttons in the game panel'),
+  PluginCapability.hooks => const Text('Run before and after a launch'),
+};
 
 /// The button that takes an installed plugin away, after asking.
 class _RemoveButton extends StatelessWidget {

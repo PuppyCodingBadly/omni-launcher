@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../host.dart';
@@ -20,6 +21,13 @@ const int pluginOutputLimit = 256 * 1024;
 /// A plugin that leaves a process of its own behind can hold its pipes open for
 /// good; the output that arrived by then is all there is.
 const Duration pluginOutputGrace = Duration(seconds: 2);
+
+/// How large a `plugin.json` may be.
+///
+/// A manifest is a handful of lines; a file this big is not one. Reading it
+/// would only spend memory before the parser gave up, so it is refused before
+/// it is read.
+const int pluginManifestLimit = 64 * 1024;
 
 /// The plugins in [dir]: every subfolder with a `plugin.json` the launcher can
 /// read, in name order.
@@ -48,6 +56,16 @@ List<Plugin> discoverPlugins(
     final manifest = File('${entry.path}/plugin.json');
     try {
       if (!manifest.existsSync()) continue;
+      // Checking the size before reading keeps a huge file from being loaded
+      // only to have the parser reject it.
+      final size = manifest.lengthSync();
+      if (size > pluginManifestLimit) {
+        onError?.call(
+          entry.path,
+          'plugin.json is larger than ${pluginManifestLimit ~/ 1024} KiB',
+        );
+        continue;
+      }
       final plugin = Plugin.fromManifest(
         entry.path,
         jsonDecode(manifest.readAsStringSync()),
@@ -56,11 +74,28 @@ List<Plugin> discoverPlugins(
         onError?.call(entry.path, 'plugin.json does not describe a plugin');
         continue;
       }
+      // The folder is the plugin's identity everywhere else (grants, the
+      // answer cache, removal), so an id that names another folder is an
+      // impostor: removing one row must never delete another plugin's folder.
+      final folder = entry.path.split('/').last;
+      if (plugin.id != folder) {
+        onError?.call(
+          entry.path,
+          'folder name "$folder" does not match plugin id "${plugin.id}"',
+        );
+        continue;
+      }
       plugins.add(plugin);
     } on FileSystemException catch (error) {
       onError?.call(entry.path, error);
     } on FormatException catch (error) {
       onError?.call(entry.path, error.message);
+    } catch (error) {
+      // A manifest can make the JSON parser or the manifest check fail in ways
+      // that are not exceptions of their own — a deeply nested file ends in a
+      // StackOverflowError — and one such plugin must not take the whole
+      // folder down with it.
+      onError?.call(entry.path, error);
     }
   }
   return plugins;
@@ -107,6 +142,19 @@ Future<PluginAnswer> runPlugin(
   Plugin plugin,
   PluginQuery query, {
   Duration timeout = pluginTimeout,
+}) => runPluginRequest(plugin, query.toJson(), timeout: timeout);
+
+/// Run [plugin] with one JSON [request] on stdin. Never throws.
+///
+/// Shared by lookups, actions and launch hooks: the protocol is the same one
+/// object in, one object out. A hook may answer nothing at all, so
+/// [requireAnswer] is false for hooks; a lookup and an action must say
+/// something.
+Future<PluginAnswer> runPluginRequest(
+  Plugin plugin,
+  Map<String, Object?> request, {
+  Duration timeout = pluginTimeout,
+  bool requireAnswer = true,
 }) async {
   // setsid puts the plugin in a session — and so a process group — of its
   // own, so a timeout can kill everything it started, not just the plugin
@@ -117,12 +165,11 @@ Future<PluginAnswer> runPlugin(
   // not in its process group or its descendant tree. The host shell records
   // the plugin's own pid file before `exec`-ing it, so a timeout can signal
   // the real process group on the host rather than only the wrapper.
-  final pidFile = '${plugin.dir}/.run.pid';
-  try {
-    File(pidFile).deleteSync();
-  } on FileSystemException {
-    // No stale pid file to clear.
-  }
+  //
+  // The file is this run's own: two runs of the same plugin can overlap — a
+  // lookup while a launch hook is still pending — and a shared name would let
+  // one run delete or signal the other's pid.
+  final pidFile = _pidFilePath(plugin.dir);
   final argv = Host.command([
     'setsid',
     'sh',
@@ -145,73 +192,110 @@ Future<PluginAnswer> runPlugin(
 
   // Both pipes have to be drained while the plugin runs, or a plugin that says
   // a lot before it exits would block on its own output.
+  Future<void>? overflowKill;
   final out = _Pipe(
     process.stdout,
     // A flooding plugin is killed the same way a timed-out one is: a helper
     // it forked does not get to stay behind and hold the pipes.
-    onOverflow: () => unawaited(_killGroup(process, pidFile: pidFile)),
+    onOverflow: () => overflowKill ??= _killGroup(process, pidFile: pidFile),
   );
   final err = _Pipe(process.stderr);
   try {
-    process.stdin.write(jsonEncode(query.toJson()));
-    await process.stdin.close();
-  } on IOException {
-    // A plugin that closed its stdin early shows up in its exit code.
-  }
-
-  int code;
-  try {
-    code = await process.exitCode.timeout(timeout);
-  } on TimeoutException {
-    await _killGroup(process, pidFile: pidFile);
-    await process.exitCode;
-    out.stop();
-    err.stop();
-    return PluginAnswer.failure(
-      '${plugin.name} did not answer within ${timeout.inSeconds}s',
-    );
-  }
-
-  // The plugin is gone; the pid file has done its job.
-  _deletePidFile(pidFile);
-  await Future.wait([out.finished, err.finished]).timeout(
-    pluginOutputGrace,
-    onTimeout: () {
+    try {
+      // The request goes into a pipe the plugin may never drain, and once that
+      // pipe is full the write blocks for good. Closing stdin is therefore
+      // part of the plugin's deadline too, or launch() would wait forever on
+      // a plugin that has already stopped reading.
+      process.stdin.write(jsonEncode(request));
+      await process.stdin.close().timeout(timeout);
+    } on TimeoutException {
+      await _killGroup(process, pidFile: pidFile);
+      await process.exitCode;
       out.stop();
       err.stop();
-      return const <void>[];
-    },
-  );
+      return PluginAnswer.failure(
+        '${plugin.name} did not read the request within '
+        '${timeout.inSeconds}s',
+      );
+    } on IOException {
+      // A plugin that closed its stdin early shows up in its exit code.
+    }
 
-  if (out.tooLong) {
-    return PluginAnswer.failure(
-      '${plugin.name} printed more than ${pluginOutputLimit ~/ 1024} KiB',
-    );
-  }
-  final complaint = err.text.trim();
-  if (code != 0) {
-    return PluginAnswer.failure(
-      '${plugin.name}: ${complaint.isEmpty ? 'exited with $code' : _lastLine(complaint)}',
-    );
-  }
+    int code;
+    try {
+      code = await process.exitCode.timeout(timeout);
+    } on TimeoutException {
+      await _killGroup(process, pidFile: pidFile);
+      await process.exitCode;
+      out.stop();
+      err.stop();
+      return PluginAnswer.failure(
+        '${plugin.name} did not answer within ${timeout.inSeconds}s',
+      );
+    }
 
-  Object? decoded;
-  try {
-    decoded = jsonDecode(out.text.trim());
-  } on FormatException {
-    return PluginAnswer.failure('${plugin.name}: the answer was not JSON');
-  }
-  final parsed = PluginAnswer.fromJson(decoded);
-  if (parsed == null) {
-    return PluginAnswer.failure('${plugin.name}: the answer made no sense');
-  }
-  if (parsed.fields.isEmpty && parsed.url == null && parsed.ok) {
-    return PluginAnswer.failure(
-      '${plugin.name} found nothing for ${query.name}',
+    await Future.wait([out.finished, err.finished]).timeout(
+      pluginOutputGrace,
+      onTimeout: () {
+        out.stop();
+        err.stop();
+        return const <void>[];
+      },
     );
+
+    if (out.tooLong) {
+      return PluginAnswer.failure(
+        '${plugin.name} printed more than ${pluginOutputLimit ~/ 1024} KiB',
+      );
+    }
+    final complaint = err.text.trim();
+    if (code != 0) {
+      return PluginAnswer.failure(
+        '${plugin.name}: ${complaint.isEmpty ? 'exited with $code' : _lastLine(complaint)}',
+      );
+    }
+
+    final answerText = out.text.trim();
+    // A launch hook has no answer to give; silence with exit code 0 is success.
+    if (answerText.isEmpty && !requireAnswer) return const PluginAnswer();
+    Object? decoded;
+    try {
+      decoded = jsonDecode(answerText);
+    } on FormatException {
+      return PluginAnswer.failure('${plugin.name}: the answer was not JSON');
+    }
+    final parsed = PluginAnswer.fromJson(decoded);
+    if (parsed == null) {
+      return PluginAnswer.failure('${plugin.name}: the answer made no sense');
+    }
+    if (requireAnswer &&
+        parsed.fields.isEmpty &&
+        parsed.url == null &&
+        parsed.ok) {
+      return PluginAnswer.failure(
+        '${plugin.name} found nothing for ${request['game'] is Map ? (request['game'] as Map)['name'] : 'the request'}',
+      );
+    }
+    return parsed;
+  } finally {
+    // An overflow kill reads the pid file itself; let it finish before the
+    // file goes, or it would find nothing to signal on the host.
+    await overflowKill;
+    // Whichever way the run ended — answer, timeout, overflow, a stdin that
+    // could not be written — the pid file is not left behind.
+    _deletePidFile(pidFile);
   }
-  return parsed;
 }
+
+final Random _random = Random();
+
+/// A pid file name no other run can be using.
+///
+/// Microseconds alone are not enough: two runs started from one turn of the
+/// event loop would still collide, so a random suffix is included as well.
+String _pidFilePath(String dir) =>
+    '$dir/.run-${DateTime.now().microsecondsSinceEpoch}-'
+    '${_random.nextInt(1 << 32).toRadixString(16)}.pid';
 
 /// Kill [process] and whatever it left running.
 ///

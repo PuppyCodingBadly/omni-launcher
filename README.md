@@ -34,6 +34,37 @@ wall first, details on demand.
   launched through Steam, which is what gives them Steam Input and the overlay.
 * **Playtime and last played**, per game. Only time that was actually observed
   is counted, so a launcher that dies mid-game cannot invent hours.
+* **Playing, Stop, and what happened.** A running game says `PLAYING` on its
+  tile, and the panel's Launch button becomes Stop (SIGTERM, then SIGKILL after
+  five seconds). Two quick clicks cannot start the same game twice. A game that
+  exits within ten seconds is reported with a **View log** action instead of
+  looking like a success. These follow the process the launcher starts; a
+  launcher that hands the game to a client and exits (`steam -applaunch`,
+  Heroic/Epic through `xdg-open`) is not reported as a quick exit and does not
+  get a lasting `PLAYING` state.
+* **Tags and collections.** Steam collections and Lutris categories arrive as
+  tags; any game can get your own from its cog. **Filters** (the funnel in the
+  header) stacks tags with status filters: Unplayed, Not played in 90 days, No
+  cover, Not installed. Search reads tags, paths and commands too, and matches
+  acronyms (`tf2` finds Team Fortress 2) and subsequences.
+* **Per-game launch options.** A wrapper (`gamemoderun`, `mangohud`,
+  `prime-run`), extra arguments, environment variables and a working folder,
+  all under the game's cog and applied only to that game.
+* **Installs that are not ready.** Steam's update flags and download progress
+  show on the tile and in the panel; a game you played that disappears from its
+  source stays in the library as **Not installed**, with its playtime, until
+  you remove it.
+* **A command palette.** `Ctrl+K` searches games and commands from the
+  keyboard: Enter opens, Ctrl+Enter launches.
+* **Window behaviour.** A second launch of the app brings the existing window
+  back instead of opening a duplicate; **Settings → Window** can hide it
+  while a game runs and keep a tray icon (a GTK3 tray icon, so shells without a
+  tray host, including GNOME on Wayland, show nothing). Hiding keeps the window
+  mapped, so the session watcher keeps running and brings it back when the game
+  exits. Coming back to the window rescans, so a game installed meanwhile
+  appears without `Ctrl+R`.
+* **Launch log.** Every launch's argv and the game's own output are in
+  **Settings → Files**; the cog opens the same log per game.
 * **A wall you can sort and walk.** Order it by name, recently played or most
   played; favorites stay first whichever you pick. Arrow keys or a gamepad's
   D-pad step one tile sideways and one row up or down, `Enter` (or A) launches
@@ -44,15 +75,21 @@ wall first, details on demand.
   started, newest first, each with how much and how recently you played it.
   The shelf follows the wall's filters and steps aside while you search.
 * **Plugins**: a folder with a `plugin.json` in it and a program the launcher
-  runs, JSON in and JSON out, in any language. **Settings → Plugins** is a
-  store: it lists what the launcher's repository offers, installs one into your
-  plugin folder and removes it again. HowLongToBeat is in the list, and ships
-  with the launcher too.
+  runs, JSON in and JSON out, in any language. A plugin can answer lookups,
+  offer **actions** for a game, and run **pre-launch** and **post-exit** hooks.
+  Each capability is declared in its manifest and allowed or refused from its
+  shield button; actions and hooks are off until you allow them. **Settings →
+  Plugins** is a store: it lists what the launcher's repository offers,
+  installs one into your plugin folder and removes it again. HowLongToBeat is
+  in the list, and ships with the launcher too.
 * **Rename** any entry. The new name is what the wall, the search and the
   SteamGridDB lookup use, so an awkward name can be turned into the title
   SteamGridDB knows. The discovered name is kept, so it can be reset.
-* **Hide** entries you never launch, **close the launcher with the game** for
-  launchers that outlive their game, and add games by hand.
+* **Hide** entries you never launch and add games by hand.
+* **Close a launcher with its game**: under **Settings → Launchers**, choose
+  which launcher clients (Steam, Heroic, Lutris, …) quit once the game they
+  started exits. The choice is per launcher, not per game; a launcher that was
+  already running before the game stays alone.
 * **Appearance**: System / Dark / Light, plus an accent colour from the GNOME
   basic palette. The window's title bar follows the palette too, and the window
   reopens at the size it was last resized to.
@@ -60,7 +97,9 @@ wall first, details on demand.
 ![Settings](docs/screenshots/settings.jpg)
 
 Settings holds the theme mode, the accent colour, the SteamGridDB key, the
-AppImage folders, hidden games and hand-added games.
+AppImage folders, hidden games, hand-added games, which launchers close with
+their games, the window behaviour, plugin permissions and the plugin store.
+Tags, launch options and the rest of a single game live in its cog.
 
 ## Install
 
@@ -105,11 +144,15 @@ click (or the Play button on hover) to start the game; with a tile focused,
 `Enter` (or a gamepad's A) launches it and `Space` (or B) selects it. The arrow
 keys and a D-pad walk the wall, one tile sideways and one row up or down, and
 the tile the keyboard or gamepad is on lifts the way a hovered one does.
-`Ctrl+F` search, `Ctrl+R` rescan, `Esc` close the details panel.
+`Ctrl+F` search, `Ctrl+K` the command palette, `Ctrl+R` rescan, `Esc` close the
+details panel.
 
-A rescan asked for while one is already running joins it rather than starting a
-second; a source that throws is named in the status bar and the rest of the
-library still arrives.
+A running tile says `PLAYING`; `Enter` on it (or its hover button) stops it.
+Search ranks matches, understands acronyms and subsequences, and looks at tags,
+paths and commands. A rescan asked for while one is already running joins it
+rather than starting a second; a source that throws is named in the status bar
+and the rest of the library still arrives. Coming back to the window rescans a
+library older than thirty seconds.
 
 The sort button in the header orders the wall by name, recently played or most
 played. Whichever is picked, favorites stay in front. The checklist beside it
@@ -123,19 +166,24 @@ actions menu.
 The sidebar filters by source and folds to an icon rail with the chevron in its
 header: the same filters, each with its label and count in the tooltip. It
 stays folded next time, and hidden games live behind *Show hidden*, which the
-rail keeps too.
+rail keeps too. The funnel in the header stacks tag and status filters; the
+chips under it remove one at a time.
 
-The detail panel keeps *Launch* and the game's facts to itself; *Open folder*,
-*Copy* (the exact argv), *Find art*, *Rename*, *Hide* and *Remove* live behind
-the cog in its header. *Close the launcher with the game* stays on the panel,
-since it is a setting rather than an action. Under those, each plugin gets a
-section with the button that asks it about this game, and what it answered.
+The detail panel keeps *Launch* (or *Stop*) and the game's facts to itself;
+*Open folder*, *Copy* (the exact argv, launch options included), *Launch
+options…*, *Edit tags…*, *Find art*, *Rename*, *Launch log*, *Hide* and *Remove*
+live behind the cog in its header. *Close the launcher with the game* is a
+launcher-wide choice, so it lives in Settings, not on a single game. A game that
+went missing keeps its panel and gains *Not installed*, *Open store page* and
+*Remove from library*. Under the facts, each plugin gets a section with what it
+answered and any actions it may run; the button that asks it is there until it
+has an answer.
 
 ## Configuration and files
 
 | Path | Contents |
 | --- | --- |
-| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, window size |
+| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, forgotten games, which launchers close with their games, plugin permissions, window size and behaviour |
 | `~/.cache/omnilauncher-flutter/games.json` | last scan, for an instant start |
 | `~/.cache/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |
@@ -234,6 +282,41 @@ the panel as that plugin's answer, so a broken plugin is visible rather than
 silent. Answers are cached per plugin and game
 (`~/.cache/omnilauncher-flutter/plugin_answers.json`), so selecting a game
 again does not ask the site again.
+
+### Actions and hooks
+
+A plugin can declare more than lookups:
+
+```json
+{
+  "capabilities": ["lookup", "actions", "hooks"],
+  "actions": [
+    {"id": "backup", "name": "Back up saves", "description": "Copy them aside"}
+  ],
+  "hooks": ["pre_launch", "post_exit"]
+}
+```
+
+A manifest without `capabilities` keeps the one every older plugin had:
+`lookup`. `actions` become buttons in the plugin's panel section; `hooks` run
+before the game starts and after it exits. Each request is one JSON object on
+stdin, with the same `game` payload as a lookup (and the game's effective
+`tags`):
+
+```json
+{"action": "action", "id": "backup", "name": "Back up saves", "game": {…}}
+{"action": "pre_launch", "game": {…}}
+{"action": "post_exit", "game": {…}}
+```
+
+An action answers like a lookup (`fields`/`url`/`error`). A hook may print
+nothing and exit 0; a non-zero exit is reported in the status bar. A failing
+pre-launch hook does not cancel the launch: the game still starts, and the
+failure is visible.
+
+Actions and hooks are off until you allow them: the shield beside an installed
+plugin lists its declared capabilities, and installing grants only `lookup`.
+A plugin that does not declare a capability is never sent that request.
 
 ### The store
 

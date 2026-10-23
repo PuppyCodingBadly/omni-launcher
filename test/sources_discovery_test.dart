@@ -158,6 +158,101 @@ void main() {
         ]);
       },
     );
+
+    test('Steam state flags and collections reach the game', () async {
+      final dir = tempDir('omni-steam-state');
+      final root = '${dir.path}/steam';
+
+      void manifest(String appid, String flags, {String extra = ''}) {
+        File('$root/steamapps/appmanifest_$appid.acf')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('''
+"AppState"
+{
+	"appid"		"$appid"
+	"name"		"Game $appid"
+	"StateFlags"		"$flags"
+	"SizeOnDisk"		"2048"
+	"installdir"		"$appid"
+$extra
+}
+''');
+      }
+
+      manifest(
+        '111',
+        '260',
+        extra:
+            '\t"BytesDownloaded"		"10"\n'
+            '\t"BytesToDownload"		"20"\n'
+            '\t"LastUpdated"		"1700000000"',
+      );
+      manifest('222', '6'); // installed | update required
+      manifest('333', '36'); // installed | files missing
+      manifest('444', '2052'); // installed | uninstalling
+      // A finished manifest keeps the counters of its last update around;
+      // they must not turn into a Download row.
+      manifest(
+        '555',
+        '4',
+        extra:
+            '\t"BytesDownloaded"		"30"\n'
+            '\t"BytesToDownload"		"30"\n'
+            '\t"LastUpdated"		"1700000001"',
+      );
+      manifest('666', '2097156'); // installed | staging
+      manifest('777', '4194308'); // installed | committing
+      manifest('888', '8196'); // installed | app running
+
+      // A Steam collection is a tag on the games the user put in it.
+      File(
+          '$root/userdata/42/config/cloudstorage/cloud-storage-namespace-1.json',
+        )
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '[["user-collections.uc-one",'
+          '{"key":"user-collections.uc-one",'
+          '"value":"{\\"id\\":\\"uc-one\\",\\"name\\":\\"Action\\",'
+          '\\"added\\":[111,555],\\"removed\\":[555]}"}]]',
+        );
+
+      final games = await SteamSource(roots: [root]).discover(AppConfig());
+      final byId = {for (final game in games) game.id: game};
+
+      expect(byId.keys, [
+        'steam:111',
+        'steam:222',
+        'steam:333',
+        'steam:555',
+        'steam:666',
+        'steam:777',
+        'steam:888',
+      ]);
+      expect(byId['steam:111']!.updating, isTrue);
+      expect(byId['steam:111']!.extra['bytes_downloaded'], 10);
+      expect(byId['steam:111']!.extra['bytes_to_download'], 20);
+      expect(byId['steam:111']!.extra['last_updated'], 1700000000);
+      expect(byId['steam:111']!.sourceTags, ['Action']);
+
+      expect(byId['steam:222']!.updateRequired, isTrue);
+      expect(byId['steam:333']!.broken, isTrue);
+      expect(byId['steam:444'], isNull);
+      expect(byId['steam:555']!.sourceTags, isEmpty);
+      expect(byId['steam:555']!.updating, isFalse);
+      // Finished manifests keep counters from the last update; only a live
+      // update may report them, though LastUpdated stays useful either way.
+      expect(byId['steam:555']!.extra.containsKey('bytes_downloaded'), isFalse);
+      expect(
+        byId['steam:555']!.extra.containsKey('bytes_to_download'),
+        isFalse,
+      );
+      expect(byId['steam:555']!.extra['last_updated'], 1700000001);
+
+      // Staging and committing are part of a live update; AppRunning is not.
+      expect(byId['steam:666']!.updating, isTrue);
+      expect(byId['steam:777']!.updating, isTrue);
+      expect(byId['steam:888']!.updating, isFalse);
+    });
   });
 
   group('DesktopSource', () {

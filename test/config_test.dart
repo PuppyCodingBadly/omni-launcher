@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omni_launcher/src/config.dart';
+import 'package:omni_launcher/src/model/game.dart';
+import 'package:omni_launcher/src/model/launch_options.dart';
 import 'package:omni_launcher/src/sources/manual.dart';
 
 void main() {
@@ -118,10 +120,54 @@ void main() {
 
     final saved =
         jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
-    expect(saved['version'], 1);
+    expect(saved['version'], 2);
     expect(File('$path.tmp').existsSync(), isFalse);
     // The key survives the round trip.
     expect(AppConfig.load(path).manual.single.key, 'alpha-1a2b3c');
+  });
+
+  test('close with game is per launcher, and old game ids migrate', () {
+    // Version 1 stored game ids; the prefix is the launcher they share.
+    final migrated = loadJson({
+      'version': 1,
+      'close_with_game': [
+        'steam:440',
+        'lutris:foo',
+        'flatpak:alpha',
+        'manual:mine',
+        'nonsense:1',
+        42,
+      ],
+    });
+    expect(migrated.closeWithGame, {'steam', 'lutris'});
+    expect(migrated.closesWithGame(SourceKind.steam), isTrue);
+    expect(migrated.closesWithGame(SourceKind.flatpak), isFalse);
+
+    // A file with no version at all is version 1 too.
+    expect(
+      loadJson({
+        'close_with_game': ['heroic:abc'],
+      }).closeWithGame,
+      {'heroic'},
+    );
+
+    AppConfig(closeWithGame: {'steam', 'heroic'}).save(path);
+    final decoded =
+        jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
+    expect(decoded['version'], 2);
+    expect(decoded['close_with_game'], ['heroic', 'steam']);
+    expect(AppConfig.load(path).closeWithGame, {'steam', 'heroic'});
+
+    // Version 2 holds launcher ids; anything that is not a game launcher is
+    // dropped, so a file from the per-source experiment loses its direct
+    // sources instead of pretending they have a window to close.
+    expect(
+      loadJson({
+        'version': 2,
+        'close_with_game': ['steam', 'flatpak', 'nonsense', 'steam:440'],
+      }).closeWithGame,
+      {'steam'},
+    );
   });
 
   test('the saved config is readable by the owner alone', () {
@@ -189,5 +235,119 @@ void main() {
     final saved =
         jsonDecode(File(path).readAsStringSync()) as Map<String, Object?>;
     expect(saved.containsKey('window'), isFalse);
+  });
+
+  test('tags, launch options, grants and window choices round trip', () {
+    AppConfig(
+      tags: {
+        'steam:1': ['Backlog', 'Co-op'],
+      },
+      launchOptions: {
+        'steam:1': const LaunchOptions(
+          wrapper: ['gamemoderun'],
+          args: ['-fullscreen'],
+          env: {'MANGOHUD': '1'},
+          cwd: '/tmp/game',
+        ),
+      },
+      forgotten: {'steam:2'},
+      pluginGrants: {
+        'beats': {'lookup', 'actions'},
+      },
+      minimizeOnLaunch: true,
+      trayIcon: true,
+    ).save(path);
+
+    final loaded = AppConfig.load(path);
+    expect(loaded.tagsFor('steam:1'), ['Backlog', 'Co-op']);
+    final options = loaded.launchOptionsFor('steam:1');
+    expect(options.wrapper, ['gamemoderun']);
+    expect(options.args, ['-fullscreen']);
+    expect(options.env, {'MANGOHUD': '1'});
+    expect(options.cwd, '/tmp/game');
+    expect(options.summary, contains('gamemoderun'));
+    expect(loaded.isForgotten('steam:2'), isTrue);
+    expect(loaded.pluginGrantsFor('beats'), {'lookup', 'actions'});
+    expect(loaded.minimizeOnLaunch, isTrue);
+    expect(loaded.trayIcon, isTrue);
+
+    // Unknown games and plugins get the defaults, not stale entries.
+    expect(loaded.tagsFor('steam:9'), isEmpty);
+    expect(loaded.launchOptionsFor('steam:9').isEmpty, isTrue);
+    expect(loaded.pluginGrantsFor('unknown'), {'lookup'});
+
+    // A hand edited file cannot take the load down, and duplicate tags
+    // (whatever their case) are kept once.
+    final rough = loadJson({
+      'tags': {
+        'steam:1': [' Backlog ', 'backlog', '', 7],
+      },
+      'launch_options': {
+        'steam:1': {'args': 'not a list'},
+      },
+      'plugin_grants': {
+        'beats': ['lookup', '', 3],
+      },
+      'forgotten': 'not a list',
+    });
+    expect(rough.tagsFor('steam:1'), ['Backlog']);
+    expect(rough.launchOptionsFor('steam:1').isEmpty, isTrue);
+    expect(rough.pluginGrantsFor('beats'), {'lookup'});
+    expect(rough.forgotten, isEmpty);
+  });
+
+  test('a malformed plugin grant keeps the default grants', () {
+    final loaded = loadJson({
+      'plugin_grants': {
+        'beats': 'lookup',
+        'hooks': {'lookup': true},
+        'empty': <Object?>[],
+      },
+    });
+
+    // A value that is not a list cannot describe a grant set, so the plugin
+    // is treated as unconfigured and keeps the defaults.
+    expect(loaded.pluginGrantsFor('beats'), {'lookup'});
+    expect(loaded.pluginGrantsFor('hooks'), {'lookup'});
+    // An empty list is a real choice: no capabilities granted.
+    expect(loaded.pluginGrantsFor('empty'), isEmpty);
+  });
+
+  test('a numeric string version is read as that version', () {
+    // Version 2 stores launcher ids; under version 1 a bare `steam` would be
+    // dropped as a malformed game id.
+    final loaded = loadJson({
+      'version': '2',
+      'close_with_game': ['steam', 'steam:440'],
+    });
+    expect(loaded.closeWithGame, {'steam'});
+  });
+
+  test('launch option arguments round trip verbatim', () {
+    AppConfig(
+      launchOptions: {
+        'steam:1': const LaunchOptions(args: ['', ' two ']),
+      },
+    ).save(path);
+
+    // Argv words are significant: an empty word and its surrounding spaces
+    // must survive the round trip.
+    expect(AppConfig.load(path).launchOptionsFor('steam:1').args, [
+      '',
+      ' two ',
+    ]);
+  });
+
+  test('environment entries that are not strings are dropped', () {
+    final loaded = loadJson({
+      'launch_options': {
+        'steam:1': {
+          'env': {'GOOD': ' one ', 'NULL': null, 'BAD': 2, '': 'x'},
+        },
+      },
+    });
+
+    // Values stay exactly as written; nulls and numbers are not env values.
+    expect(loaded.launchOptionsFor('steam:1').env, {'GOOD': ' one '});
   });
 }

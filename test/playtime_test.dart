@@ -11,6 +11,7 @@ import 'package:omni_launcher/src/state/playtime_store.dart';
 import 'package:omni_launcher/src/util/proc.dart';
 import 'package:omni_launcher/src/ui/detail_panel.dart';
 import 'package:omni_launcher/src/ui/playtime.dart';
+import 'package:omni_launcher/src/ui/settings_view.dart';
 import 'package:omni_launcher/src/ui/theme.dart';
 
 /// A game that cannot be launched, for the "bookkeeping must not fail" case.
@@ -271,53 +272,64 @@ void main() {
       expect(find.text('0m'), findsOneWidget);
       expect(find.text('LAST PLAYED'), findsNothing);
     });
-    testWidgets('the detail panel can close the launcher with the game', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(420, 2400);
+    testWidgets('settings closes a launcher with its games', (tester) async {
+      tester.view.physicalSize = const Size(900, 2400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      final controller = build();
-      addTearDown(controller.dispose);
-      const game = Game(
-        id: 'flatpak:alpha',
-        key: 'alpha',
-        name: 'Alpha',
-        source: SourceKind.flatpak,
-        command: ['true'],
+      final controller = LibraryController(
+        configPath: configPath,
+        cachePath: cachePath,
+        config: AppConfig(appimageDirs: const []),
+        playtime: PlaytimeStore(path: playtimePath),
+        pluginDir: '${dir.path}/plugins',
       );
+      addTearDown(controller.dispose);
+      controller.games = [
+        const Game(
+          id: 'steam:alpha',
+          key: 'alpha',
+          name: 'Alpha',
+          source: SourceKind.steam,
+          command: ['true'],
+        ),
+        const Game(
+          id: 'flatpak:beta',
+          key: 'beta',
+          name: 'Beta',
+          source: SourceKind.flatpak,
+          command: ['true'],
+        ),
+      ];
+      // The store reads its catalogue when it is first shown; this test has no
+      // network, and a failure keeps it from asking.
+      controller.catalogFailure = 'offline';
 
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.dark,
-          home: Scaffold(
-            body: ListenableBuilder(
-              listenable: controller,
-              builder: (context, _) =>
-                  DetailPanel(controller: controller, game: game),
-            ),
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => SettingsView(controller: controller),
           ),
         ),
       );
+      await tester.pumpAndSettle();
 
-      final row = find.widgetWithText(
-        SwitchListTile,
-        'Close the launcher with the game',
-      );
+      // The launcher client gets a row; the flatpak game, run directly, does
+      // not.
+      final row = find.widgetWithText(SwitchListTile, 'Steam');
+      expect(find.widgetWithText(SwitchListTile, 'Flatpak'), findsNothing);
       expect(tester.widget<SwitchListTile>(row).value, isFalse);
 
       await tester.tap(row);
       await tester.pumpAndSettle();
 
       expect(tester.widget<SwitchListTile>(row).value, isTrue);
-      expect(controller.config.closesWithGame(game.id), isTrue);
-      expect(AppConfig.load(configPath).closesWithGame(game.id), isTrue);
-
-      await tester.tap(row);
-      await tester.pumpAndSettle();
-
-      expect(tester.widget<SwitchListTile>(row).value, isFalse);
-      expect(AppConfig.load(configPath).closesWithGame(game.id), isFalse);
+      expect(controller.config.closesWithGame(SourceKind.steam), isTrue);
+      expect(
+        AppConfig.load(configPath).closesWithGame(SourceKind.steam),
+        isTrue,
+      );
 
       // addTearDown runs after the pending-timer check, so the notice's
       // auto-expire timer is put out here instead.
@@ -413,26 +425,22 @@ void main() {
       expect(close(quietTicks: 1), isFalse);
     });
 
-    test('closing with the game is remembered per game', () {
+    test('closing with the game is chosen once per launcher', () {
       final controller = build();
       addTearDown(controller.dispose);
 
-      controller.setCloseWithGame('flatpak:alpha', true);
+      controller.setCloseWithGame(SourceKind.steam, true);
 
-      expect(controller.config.closesWithGame('flatpak:alpha'), isTrue);
-      expect(controller.config.closesWithGame('flatpak:beta'), isFalse);
-      expect(
-        AppConfig.load(configPath).closesWithGame('flatpak:alpha'),
-        isTrue,
-      );
+      // Every game the launcher starts shares the choice; another launcher
+      // is not affected.
+      expect(controller.config.closesWithGame(SourceKind.steam), isTrue);
+      expect(controller.config.closesWithGame(SourceKind.lutris), isFalse);
+      expect(AppConfig.load(configPath).closeWithGame, {'steam'});
 
-      controller.setCloseWithGame('flatpak:alpha', false);
+      controller.setCloseWithGame(SourceKind.steam, false);
 
-      expect(controller.config.closesWithGame('flatpak:alpha'), isFalse);
-      expect(
-        AppConfig.load(configPath).closesWithGame('flatpak:alpha'),
-        isFalse,
-      );
+      expect(controller.config.closesWithGame(SourceKind.steam), isFalse);
+      expect(AppConfig.load(configPath).closeWithGame, isEmpty);
     });
 
     /// Waits for [condition] to hold, or gives up after [timeout].
@@ -457,16 +465,16 @@ void main() {
       final script = File('${dir.path}/wrapper.sh')
         ..writeAsStringSync(
           'echo \$\$ > ${pidFile.path}\n'
-          "trap 'echo term > ${termFile.path}' TERM\n"
+          "trap 'echo term > ${termFile.path}; exit 0' TERM\n"
           'mkfifo ${dir.path}/fifo\n'
           'sleep 1\n'
           'read line < ${dir.path}/fifo\n',
         );
       return Game(
-        id: 'manual:wrapper',
+        id: 'steam:wrapper',
         key: 'wrapper',
         name: 'Wrapper',
-        source: SourceKind.manual,
+        source: SourceKind.steam,
         command: ['sh', script.path],
       );
     }
@@ -477,7 +485,7 @@ void main() {
       final pidFile = File('${dir.path}/pid');
       final termFile = File('${dir.path}/term');
       final game = wrapperGame(pidFile, termFile);
-      controller.setCloseWithGame(game.id, true);
+      controller.setCloseWithGame(game.source, true);
 
       await controller.launch(game);
       expect(await waitFor(() => pidFile.existsSync()), isTrue);
@@ -486,6 +494,67 @@ void main() {
 
       expect(await waitFor(() => termFile.existsSync()), isTrue);
       expect(termFile.readAsStringSync().trim(), 'term');
+    });
+
+    test('stop asks the game to exit and is not a quick exit', () async {
+      final controller = build(pollInterval: const Duration(milliseconds: 40));
+      addTearDown(controller.dispose);
+      final pidFile = File('${dir.path}/pid');
+      final termFile = File('${dir.path}/term');
+      final game = wrapperGame(pidFile, termFile);
+
+      await controller.launch(game);
+      expect(await waitFor(() => pidFile.existsSync()), isTrue);
+      expect(controller.isRunning(game.id), isTrue);
+
+      controller.stop(game);
+      expect(controller.isStopping(game.id), isTrue);
+      expect(await waitFor(() => termFile.existsSync()), isTrue);
+      expect(await waitFor(() => !controller.isRunning(game.id)), isTrue);
+      expect(controller.isStopping(game.id), isFalse);
+      expect(controller.quickExitFor(game.id), isNull);
+    });
+
+    test('a second launch while running does nothing', () async {
+      final controller = build(pollInterval: const Duration(milliseconds: 40));
+      addTearDown(controller.dispose);
+      const game = Game(
+        id: 'steam:dup',
+        key: 'dup',
+        name: 'Dup',
+        source: SourceKind.steam,
+        command: ['sleep', '30'],
+      );
+
+      await controller.launch(game);
+      expect(await waitFor(() => controller.isRunning(game.id)), isTrue);
+      await controller.launch(game);
+      final log = File('${dir.path}/launch.log').readAsStringSync();
+      expect('launched ${game.id}'.allMatches(log).length, 1);
+      expect(controller.notice, contains('already running'));
+
+      controller.stop(game);
+      expect(await waitFor(() => !controller.isRunning(game.id)), isTrue);
+    });
+
+    test('a game that exits at once keeps its exit and its log', () async {
+      final controller = build(pollInterval: const Duration(milliseconds: 40));
+      addTearDown(controller.dispose);
+      const game = Game(
+        id: 'steam:quick',
+        key: 'quick',
+        name: 'Quick',
+        source: SourceKind.steam,
+        command: ['false'],
+      );
+
+      await controller.launch(game);
+      expect(
+        await waitFor(() => controller.quickExitFor(game.id) != null),
+        isTrue,
+      );
+      expect(controller.latestQuickExit?.gameId, game.id);
+      expect(controller.launchLogFor(game), contains('launched ${game.id}'));
     });
 
     test('a game that did not ask is left alone', () async {

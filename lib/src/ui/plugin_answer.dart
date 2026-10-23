@@ -100,10 +100,18 @@ class PluginSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canLookUp = controller.pluginGranted(plugin, PluginCapability.lookup);
+    final canAct = controller.pluginGranted(plugin, PluginCapability.actions);
+    final actions = canAct ? plugin.actions : const <PluginAction>[];
+    if (!canLookUp && actions.isEmpty) return const SizedBox.shrink();
+
     // The panel always asks about the game it is showing, so the game's id is
     // the query's id; the query itself is only built when the button is used.
     final running = controller.isLookingUp(plugin.id, game.id);
     final answer = controller.pluginAnswer(plugin.id, game.id);
+    // Once the plugin has answered, the answer is the section: the button
+    // only stays for a lookup that failed, where it is the way to retry.
+    final answered = answer != null && answer.ok;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -119,20 +127,125 @@ class PluginSection extends StatelessWidget {
             ),
           ),
         ),
-        OutlinedButton.icon(
-          onPressed: running
-              ? null
-              : () => controller.lookUp(plugin, PluginQuery.forGame(game)),
-          icon: const Icon(Icons.travel_explore, size: 18),
-          label: Text(plugin.action, overflow: TextOverflow.ellipsis),
-        ),
-        const SizedBox(height: 12),
-        PluginAnswerView(
-          answer: answer,
-          running: running,
-          onOpenUrl: controller.openUrl,
-        ),
+        if (canLookUp) ...[
+          if (!answered) ...[
+            OutlinedButton.icon(
+              onPressed: running
+                  ? null
+                  : () => controller.lookUp(plugin, PluginQuery.forGame(game)),
+              icon: const Icon(Icons.travel_explore, size: 18),
+              label: Text(plugin.action, overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(height: 12),
+          ],
+          PluginAnswerView(
+            answer: answer,
+            running: running,
+            onOpenUrl: controller.openUrl,
+          ),
+        ],
+        if (actions.isNotEmpty) ...[
+          if (canLookUp && !answered) const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final action in actions)
+                _ActionButton(
+                  controller: controller,
+                  plugin: plugin,
+                  action: action,
+                  game: game,
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }
+}
+
+/// One action a plugin offers, with its own running spinner.
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.controller,
+    required this.plugin,
+    required this.action,
+    required this.game,
+  });
+
+  final LibraryController controller;
+  final Plugin plugin;
+  final PluginAction action;
+  final Game game;
+
+  @override
+  Widget build(BuildContext context) {
+    final running = controller.isPluginActionRunning(plugin, action, game);
+    return OutlinedButton.icon(
+      onPressed: running
+          ? null
+          : () async {
+              final answer = await controller.runPluginAction(
+                plugin,
+                action,
+                game,
+              );
+              if (answer == null || !context.mounted) return;
+              await showPluginResultDialog(
+                context,
+                plugin: plugin,
+                action: action,
+                answer: answer,
+                onOpenUrl: controller.openUrl,
+              );
+            },
+      icon: running
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.play_circle_outline, size: 18),
+      label: Text(action.name, overflow: TextOverflow.ellipsis),
+    );
+  }
+}
+
+/// What an action answered, in the same shape as a lookup.
+Future<void> showPluginResultDialog(
+  BuildContext context, {
+  required Plugin plugin,
+  required PluginAction action,
+  required PluginAnswer answer,
+  ValueChanged<String>? onOpenUrl,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: context.palette.surface,
+      title: Text('${plugin.name}: ${action.name}'),
+      // A plugin may answer with many fields: the dialog keeps a bounded
+      // height and scrolls instead of overflowing the screen.
+      content: SizedBox(
+        width: 500,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 420),
+          child: SingleChildScrollView(
+            child: PluginAnswerView(
+              answer: answer,
+              running: false,
+              onOpenUrl: onOpenUrl,
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 }

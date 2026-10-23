@@ -169,6 +169,49 @@ game:
       expect(parsed['slug'], 'only-slug');
       expect(parsed.containsKey('name'), isFalse);
     });
+
+    test('reads the block list and inline categories', () {
+      expect(
+        parseGameCategories('''
+slug: my-game
+categories:
+- Action
+- "FPS"
+- Action
+game:
+  name: Nested
+'''),
+        ['Action', 'FPS'],
+      );
+      expect(parseGameCategories('categories: [RPG, Strategy]\n'), [
+        'RPG',
+        'Strategy',
+      ]);
+      expect(parseGameCategories('slug: only\n'), isEmpty);
+    });
+
+    test('ignores trailing comments outside quotes', () {
+      expect(
+        parseGameCategories('''
+categories:
+- Action # genre
+- "Puzzle #1"
+- 'C# tactic'  # a hash inside the name is not a comment
+'''),
+        ['Action', 'Puzzle #1', 'C# tactic'],
+      );
+      expect(parseGameCategories('categories: [Action, FPS] # genres\n'), [
+        'Action',
+        'FPS',
+      ]);
+    });
+
+    test('splits inline lists on commas outside quotes', () {
+      expect(parseGameCategories('categories: ["Action, FPS", RPG]\n'), [
+        'Action, FPS',
+        'RPG',
+      ]);
+    });
   });
 
   group('game model', () {

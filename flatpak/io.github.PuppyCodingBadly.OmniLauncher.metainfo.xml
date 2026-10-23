@@ -72,6 +72,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.3" date="2026-10-22">
+      <description>
+        <p>A feature and bug-check release. Games show a live playing state with Stop and quick-exit diagnostics; per-game launch options add a wrapper, arguments, environment and working folder; Steam collections and Lutris categories become tags with status filters; search ranks acronyms, tags and paths and gains a command palette; Steam update and missing-install state is shown; plugins can offer actions and launch hooks under per-capability grants; and the window can hide while a game runs and returns when it exits, with tray support and focus rescans. The audit pass fixes plugin grant loss, concurrent plugin runs and stdin hangs, Steam update flags and fake download rows, Lutris categories from pga.db, launch-option data loss, wrapper preflight, stop and rescan timers, and hand-off launcher exits.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-10-22">
       <description>
         <p>A bug-fix and responsiveness release. Source discovery now runs concurrently; Steam non-Steam shortcuts match real quoted shortcut paths, no longer hijack a second game with the same name, and keep Steam Input and playtime; Flatpak builds discover their games and launch with the configured working directory again. Cover art and API calls are bounded in time and size, cached images are written atomically, an offline first run no longer suppresses Steam covers for a month, and SteamGridDB misses are remembered instead of re-queried. Plugins are killed on the host when the launcher runs in a sandbox, interrupted installs are not loaded, and archive and HowLongToBeat inputs are bounded. The wall's keyboard and gamepad walk reaches tiles beyond the viewport, transient errors stop resurfacing, and sorting, filtering, scans and config writes do less repeated work.</p>

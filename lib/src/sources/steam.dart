@@ -6,6 +6,7 @@ import '../model/game.dart';
 import '../util/proc.dart';
 import '../util/vdf.dart';
 import 'source.dart';
+import 'steam_collections.dart';
 import 'steam_shortcuts.dart';
 
 /// Steam runtime/tooling entries that are not games.
@@ -16,8 +17,30 @@ const List<String> _skipPrefixes = [
   'Proton',
 ];
 
-/// Fully-installed bit inside `StateFlags`.
+/// `StateFlags` bits (SteamKit's `EAppState`).
+const int _stateUpdateRequired = 2;
 const int _stateInstalled = 4;
+const int _stateFilesMissing = 32;
+const int _stateFilesCorrupt = 128;
+const int _stateUninstalling = 2048;
+
+/// Bits that mean Steam is working on the install right now.
+///
+/// `AppRunning` (8192), `BackupRunning` (4096) and `Uninstalling` (2048) are
+/// deliberately absent: the app is not being downloaded or written, so a
+/// panel that showed a progress row for them would be lying.
+const int _stateUpdating =
+    256 | // update running
+    512 | // update paused
+    1024 | // update started
+    65536 | // reconfiguring
+    131072 | // validating
+    262144 | // adding files
+    524288 | // preallocating
+    1048576 | // downloading
+    2097152 | // staging
+    4194304 | // committing
+    8388608; // update stopping
 
 final RegExp _manifestName = RegExp(r'^appmanifest_.*\.acf$');
 
@@ -128,6 +151,7 @@ Game? _game(
   String library,
   List<String> prefix,
   String? cover,
+  Set<String> tags,
 ) {
   final rawName = state['name'];
   final name = rawName == null ? '' : '$rawName';
@@ -137,10 +161,28 @@ Game? _game(
   );
   if (flags == null) return null;
   if (flags & _stateInstalled == 0) return null;
+  // An uninstall in progress is on its way out; keeping it would only make
+  // the game come and go between scans.
+  if (flags & _stateUninstalling != 0) return null;
   final size =
       _asInt(state.containsKey('SizeOnDisk') ? state['SizeOnDisk'] : '0') ?? 0;
   final rawDir = state['installdir'];
   final installdir = (rawDir == null || '$rawDir'.isEmpty) ? '' : '$rawDir';
+  final updating = flags & _stateUpdating != 0;
+  final extra = <String, Object?>{
+    'appid': appid,
+    'size': size,
+    'library': library,
+    if (updating) 'updating': true,
+    if (flags & _stateUpdateRequired != 0) 'update_required': true,
+    if (flags & (_stateFilesMissing | _stateFilesCorrupt) != 0) 'broken': true,
+    // Steam leaves the byte counters in a finished manifest; only a live
+    // update makes them meaningful, or the panel shows a fake Download row.
+    if (updating) 'bytes_downloaded': ?_asInt(state['BytesDownloaded']),
+    if (updating) 'bytes_to_download': ?_asInt(state['BytesToDownload']),
+    'last_updated': ?_asInt(state['LastUpdated']),
+    if (tags.isNotEmpty) 'tags': tags.toList()..sort(),
+  };
   return Game(
     id: 'steam:$appid',
     key: appid,
@@ -150,7 +192,7 @@ Game? _game(
     cover: cover,
     path: _join(_join(_join(library, 'steamapps'), 'common'), installdir),
     subtitle: 'Steam',
-    extra: {'appid': appid, 'size': size, 'library': library},
+    extra: extra,
   );
 }
 
@@ -168,6 +210,9 @@ class SteamSource extends GameSource {
   @override
   Future<List<Game>> discover(AppConfig cfg) async {
     final prefix = await _launchPrefix();
+    // Steam collections are the user's tags; they live beside the library, so
+    // the same roots answer both questions.
+    final collections = await steamCollectionTags(roots);
     final games = <Game>[];
     final seenRoots = <String>{};
     final seenLibraries = <String>{};
@@ -215,6 +260,7 @@ class SteamSource extends GameSource {
             library,
             prefix,
             await _coverPath(root, appid),
+            collections[appid] ?? const <String>{},
           );
           if (game != null) games.add(game);
         }

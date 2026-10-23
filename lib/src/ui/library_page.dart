@@ -5,8 +5,11 @@ import 'package:flutter/services.dart';
 
 import '../model/game.dart';
 import '../state/library_controller.dart';
+import 'command_palette.dart';
 import 'detail_panel.dart';
+import 'filter_dialog.dart';
 import 'game_tile.dart';
+import 'launch_log.dart';
 import 'settings_view.dart';
 import 'theme.dart';
 
@@ -68,6 +71,28 @@ class _LibraryPageState extends State<LibraryPage> {
   /// The game the detail panel showed last, kept through its exit animation
   /// so the panel never animates out empty.
   Game? _lastShown;
+
+  /// The quick exit the status bar already offered, so a rebuild does not
+  /// offer it again.
+  DateTime? _lastExitShown;
+
+  void _openPalette(BuildContext context, LibraryController controller) {
+    showCommandPalette(
+      context,
+      controller: controller,
+      onSettings: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsView(controller: controller),
+        ),
+      ),
+      onAddGame: () async {
+        final entry = await showAddGameDialog(context);
+        if (entry != null) {
+          await controller.addManual(entry.name, entry.command, cwd: entry.cwd);
+        }
+      },
+    );
+  }
 
   KeyEventResult _onSearchKey(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent &&
@@ -206,6 +231,8 @@ class _LibraryPageState extends State<LibraryPage> {
             _FocusSearchIntent(),
         SingleActivator(LogicalKeyboardKey.keyR, control: true):
             _RescanIntent(),
+        SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _PaletteIntent(),
         SingleActivator(LogicalKeyboardKey.escape): _ClearIntent(),
       },
       child: Actions(
@@ -219,6 +246,12 @@ class _LibraryPageState extends State<LibraryPage> {
           _RescanIntent: CallbackAction<_RescanIntent>(
             onInvoke: (_) {
               controller.rescan();
+              return null;
+            },
+          ),
+          _PaletteIntent: CallbackAction<_PaletteIntent>(
+            onInvoke: (_) {
+              _openPalette(context, controller);
               return null;
             },
           ),
@@ -259,6 +292,7 @@ class _LibraryPageState extends State<LibraryPage> {
     // Remember the open game so the detail panel can animate out with its
     // content still on it.
     _lastShown = controller.selected ?? _lastShown;
+    _offerQuickExit(context, controller);
     return Scaffold(
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -269,6 +303,9 @@ class _LibraryPageState extends State<LibraryPage> {
               builder: (context, constraints) => Column(
                 children: [
                   _header(controller),
+                  if (controller.tagFilter.isNotEmpty ||
+                      controller.smartFilters.isNotEmpty)
+                    _filterBar(controller),
                   // A window this short has no room for a strip above the
                   // wall: the shelf steps aside rather than pushing the
                   // wall off the bottom of the page.
@@ -324,6 +361,88 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
+  /// After a game exits right away, offer its log instead of letting the
+  /// launch line scroll past unnoticed.
+  void _offerQuickExit(BuildContext context, LibraryController controller) {
+    final exit = controller.latestQuickExit;
+    if (exit == null || exit.at == _lastExitShown) return;
+    Game? match;
+    for (final entry in controller.games) {
+      if (entry.id == exit.gameId) {
+        match = entry;
+        break;
+      }
+    }
+    if (match == null) return;
+    final game = match;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Another build in the same frame queued its own callback for this
+      // exit; the first one that gets here owns the bar.
+      if (_lastExitShown == exit.at) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      if (messenger == null) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('${game.name} exited ${_exitAfter(exit.after)}'),
+          action: SnackBarAction(
+            label: 'View log',
+            onPressed: () => showLaunchLogDialog(
+              context,
+              controller: controller,
+              game: game,
+            ),
+          ),
+        ),
+      );
+      // Marked only once the bar is actually up: a frame with no messenger
+      // leaves the offer for the next build to retry.
+      _lastExitShown = exit.at;
+    });
+  }
+
+  /// How long the launch lasted, phrased for the bar: a game that quit at
+  /// once reads "under a second", never a bare "0s".
+  static String _exitAfter(Duration after) => after < const Duration(seconds: 1)
+      ? 'under a second after launch'
+      : 'after ${after.inSeconds}s';
+
+  /// The filters in effect, each removable in place.
+  Widget _filterBar(LibraryController controller) {
+    final palette = context.palette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 0, 28, 10),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Icon(Icons.filter_alt_outlined, size: 16, color: palette.textDim),
+          for (final tag in controller.tagFilter)
+            InputChip(
+              label: Text(tag),
+              visualDensity: VisualDensity.compact,
+              onDeleted: () => controller.toggleTag(tag),
+            ),
+          for (final filter in controller.smartFilters)
+            InputChip(
+              label: Text(filter.label),
+              visualDensity: VisualDensity.compact,
+              onDeleted: () => controller.toggleSmartFilter(filter),
+            ),
+          TextButton(
+            onPressed: () {
+              controller.clearTags();
+              controller.clearSmartFilters();
+            },
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _header(LibraryController controller) {
     final search = TextField(
       controller: _search,
@@ -347,7 +466,15 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
       ),
     );
+    final activeFilters =
+        controller.tagFilter.length + controller.smartFilters.length;
     final actions = <Widget>[
+      IconButton.filledTonal(
+        tooltip: activeFilters == 0 ? 'Filters' : 'Filters ($activeFilters)',
+        isSelected: activeFilters > 0,
+        onPressed: () => showFilterDialog(context, controller: controller),
+        icon: const Icon(Icons.filter_alt_outlined),
+      ),
       _sortControl(controller),
       IconButton.filledTonal(
         tooltip: _selecting ? 'Cancel selection (Esc)' : 'Select games',
@@ -599,26 +726,36 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     if (games.isEmpty) {
       final palette = context.palette;
-      final searching = controller.query.isNotEmpty;
+      // A tag or smart filter narrows an existing library: the empty wall
+      // means "nothing passes the filter", not "there is nothing to play",
+      // so it must not offer a rescan as the cure.
+      final filtered =
+          controller.query.isNotEmpty ||
+          controller.tagFilter.isNotEmpty ||
+          controller.smartFilters.isNotEmpty;
+      final query = controller.query;
+      final detail = !filtered
+          ? 'Try Rescan, or add a game by hand.'
+          : query.isNotEmpty
+          ? 'No game matches "$query".'
+          : 'No game matches these filters.';
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              searching ? Icons.search_off : Icons.videogame_asset_off,
+              filtered ? Icons.search_off : Icons.videogame_asset_off,
               size: 44,
               color: palette.textDim,
             ),
             const SizedBox(height: 14),
             Text(
-              searching ? 'No matches' : 'No games yet',
+              filtered ? 'No matches' : 'No games yet',
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
             ),
             const SizedBox(height: 6),
             Text(
-              searching
-                  ? 'No game matches "${controller.query}".'
-                  : 'Try Rescan, or add a game by hand.',
+              detail,
               style: TextStyle(color: palette.textDim, fontSize: 13),
             ),
           ],
@@ -1030,6 +1167,10 @@ class _FocusSearchIntent extends Intent {
 
 class _RescanIntent extends Intent {
   const _RescanIntent();
+}
+
+class _PaletteIntent extends Intent {
+  const _PaletteIntent();
 }
 
 class _ClearIntent extends Intent {

@@ -145,15 +145,21 @@ class Host {
 
   /// [argv] ready to run: on the host when sandboxed.
   ///
-  /// [directory] is the folder to run in. It has to be passed to the host
-  /// helper as well, since the sandbox's own working directory means nothing
-  /// there.
-  static List<String> command(List<String> argv, {String? directory}) =>
-      inFlatpak
+  /// [directory] is the folder to run in, and [environment] the extra
+  /// variables the game wants. Both have to be passed to the host helper as
+  /// well, since the sandbox's own working directory and environment are not
+  /// the game's.
+  static List<String> command(
+    List<String> argv, {
+    String? directory,
+    Map<String, String> environment = const {},
+  }) => inFlatpak
       ? [
           _spawnForTest,
           '--host',
           if (directory != null) '--directory=$directory',
+          for (final entry in environment.entries)
+            '--env=${entry.key}=${entry.value}',
           ...argv,
         ]
       : argv;

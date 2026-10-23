@@ -2,13 +2,25 @@ import 'dart:io';
 
 import 'host.dart';
 import 'model/game.dart';
+import 'model/launch_options.dart';
 import 'paths.dart';
 import 'util/proc.dart';
 import 'util/shell.dart';
 
 /// Starting games: argv resolution, detaching and logging.
 class Launcher {
-  static String formatCommand(Game game) => quoteCommand(game.command);
+  /// The argv [game] would actually run, with the user's [options] folded in:
+  /// wrapper first, the source's command, then the extra arguments.
+  static List<String> effectiveCommand(
+    Game game, {
+    LaunchOptions options = const LaunchOptions(),
+  }) => expandPaths([...options.wrapper, ...game.command, ...options.args]);
+
+  /// [game]'s effective argv, quoted for display and copying.
+  static String formatCommand(
+    Game game, {
+    LaunchOptions options = const LaunchOptions(),
+  }) => quoteCommand(effectiveCommand(game, options: options));
 
   /// Where the launch line and the game's own output are written.
   ///
@@ -153,36 +165,78 @@ class Launcher {
   /// `exec` keeps the game's pid, the redirection keeps its output in the
   /// log. The host gets the directory too: the sandbox's own working
   /// directory means nothing there.
-  static List<String> launchScript(List<String> command, {String? cwd}) {
+  static List<String> launchScript(
+    List<String> command, {
+    String? cwd,
+    Map<String, String> environment = const {},
+  }) {
     final script =
         'exec ${quoteCommand(command)} >> ${quoteCommand([logPath])} 2>&1';
-    return Host.command(['sh', '-c', script], directory: cwd);
+    return Host.command(
+      ['sh', '-c', script],
+      directory: cwd,
+      environment: environment,
+    );
   }
 
   /// Start [game] detached from us; returns its pid.
-  static Future<int?> launch(Game game) async {
+  ///
+  /// [options] is the user's per-game additions: wrapper, extra arguments,
+  /// environment and an optional working folder. An explicit folder that does
+  /// not exist is an error rather than a silent fallback: the user asked for
+  /// it, so a game started somewhere else would be a surprise.
+  static Future<int?> launch(
+    Game game, {
+    LaunchOptions options = const LaunchOptions(),
+  }) async {
     if (!game.launchable) {
       throw StateError('${game.name}: no launch command known');
     }
-    final cwd = game.cwd != null && Directory(game.cwd!).existsSync()
-        ? game.cwd
-        : null;
-    final command = expandPaths(game.command);
-    ensureExecutable(command.first, cwd: cwd);
-    if (resolveProgram(command, cwd: cwd) == null) {
+    // The dialog accepts `~` and `$VAR`; a folder is one word, so the same
+    // expansion the argv gets applies.
+    final requestedCwd = options.cwd == null ? null : _expandWord(options.cwd!);
+    final cwd = requestedCwd != null
+        ? (Directory(requestedCwd).existsSync()
+              ? requestedCwd
+              : throw StateError(
+                  '${game.name}: working folder not found: $requestedCwd',
+                ))
+        : (game.cwd != null && Directory(game.cwd!).existsSync()
+              ? game.cwd
+              : null);
+    final command = effectiveCommand(game, options: options);
+    // The launch line starts the wrapper when there is one, but both programs
+    // are checked: a wrapper cannot hide a missing game binary, and a missing
+    // wrapper would otherwise only fail in the detached shell.
+    final gameProgram = expandPaths(game.command).first;
+    final wrapperProgram = options.wrapper.isEmpty
+        ? null
+        : expandPaths(options.wrapper).first;
+    if (wrapperProgram != null) {
+      ensureExecutable(wrapperProgram, cwd: cwd);
+      if (resolveProgram([wrapperProgram], cwd: cwd) == null) {
+        throw StateError('${game.name}: wrapper not found: $wrapperProgram');
+      }
+    }
+    ensureExecutable(gameProgram, cwd: cwd);
+    if (resolveProgram([gameProgram], cwd: cwd) == null) {
       throw StateError(
         '${game.name}: command not found: ${game.command.first}',
       );
     }
     AppPaths.ensureDirs();
-    final host = launchScript(command, cwd: cwd);
+    final host = launchScript(command, cwd: cwd, environment: options.env);
     final process = await Process.start(
       host.first,
       host.sublist(1),
       workingDirectory: cwd,
+      environment: options.env.isEmpty ? null : options.env,
       mode: ProcessStartMode.detached,
     );
-    log('launched ${game.id} pid=${process.pid} :: ${formatCommand(game)}');
+    log(
+      'launched ${game.id} pid=${process.pid} :: '
+      '${formatCommand(game, options: options)}',
+    );
     return process.pid;
   }
 

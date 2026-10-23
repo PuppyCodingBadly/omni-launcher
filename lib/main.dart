@@ -35,6 +35,7 @@ class _OmniLauncherAppState extends State<OmniLauncherApp>
   /// one of these two moved — anything else is the page's business.
   late AppThemeMode _themeMode = _controller.config.themeMode;
   late AppAccent _accent = _controller.config.accent;
+  late bool _trayIcon = _controller.config.trayIcon;
 
   /// Debounce for window-size writes: a drag-resize reports a size per frame,
   /// and each of them must not become a config write.
@@ -49,6 +50,26 @@ class _OmniLauncherAppState extends State<OmniLauncherApp>
     // The shipped plugins are installed (or refreshed) before the folder is
     // read, so a new build's plugin arrives without anyone copying files.
     _controller.reloadPlugins();
+    // The window steps aside while a game runs, and comes back when it ends,
+    // when the user asked for that under Settings → Window. A hand-off
+    // launcher's exit is not the game's, so it must not move the window.
+    _controller.onGameStarted = (game) {
+      if (_controller.config.minimizeOnLaunch &&
+          LibraryController.tracksProcess(game)) {
+        unawaited(WindowSize.minimize());
+      }
+    };
+    _controller.onGameEnded = (game) {
+      if (_controller.config.minimizeOnLaunch &&
+          LibraryController.tracksProcess(game) &&
+          !_controller.hasRunningGames) {
+        unawaited(WindowSize.show());
+      }
+    };
+    // Coming back to the launcher is the moment a game installed meanwhile
+    // can appear; the controller throttles a focus that follows a scan.
+    WindowSize.listenForFocus(() => unawaited(_controller.rescanIfStale()));
+    unawaited(WindowSize.setTrayIcon(_trayIcon));
     _syncWindowTheme();
     // The remembered window size goes back once the first frame is up: the
     // window has to exist before GTK can be asked to resize it.
@@ -82,6 +103,11 @@ class _OmniLauncherAppState extends State<OmniLauncherApp>
     _syncWindowTheme();
     final mode = _controller.config.themeMode;
     final accent = _controller.config.accent;
+    final tray = _controller.config.trayIcon;
+    if (tray != _trayIcon) {
+      _trayIcon = tray;
+      unawaited(WindowSize.setTrayIcon(tray));
+    }
     if (mode == _themeMode && accent == _accent) return;
     setState(() {
       _themeMode = mode;

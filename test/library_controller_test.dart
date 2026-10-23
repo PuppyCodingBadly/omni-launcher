@@ -8,6 +8,7 @@ import 'package:omni_launcher/src/config.dart';
 import 'package:omni_launcher/src/covers.dart';
 import 'package:omni_launcher/src/launcher.dart';
 import 'package:omni_launcher/src/model/game.dart';
+import 'package:omni_launcher/src/model/launch_options.dart';
 import 'package:omni_launcher/src/plugins/plugin.dart';
 import 'package:omni_launcher/src/plugins/plugin_runner.dart';
 import 'package:omni_launcher/src/sources/source.dart';
@@ -78,6 +79,137 @@ void main() {
 
     controller.setQuery('nothing-here');
     expect(controller.visibleGames, isEmpty);
+  });
+
+  test('search ranks an acronym and reaches tags', () {
+    controller.games = [
+      game('steam:1', 'Team Fortress 2', SourceKind.steam).copyWith(
+        extra: const {
+          'tags': ['Shooter'],
+        },
+      ),
+      game('steam:3', 'Accounting', SourceKind.steam),
+    ];
+
+    expect(controller.searchGames('tf2').map((entry) => entry.name).toList(), [
+      'Team Fortress 2',
+    ]);
+    // Subsequence and tags both count.
+    expect(
+      controller.searchGames('accntg').map((entry) => entry.name).toList(),
+      ['Accounting'],
+    );
+    expect(
+      controller.searchGames('shooter').map((entry) => entry.name).toList(),
+      ['Team Fortress 2'],
+    );
+    expect(controller.searchGames('  '), isEmpty);
+  });
+
+  test('tags merge source and user tags, and filter the wall', () {
+    controller.games = [
+      game('steam:1', 'Alpha', SourceKind.steam).copyWith(
+        extra: const {
+          'tags': ['Action'],
+        },
+      ),
+      game('steam:3', 'Beta', SourceKind.steam),
+    ];
+
+    controller.setTags('steam:3', ['Puzzle', 'puzzle']);
+    expect(controller.tagsFor(controller.games[1]), ['Puzzle']);
+    expect(controller.allTags, ['Action', 'Puzzle']);
+
+    controller.toggleTag('Action');
+    expect(controller.visibleGames.map((entry) => entry.id), ['steam:1']);
+
+    controller.toggleTag('Action');
+    controller.toggleTag('Puzzle');
+    expect(controller.visibleGames.map((entry) => entry.id), ['steam:3']);
+    expect(AppConfig.load(configPath).tagsFor('steam:3'), ['Puzzle']);
+
+    // Search matches the tags too.
+    controller.clearTags();
+    controller.setQuery('puzzle');
+    expect(controller.visibleGames.map((entry) => entry.id), ['steam:3']);
+  });
+
+  test('smart filters read playtime and missing state', () {
+    // Its own controller with a temporary playtime file: the setUp one would
+    // write the real ~/.local/state history.
+    final local = LibraryController(
+      configPath: configPath,
+      playtime: PlaytimeStore(path: '${dir.path}/smart-playtime.json'),
+      config: AppConfig(),
+    );
+    addTearDown(local.dispose);
+    final played = game('steam:1', 'Alpha', SourceKind.steam);
+    final missing = game(
+      'steam:3',
+      'Beta',
+      SourceKind.steam,
+    ).copyWith(extra: const {'missing': true});
+    local.games = [played, missing];
+    final at = DateTime(2026, 1, 1);
+    local.playtime.begin(played.id, at);
+    local.playtime.end(played.id, at.add(const Duration(hours: 1)));
+
+    local.toggleSmartFilter(SmartFilter.unplayed);
+    expect(local.visibleGames.map((entry) => entry.id), ['steam:3']);
+
+    local.toggleSmartFilter(SmartFilter.unplayed);
+    local.toggleSmartFilter(SmartFilter.missing);
+    expect(local.visibleGames.map((entry) => entry.id), ['steam:3']);
+  });
+
+  test('tracksProcess tells hand-off launchers from the game itself', () {
+    Game withCommand(List<String> command) => Game(
+      id: 'steam:1',
+      key: '1',
+      name: 'Alpha',
+      source: SourceKind.steam,
+      command: command,
+    );
+
+    // Steam's hand-off exits once the real game is started.
+    expect(
+      LibraryController.tracksProcess(
+        withCommand(const ['/usr/bin/steam', '-applaunch', '1']),
+      ),
+      isFalse,
+    );
+    // The desktop-portal shims do the same.
+    expect(
+      LibraryController.tracksProcess(
+        withCommand(const ['/usr/bin/xdg-open', 'steam://run/1']),
+      ),
+      isFalse,
+    );
+    // A command that is the game stays watched.
+    expect(
+      LibraryController.tracksProcess(
+        withCommand(const ['/bin/sh', '-c', 'true']),
+      ),
+      isTrue,
+    );
+  });
+
+  test('launch options are stored per game and removed when empty', () {
+    controller.setLaunchOptions(
+      'steam:1',
+      const LaunchOptions(wrapper: ['gamemoderun'], env: {'FOO': 'bar'}),
+    );
+    expect(controller.config.launchOptionsFor('steam:1').wrapper, [
+      'gamemoderun',
+    ]);
+    expect(
+      controller.commandFor(controller.visibleGames.first),
+      contains('gamemoderun'),
+    );
+
+    controller.setLaunchOptions('steam:1', const LaunchOptions());
+    expect(controller.config.launchOptionsFor('steam:1').isEmpty, isTrue);
+    expect(AppConfig.load(configPath).launchOptions, isEmpty);
   });
 
   test('source filters toggle on and off', () {
@@ -593,6 +725,92 @@ void main() {
     expect(controller.recentlyPlayed(visible: const []), isEmpty);
   });
 
+  test('closing with the game is chosen per launcher and persisted', () {
+    controller.setCloseWithGame(SourceKind.steam, true);
+    expect(controller.config.closesWithGame(SourceKind.steam), isTrue);
+    expect(controller.config.closesWithGame(SourceKind.lutris), isFalse);
+    expect(AppConfig.load(configPath).closeWithGame, {'steam'});
+
+    controller.setCloseWithGame(SourceKind.steam, false);
+    expect(AppConfig.load(configPath).closeWithGame, isEmpty);
+
+    // A direct source has no launcher window to close, so it cannot be set.
+    controller.setCloseWithGame(SourceKind.flatpak, true);
+    expect(controller.config.closesWithGame(SourceKind.flatpak), isFalse);
+    expect(controller.config.closeWithGame, isEmpty);
+    expect(AppConfig.load(configPath).closeWithGame, isEmpty);
+  });
+
+  test('a focus rescan is skipped while the library is fresh', () async {
+    final source = _ListSource([game('steam:1', 'Alpha', SourceKind.steam)]);
+    final scan = LibraryController(
+      configPath: configPath,
+      cachePath: '${dir.path}/focus-games.json',
+      config: AppConfig(appimageDirs: const []),
+      playtime: PlaytimeStore(path: '${dir.path}/focus-playtime.json'),
+      sources: [source],
+    );
+    addTearDown(scan.dispose);
+
+    scan.lastScan = DateTime.now();
+    await scan.rescanIfStale();
+    expect(source.discoveries, 0);
+
+    scan.lastScan = DateTime.now().subtract(
+      LibraryController.autoRescanAge + const Duration(seconds: 1),
+    );
+    await scan.rescanIfStale();
+    expect(scan.status, LibraryStatus.ready);
+    expect(scan.games.map((game) => game.id), ['steam:1']);
+  });
+
+  test(
+    'a played game survives a missing source, and can be forgotten',
+    () async {
+      final source = _ListSource([game('steam:1', 'Alpha', SourceKind.steam)]);
+      final scan = LibraryController(
+        configPath: configPath,
+        cachePath: '${dir.path}/missing-games.json',
+        config: AppConfig(appimageDirs: const []),
+        playtime: PlaytimeStore(path: '${dir.path}/missing-playtime.json'),
+        sources: [source],
+      );
+      addTearDown(scan.dispose);
+      await scan.load(refresh: true);
+      final at = DateTime(2026, 1, 1);
+      scan.playtime.begin('steam:1', at);
+      scan.playtime.end('steam:1', at.add(const Duration(hours: 2)));
+
+      source.games = [];
+      await scan.rescan();
+
+      expect(scan.games, hasLength(1));
+      expect(scan.games.single.id, 'steam:1');
+      expect(scan.games.single.missing, isTrue);
+      expect(scan.games.single.launchable, isFalse);
+      expect(scan.games.single.name, 'Alpha');
+
+      scan.forget(scan.games.single);
+      expect(scan.games, isEmpty);
+      expect(AppConfig.load(configPath).forgotten, {'steam:1'});
+
+      // The next scan does not bring it back.
+      await scan.rescan();
+      expect(scan.games, isEmpty);
+
+      // Reinstalled: it returns, and the forgotten mark goes away so a later
+      // uninstall keeps its history again.
+      source.games = [game('steam:1', 'Alpha', SourceKind.steam)];
+      await scan.rescan();
+      expect(scan.games.single.missing, isFalse);
+      expect(AppConfig.load(configPath).forgotten, isEmpty);
+
+      source.games = [];
+      await scan.rescan();
+      expect(scan.games.single.missing, isTrue);
+    },
+  );
+
   group('steamgriddb misses', () {
     LibraryController artController(
       CoverStore covers, {
@@ -916,4 +1134,21 @@ class _FoundSearchCovers extends CoverStore {
   @override
   Future<String?> downloadArt(Game game, SgdbGrid grid) async =>
       '$folder/${game.key}.jpg';
+}
+
+/// A source whose library a test can change between scans.
+class _ListSource extends GameSource {
+  _ListSource(this.games);
+
+  List<Game> games;
+  int discoveries = 0;
+
+  @override
+  SourceKind get kind => SourceKind.steam;
+
+  @override
+  Future<List<Game>> discover(AppConfig cfg) async {
+    discoveries++;
+    return games;
+  }
 }

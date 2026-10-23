@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../config.dart';
+import '../host.dart';
 import '../model/game.dart';
+import 'lutris_categories.dart';
 import 'source.dart';
 import '../paths.dart';
 
@@ -61,6 +63,101 @@ Map<String, String> parseGameYaml(String text) {
   return result;
 }
 
+/// Cut a trailing `#` comment off [line], leaving a `#` inside quotes alone.
+///
+/// Lutris writes plain YAML, where `#` starts a comment at the beginning of a
+/// line or after whitespace, but is a literal inside a word (`C# tactic`).
+String _withoutComment(String line) {
+  String? quote;
+  for (var i = 0; i < line.length; i++) {
+    final char = line[i];
+    if (quote != null) {
+      if (char == quote) quote = null;
+    } else if (char == '"' || char == "'") {
+      quote = char;
+    } else if (char == '#' &&
+        (i == 0 || line[i - 1] == ' ' || line[i - 1] == '\t')) {
+      return line.substring(0, i);
+    }
+  }
+  return line;
+}
+
+/// Split a flow list's body on commas that are not inside quotes, so
+/// `["Action, FPS", RPG]` stays two categories.
+List<String> _splitOnCommas(String value) {
+  final items = <String>[];
+  final item = StringBuffer();
+  String? quote;
+  for (var i = 0; i < value.length; i++) {
+    final char = value[i];
+    if (quote != null) {
+      item.write(char);
+      if (char == quote) quote = null;
+    } else if (char == '"' || char == "'") {
+      quote = char;
+      item.write(char);
+    } else if (char == ',') {
+      items.add(item.toString());
+      item.clear();
+    } else {
+      item.write(char);
+    }
+  }
+  items.add(item.toString());
+  return items;
+}
+
+/// The `categories:` list of a Lutris game YAML.
+///
+/// Lutris writes them as a block list at the top level (or inside `game:`):
+///
+/// ```yaml
+/// categories:
+/// - Action
+/// - FPS
+/// ```
+///
+/// An inline `categories: [Action, FPS]` is read too, including commas inside
+/// quoted names. Trailing `#` comments are ignored. Unknown lines inside the
+/// block are ignored, so a hand-edited file cannot break the scan.
+List<String> parseGameCategories(String text) {
+  final categories = <String>[];
+  void add(String value) {
+    final title = _unquote(value.trim());
+    if (title.isNotEmpty && !categories.contains(title)) categories.add(title);
+  }
+
+  var blockIndent = -1;
+  for (final raw in const LineSplitter().convert(text)) {
+    final line = _withoutComment(raw);
+    final trimmed = line.trim();
+    if (trimmed.isEmpty) continue;
+    final indent = line.length - line.trimLeft().length;
+    if (trimmed.startsWith('-')) {
+      // Lutris writes the list at the key's own indent, not indented under it.
+      if (blockIndent >= 0 && indent >= blockIndent) {
+        add(trimmed.substring(1));
+      }
+      continue;
+    }
+    if (blockIndent >= 0 && indent <= blockIndent) blockIndent = -1;
+    final match = _key.firstMatch(line);
+    if (match == null || match.group(2) != 'categories') continue;
+    final inline = match.group(3)!.trim();
+    if (inline.startsWith('[') && inline.endsWith(']')) {
+      for (final item in _splitOnCommas(
+        inline.substring(1, inline.length - 1),
+      )) {
+        add(item);
+      }
+    } else {
+      blockIndent = indent;
+    }
+  }
+  return categories;
+}
+
 /// `my-game-1712345678.yml` -> `my-game` (Lutris appends a timestamp).
 String _slugFromFilename(String name) {
   var stem = name;
@@ -83,6 +180,17 @@ class LutrisSource extends GameSource {
   @override
   Future<List<Game>> discover(AppConfig cfg) async {
     final games = <Game>[];
+    // The YAML says what the installer was told; the database is what Lutris
+    // actually shows. Both are merged, since a category added in the UI never
+    // reaches the YAML. Read once: the places Lutris may keep the database are
+    // fixed, not per game.
+    final dbPaths = [
+      '${Host.dataHome}/lutris/pga.db',
+      '${Host.home}/.config/lutris/pga.db',
+      '${Host.home}/.var/app/net.lutris.Lutris/data/lutris/pga.db',
+      '${Host.home}/.var/app/net.lutris.Lutris/config/lutris/pga.db',
+    ];
+    final dbTags = await lutrisCategoryTags(dbPaths);
     for (final dir in _gameDirs) {
       final directory = Directory(dir);
       bool isDir;
@@ -108,10 +216,14 @@ class LutrisSource extends GameSource {
 
       for (final file in files) {
         Map<String, String> data;
+        List<String> yamlTags;
         try {
-          data = parseGameYaml(
-            utf8.decode(await file.readAsBytes(), allowMalformed: true),
+          final text = utf8.decode(
+            await file.readAsBytes(),
+            allowMalformed: true,
           );
+          data = parseGameYaml(text);
+          yamlTags = parseGameCategories(text);
         } on FileSystemException {
           continue;
         }
@@ -121,6 +233,7 @@ class LutrisSource extends GameSource {
             ? parsedSlug
             : _slugFromFilename(fileName);
         if (slug.isEmpty) continue;
+        final tags = <String>{...yamlTags, ...?dbTags[slug]}.toList()..sort();
         final dbId = data['id'] ?? '';
         final uri = RegExp(r'^\d+$').hasMatch(dbId)
             ? 'lutris:rungameid/$dbId'
@@ -138,7 +251,7 @@ class LutrisSource extends GameSource {
                 ? directory0
                 : null,
             subtitle: 'Lutris',
-            extra: {'slug': slug},
+            extra: {'slug': slug, if (tags.isNotEmpty) 'tags': tags},
           ),
         );
       }

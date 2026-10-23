@@ -222,6 +222,53 @@ void main() {
       expect(plugin.description, '');
     });
 
+    test('declares capabilities, actions and hooks', () {
+      final plugin = Plugin.fromManifest('/plugins/x', {
+        'id': 'beats',
+        'name': 'Beats',
+        'command': ['sh', 'run.sh'],
+        'capabilities': ['lookup', 'actions', 'hooks'],
+        'actions': [
+          {'id': 'backup', 'name': 'Back up saves', 'description': 'Zip'},
+        ],
+        'hooks': ['pre_launch', 'post_exit', 'not_a_hook'],
+      });
+
+      expect(plugin, isNotNull);
+      expect(plugin!.capabilities, {
+        PluginCapability.lookup,
+        PluginCapability.actions,
+        PluginCapability.hooks,
+      });
+      expect(plugin.actions.single.id, 'backup');
+      expect(plugin.actions.single.name, 'Back up saves');
+      expect(plugin.actions.single.description, 'Zip');
+      expect(plugin.hooks, {PluginHook.preLaunch, PluginHook.postExit});
+
+      // An older manifest keeps the lookup capability.
+      final old = Plugin.fromManifest('/plugins/x', {
+        'id': 'old',
+        'name': 'Old',
+        'command': ['sh'],
+      })!;
+      expect(old.capabilities, {PluginCapability.lookup});
+      expect(old.actions, isEmpty);
+      expect(old.hooks, isEmpty);
+
+      // Declaring actions or hooks without a capability list derives both.
+      final derived = Plugin.fromManifest('/plugins/x', {
+        'id': 'derived',
+        'name': 'Derived',
+        'command': ['sh'],
+        'actions': [
+          {'id': 'a', 'name': 'A'},
+        ],
+        'hooks': ['pre_launch'],
+      })!;
+      expect(derived.capabilities, contains(PluginCapability.actions));
+      expect(derived.capabilities, contains(PluginCapability.hooks));
+    });
+
     test('is refused when the launcher could not run it', () {
       expect(Plugin.fromManifest('/plugins/x', null), isNull);
       expect(Plugin.fromManifest('/plugins/x', 'not a map'), isNull);
@@ -330,6 +377,55 @@ void main() {
       expect(problems.last, contains('nameless'));
     });
 
+    test('a folder whose name is not its id is refused', () {
+      write('alpha', {
+        'id': 'alpha',
+        'name': 'Alpha',
+        'command': ['/bin/true'],
+      });
+      // Removing the row for this folder would otherwise delete
+      // `<plugin dir>/right`, the folder the id names.
+      write('wrong', {
+        'id': 'right',
+        'name': 'Impostor',
+        'command': ['/bin/true'],
+      });
+
+      final problems = <String>[];
+      final plugins = discoverPlugins(
+        dir.path,
+        onError: (folder, error) => problems.add('$folder: $error'),
+      );
+
+      expect(plugins.map((plugin) => plugin.id).toList(), ['alpha']);
+      expect(problems.single, contains('does not match plugin id'));
+    });
+
+    test('a manifest too large to be one is refused, not read', () {
+      write('alpha', {
+        'id': 'alpha',
+        'name': 'Alpha',
+        'command': ['/bin/true'],
+      });
+      // Valid JSON, just padded past what a manifest could sensibly be: the
+      // size is refused before the parser ever sees it.
+      final padding = List.filled(pluginManifestLimit, ' ').join();
+      Directory('${dir.path}/huge').createSync(recursive: true);
+      File('${dir.path}/huge/plugin.json').writeAsStringSync(
+        '{"id":"huge","name":"Huge","command":["/bin/true"]}$padding',
+      );
+
+      final problems = <String>[];
+      final plugins = discoverPlugins(
+        dir.path,
+        onError: (folder, error) => problems.add('$folder: $error'),
+      );
+
+      expect(plugins.map((plugin) => plugin.id).toList(), ['alpha']);
+      expect(problems.single, contains('huge'));
+      expect(problems.single, contains('larger than'));
+    });
+
     test('a folder that is not there holds no plugins', () {
       expect(discoverPlugins('${dir.path}/gone'), isEmpty);
     });
@@ -417,6 +513,19 @@ void main() {
       });
     });
 
+    test('a hook may answer with silence', () async {
+      final plugin = pluginWith('cat > /dev/null\n');
+
+      final silent = await runPluginRequest(plugin, {
+        'action': 'pre_launch',
+        'game': {'id': 'steam:1'},
+      }, requireAnswer: false);
+      expect(silent.ok, isTrue);
+
+      final lookup = await runPlugin(plugin, PluginQuery.byName('Alpha'));
+      expect(lookup.ok, isFalse);
+    });
+
     test('a plugin that says why it failed is taken at its word', () async {
       final plugin = pluginWith(
         'cat > /dev/null\nprintf \'%s\' \'{"error":"No match for \\"Foo\\"."}\'\n',
@@ -470,6 +579,60 @@ void main() {
 
       expect(answer.ok, isFalse);
       expect(answer.error, contains('did not answer within'));
+    });
+
+    test('two runs of one plugin do not trip over each other', () async {
+      final plugin = pluginWith(
+        'cat > /dev/null\n'
+        'sleep 2\n'
+        "printf '%s' '{\"fields\":[{\"label\":\"Main story\","
+        "\"value\":\"1h\"}]}'\n",
+      );
+
+      List<String> pidFiles() =>
+          Directory(plugin.dir)
+              .listSync()
+              .map((entry) => entry.path.split('/').last)
+              .where((name) => name.startsWith('.run') && name.endsWith('.pid'))
+              .toList();
+
+      final running = Future.wait([
+        runPlugin(plugin, PluginQuery.byName('One')),
+        runPlugin(plugin, PluginQuery.byName('Two')),
+      ]);
+      // Both runs are alive at once, so both pid files have to exist side by
+      // side: a shared name would mean one run has already taken the other's.
+      final seen = <String>{};
+      final deadline = DateTime.now().add(const Duration(milliseconds: 1500));
+      while (seen.length < 2 && DateTime.now().isBefore(deadline)) {
+        seen.addAll(pidFiles());
+        if (seen.length < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      }
+      expect(seen, hasLength(2));
+
+      final answers = await running;
+      for (final answer in answers) {
+        expect(answer.ok, isTrue);
+        expect(answer.fields.single.value, '1h');
+      }
+      // Each run removes its own pid file, and only its own.
+      expect(pidFiles(), isEmpty);
+    });
+
+    test('a plugin that never reads its request is stopped', () async {
+      // The request is larger than a pipe buffer, so the write cannot finish
+      // until the plugin reads: this one never does, and never answers.
+      final plugin = pluginWith('sleep 30\n');
+
+      final answer = await runPluginRequest(plugin, {
+        'action': 'lookup',
+        'game': {'name': List.filled(256 * 1024, 'x').join()},
+      }, timeout: const Duration(milliseconds: 500));
+
+      expect(answer.ok, isFalse);
+      expect(answer.error, contains('did not read the request within'));
     });
 
     test('a process the plugin leaves behind is stopped with it', () async {
@@ -1133,6 +1296,8 @@ void main() {
       expect(find.text('MAIN STORY'), findsOneWidget);
       expect(find.text('54h 32m'), findsOneWidget);
       expect(find.text('Open the page'), findsOneWidget);
+      // The answer replaces the button that asked for it.
+      expect(find.text('Look up on Answer'), findsNothing);
 
       // addTearDown runs after the pending-timer check, so the notice's
       // auto-expire timer is put out here instead.

@@ -5,14 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../covers.dart';
-import '../launcher.dart';
 import '../model/game.dart';
 import '../state/library_controller.dart';
 import 'art_picker.dart';
 import 'field.dart';
+import 'launch_log.dart';
+import 'launch_options_dialog.dart';
 import 'playtime.dart';
 import 'plugin_answer.dart';
 import 'rename_dialog.dart';
+import 'tag_dialog.dart';
 import 'theme.dart';
 
 /// Right hand panel for the selected game.
@@ -43,6 +45,12 @@ class DetailPanel extends StatelessWidget {
     final hidden = controller.config.isHidden(game.id);
     final favorite = controller.isFavorite(game.id);
     final artwork = controller.covers.resolve(game);
+    final running = controller.isRunning(game.id);
+    final stopping = controller.isStopping(game.id);
+    final quickExit = controller.quickExitFor(game.id);
+    final tags = controller.tagsFor(game);
+    final options = controller.config.launchOptionsFor(game.id);
+    final storeUrl = controller.storeUrl(game);
     // The page's row lets the panel pick its own width, so the room a narrow
     // window offers is read from the MediaQuery rather than the constraints;
     // the page can also hand a smaller [width] in when it knows better.
@@ -95,56 +103,120 @@ class DetailPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
                   children: [
                     _chip(context, game.displaySubtitle),
-                    const SizedBox(width: 8),
                     if (hidden) _chip(context, 'Hidden'),
+                    if (running) _statusChip(context, 'Playing', accent: true),
+                    if (game.missing) _statusChip(context, 'Not installed'),
+                    if (game.updating) _statusChip(context, 'Updating'),
+                    if (game.updateRequired)
+                      _statusChip(context, 'Update required'),
+                    if (game.broken) _statusChip(context, 'Files missing'),
                   ],
                 ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => controller.launch(game),
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('Launch'),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final tag in tags)
+                        Chip(
+                          label: Text(tag),
+                          visualDensity: VisualDensity.compact,
+                          labelStyle: const TextStyle(fontSize: 11.5),
+                        ),
+                    ],
                   ),
-                ),
-                // Everything that is not launching or reading lives in the cog
-                // above, so the panel stays a poster, a Launch button and the
-                // facts. The panel paints its own colour, so the switch needs a
-                // Material of its own for its ink to show up.
-                Material(
-                  color: Colors.transparent,
-                  child: SwitchListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    value: controller.config.closesWithGame(game.id),
-                    onChanged: (value) =>
-                        controller.setCloseWithGame(game.id, value),
-                    title: const Text(
-                      'Close the launcher with the game',
-                      style: TextStyle(fontSize: 14),
+                ],
+                const SizedBox(height: 20),
+                if (running)
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: stopping ? null : () => controller.stop(game),
+                      icon: const Icon(Icons.stop_rounded),
+                      label: Text(stopping ? 'Stopping…' : 'Stop'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: context.palette.warning,
+                      ),
                     ),
-                    subtitle: Text(
-                      'Asks the launcher window to close once the game exits',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.palette.textDim,
+                  )
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: game.launchable
+                          ? () => controller.launch(game)
+                          : null,
+                      icon: Icon(
+                        game.missing
+                            ? Icons.download_outlined
+                            : Icons.play_arrow_rounded,
+                      ),
+                      label: Text(
+                        game.missing
+                            ? 'Not installed'
+                            : game.broken
+                            ? 'Files missing'
+                            : 'Launch',
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                for (final plugin in controller.plugins) ...[
-                  PluginSection(
-                    controller: controller,
-                    game: game,
-                    plugin: plugin,
+                if (game.missing && storeUrl != null) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => controller.openStore(game),
+                      icon: const Icon(Icons.storefront_outlined, size: 18),
+                      label: const Text('Open store page'),
+                    ),
                   ),
-                  const SizedBox(height: 12),
                 ],
+                if (quickExit != null) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 16,
+                        color: context.palette.warning,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Exited after ${_duration(quickExit)}',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: context.palette.warning,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => showLaunchLogDialog(
+                          context,
+                          controller: controller,
+                          game: game,
+                        ),
+                        child: const Text('View log'),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 24),
+                for (final plugin in controller.plugins)
+                  if (controller.pluginHasSection(plugin)) ...[
+                    PluginSection(
+                      controller: controller,
+                      game: game,
+                      plugin: plugin,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                 LabelledValue(
                   label: 'Played',
                   value: formatPlaytime(controller.playtimeOf(game.id)),
@@ -168,9 +240,21 @@ class DetailPanel extends StatelessWidget {
                     label: 'Store',
                     value: '${game.extra['store']}',
                   ),
+                if (game.extra['bytes_to_download'] case final total?)
+                  LabelledValue(
+                    label: 'Download',
+                    value:
+                        '${_size(game.extra['bytes_downloaded'] ?? 0)} of '
+                        '${_size(total)}',
+                  ),
+                if (options.isNotEmpty)
+                  LabelledValue(
+                    label: 'Launch options',
+                    value: options.summary,
+                  ),
                 LabelledValue(
                   label: 'Command',
-                  value: Launcher.formatCommand(game),
+                  value: controller.commandFor(game),
                   mono: true,
                 ),
               ],
@@ -193,32 +277,63 @@ class DetailPanel extends StatelessWidget {
         switch (value) {
           case 'folder':
             await controller.openFolder(game);
+          case 'store':
+            await controller.openStore(game);
           case 'copy':
             await Clipboard.setData(
-              ClipboardData(text: Launcher.formatCommand(game)),
+              ClipboardData(text: controller.commandFor(game)),
             );
             controller.announce('Command copied');
           case 'art':
             await showArtPicker(context, controller, game);
           case 'rename':
             await _rename(context);
+          case 'tags':
+            await _editTags(context);
+          case 'options':
+            await _editOptions(context);
+          case 'log':
+            await showLaunchLogDialog(
+              context,
+              controller: controller,
+              game: game,
+            );
           case 'hide':
             controller.setHidden(game, hidden: !hidden);
+          case 'forget':
+            controller.forget(game);
           case 'remove':
             await controller.removeManual(game.key);
         }
       },
       itemBuilder: (context) => [
+        if (controller.storeUrl(game) != null && game.missing)
+          _action(
+            context,
+            'store',
+            Icons.storefront_outlined,
+            'Open store page',
+          ),
         _action(context, 'folder', Icons.folder_open, 'Open folder'),
         _action(context, 'copy', Icons.copy_all, 'Copy command'),
+        _action(context, 'options', Icons.tune, 'Launch options…'),
+        _action(context, 'tags', Icons.label_outline, 'Edit tags…'),
         _action(context, 'art', Icons.image_search, 'Find art (SteamGridDB)'),
         _action(context, 'rename', Icons.edit_outlined, 'Rename'),
+        _action(context, 'log', Icons.article_outlined, 'Launch log'),
         _action(
           context,
           'hide',
           hidden ? Icons.visibility : Icons.visibility_off,
           hidden ? 'Unhide' : 'Hide from library',
         ),
+        if (game.missing)
+          _action(
+            context,
+            'forget',
+            Icons.delete_outline,
+            'Remove from library',
+          ),
         if (game.source == SourceKind.manual)
           _action(context, 'remove', Icons.delete_outline, 'Remove'),
       ],
@@ -251,6 +366,55 @@ class DetailPanel extends StatelessWidget {
     );
     if (choice == null) return;
     controller.setName(game.id, choice.reset ? null : choice.name);
+  }
+
+  Future<void> _editTags(BuildContext context) async {
+    final tags = await showTagDialog(
+      context,
+      manual: controller.config.tagsFor(game.id),
+      sourceTags: game.sourceTags,
+    );
+    if (tags == null) return;
+    controller.setTags(game.id, tags);
+  }
+
+  Future<void> _editOptions(BuildContext context) async {
+    final options = await showLaunchOptionsDialog(
+      context,
+      game: game,
+      current: controller.config.launchOptionsFor(game.id),
+    );
+    if (options == null) return;
+    controller.setLaunchOptions(game.id, options);
+  }
+
+  Widget _statusChip(
+    BuildContext context,
+    String label, {
+    bool accent = false,
+  }) {
+    final palette = context.palette;
+    final color = accent ? palette.accent : palette.warning;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  static String _duration(Duration duration) {
+    if (duration.inSeconds < 1) return 'under a second';
+    return '${duration.inSeconds}s';
   }
 
   Widget _preview(BuildContext context, Artwork artwork) {

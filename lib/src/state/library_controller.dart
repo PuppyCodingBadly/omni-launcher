@@ -9,6 +9,7 @@ import '../config.dart';
 import '../covers.dart';
 import '../launcher.dart';
 import '../model/game.dart';
+import '../model/launch_options.dart';
 import '../paths.dart';
 import '../plugins/bundled.dart';
 import '../plugins/catalog.dart' as catalogue;
@@ -16,11 +17,51 @@ import '../plugins/plugin.dart';
 import '../plugins/plugin_runner.dart';
 import '../sources/registry.dart';
 import '../sources/source.dart';
+import '../util/log_tail.dart';
 import '../util/proc.dart';
+import '../util/search.dart';
 import 'playtime_store.dart';
 import 'plugin_store.dart';
 
 enum LibraryStatus { loading, ready, failed }
+
+/// Filters that are not tags: a property of the game itself.
+enum SmartFilter {
+  unplayed('Unplayed'),
+  notRecent('Not played in 90 days'),
+  noCover('No cover'),
+  missing('Not installed');
+
+  const SmartFilter(this.label);
+
+  final String label;
+}
+
+/// A game that exited right after it started, kept so the panel and the page
+/// can offer its log instead of silently calling the launch a success.
+class LaunchExit {
+  const LaunchExit({
+    required this.gameId,
+    required this.after,
+    required this.at,
+  });
+
+  final String gameId;
+  final Duration after;
+  final DateTime at;
+}
+
+/// One watched process: the pid and the start tick that prove it is still the
+/// process that was launched.
+class _RunningGame {
+  const _RunningGame(this.pid, this.startTick, {required this.tracked});
+
+  final int pid;
+  final int? startTick;
+
+  /// False for a hand-off launcher whose exit says nothing about the game.
+  final bool tracked;
+}
 
 /// Library state: discovery, filtering, artwork, launching and persistence.
 class LibraryController extends ChangeNotifier {
@@ -66,6 +107,52 @@ class LibraryController extends ChangeNotifier {
 
   /// Sessions still being watched, by game id.
   final Map<String, Timer> _sessions = <String, Timer>{};
+
+  /// Games running right now, by game id, with the process identity a stop
+  /// has to check before signalling.
+  final Map<String, _RunningGame> _running = <String, _RunningGame>{};
+
+  /// Games the user asked to stop, so a quick exit after that is not reported
+  /// as a crash.
+  final Set<String> _stopping = <String>{};
+
+  /// Games a launch is already being prepared for, so two quick clicks do not
+  /// start the same game twice before its pid exists.
+  final Set<String> _launching = <String>{};
+
+  /// SIGKILL fallbacks for a stop that did not take effect.
+  final Map<String, Timer> _stopTimers = <String, Timer>{};
+
+  /// Recent launches that ended within [quickExitThreshold], by game id.
+  final Map<String, Duration> _quickExits = <String, Duration>{};
+
+  /// The latest quick exit, for the page's "View log" offer.
+  LaunchExit? latestQuickExit;
+
+  /// When the last scan finished, so a focus-rescan can skip a fresh library.
+  DateTime? lastScan;
+
+  /// Tags and smart filters applied to the wall. Source filters live in
+  /// [sourceFilter]; these are session-only like it.
+  final Set<String> tagFilter = <String>{};
+  final Set<SmartFilter> smartFilters = <SmartFilter>{};
+
+  /// Called with the game after it starts, so the window can step out of the
+  /// way. The controller knows nothing about windows; `main` wires this to GTK.
+  void Function(Game)? onGameStarted;
+
+  /// Called with the game when a watched process is gone, so the window can
+  /// come back if the user asked it to step aside.
+  void Function(Game)? onGameEnded;
+
+  /// A launch that exits sooner than this is reported with its log.
+  static const Duration quickExitThreshold = Duration(seconds: 10);
+
+  /// How long a stop waits for SIGTERM before SIGKILL.
+  static const Duration stopGrace = Duration(seconds: 5);
+
+  /// A focus-triggered rescan is skipped while the last one is this fresh.
+  static const Duration autoRescanAge = Duration(seconds: 30);
 
   /// How often a launched pid is checked, and how often the store is told.
   ///
@@ -135,6 +222,9 @@ class LibraryController extends ChangeNotifier {
   /// Plugins being installed or removed right now, by plugin id.
   final Set<String> _pluginBusy = <String>{};
 
+  /// Plugin actions running right now, keyed plugin/action/game.
+  final Set<String> _actionBusy = <String>{};
+
   /// Where plugins are installed. The app's own folder, unless a caller said
   /// otherwise.
   final String _pluginDir;
@@ -199,26 +289,141 @@ class LibraryController extends ChangeNotifier {
   ///
   /// Favourites come first; inside each group the order is [sortMode].
   List<Game> get visibleGames {
-    final needle = query.trim().toLowerCase();
+    final needle = query.trim();
     // One set for the whole pass: [config.favorites] is a list, and the loop
     // asks once per game.
     final favoriteIds = config.favorites.toSet();
     final favorites = <Game>[];
     final rest = <Game>[];
+    final scores = <String, int>{};
     for (final game in games) {
       if (!config.showHidden && config.isHidden(game.id)) continue;
       if (sourceFilter.isNotEmpty && !sourceFilter.contains(game.source)) {
         continue;
       }
-      if (needle.isNotEmpty &&
-          !game.name.toLowerCase().contains(needle) &&
-          !game.id.toLowerCase().contains(needle) &&
-          !game.displaySubtitle.toLowerCase().contains(needle)) {
-        continue;
+      if (!_matchesFilters(game)) continue;
+      if (needle.isNotEmpty) {
+        final score = gameSearchScore(game, needle, tags: tagsFor(game));
+        if (score == null) continue;
+        scores[game.id] = score;
       }
       (favoriteIds.contains(game.id) ? favorites : rest).add(game);
     }
-    return [..._ordered(favorites), ..._ordered(rest)];
+    if (needle.isEmpty) {
+      return [..._ordered(favorites), ..._ordered(rest)];
+    }
+    // Search results are ranked by the match; the wall's sort is the tie
+    // breaker, so two equally good matches still read alphabetically.
+    List<Game> ranked(List<Game> matched) {
+      matched.sort((a, b) {
+        final byScore = scores[b.id]!.compareTo(scores[a.id]!);
+        return byScore != 0 ? byScore : _byName(a, b);
+      });
+      return matched;
+    }
+
+    return [...ranked(favorites), ...ranked(rest)];
+  }
+
+  /// Whether [game] passes the tag and smart filters.
+  bool _matchesFilters(Game game) {
+    if (tagFilter.isNotEmpty) {
+      final tags = {for (final tag in tagsFor(game)) tag.toLowerCase()};
+      for (final wanted in tagFilter) {
+        if (!tags.contains(wanted.toLowerCase())) return false;
+      }
+    }
+    for (final filter in smartFilters) {
+      switch (filter) {
+        case SmartFilter.unplayed:
+          if (playtimeOf(game.id) > Duration.zero) return false;
+        case SmartFilter.notRecent:
+          final last = lastPlayedFor(game.id);
+          if (last != null &&
+              DateTime.now().difference(last) < const Duration(days: 90)) {
+            return false;
+          }
+        case SmartFilter.noCover:
+          if (covers.resolve(game).kind != ArtworkKind.letter) return false;
+        case SmartFilter.missing:
+          if (!game.missing) return false;
+      }
+    }
+    return true;
+  }
+
+  /// The tags on [game]: the ones its source knows, then the user's own.
+  ///
+  /// A tag that both know is kept once, in the casing the source used.
+  List<String> tagsFor(Game game) {
+    final seen = <String>{};
+    return [
+      for (final tag in [...game.sourceTags, ...config.tagsFor(game.id)])
+        if (seen.add(tag.toLowerCase())) tag,
+    ];
+  }
+
+  /// Every tag on the wall, alphabetically, for the filter menu.
+  List<String> get allTags {
+    final byLower = <String, String>{};
+    for (final game in games) {
+      for (final tag in tagsFor(game)) {
+        byLower.putIfAbsent(tag.toLowerCase(), () => tag);
+      }
+    }
+    final tags = byLower.values.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return tags;
+  }
+
+  void toggleTag(String tag) {
+    // Match regardless of casing: a source's "Action" and a click on "action"
+    // are the same filter, not two entries that happen to look alike.
+    final matches = <String>[
+      for (final applied in tagFilter)
+        if (applied.toLowerCase() == tag.toLowerCase()) applied,
+    ];
+    if (matches.isEmpty) {
+      tagFilter.add(tag);
+    } else {
+      tagFilter.removeAll(matches);
+    }
+    notifyListeners();
+  }
+
+  void clearTags() {
+    if (tagFilter.isEmpty) return;
+    tagFilter.clear();
+    notifyListeners();
+  }
+
+  void toggleSmartFilter(SmartFilter filter) {
+    if (!smartFilters.remove(filter)) smartFilters.add(filter);
+    notifyListeners();
+  }
+
+  void clearSmartFilters() {
+    if (smartFilters.isEmpty) return;
+    smartFilters.clear();
+    notifyListeners();
+  }
+
+  /// Search the library without touching the wall's query: the command
+  /// palette has a query of its own.
+  List<Game> searchGames(String text, {int limit = 8}) {
+    final needle = text.trim();
+    if (needle.isEmpty) return const [];
+    final scored = <(int, Game)>[];
+    for (final game in games) {
+      if (!config.showHidden && config.isHidden(game.id)) continue;
+      final score = gameSearchScore(game, needle, tags: tagsFor(game));
+      if (score != null) scored.add((score, game));
+    }
+    scored.sort((a, b) {
+      final byScore = b.$1.compareTo(a.$1);
+      return byScore != 0 ? byScore : _byName(a.$2, b.$2);
+    });
+    return [for (final (_, game) in scored.take(limit)) game];
   }
 
   /// How the wall orders its games; one of [AppConfig.sortModes].
@@ -351,6 +556,25 @@ class LibraryController extends ChangeNotifier {
     return scan;
   }
 
+  /// Rescan for a window focus, unless the library was just scanned.
+  ///
+  /// The page calls this when the window comes back; an install that finished
+  /// while the launcher was behind the browser shows up without Ctrl+R. A
+  /// scan already running collapses with this one, so the throttle is only
+  /// about focus toggles.
+  Future<void> rescanIfStale({Duration maxAge = autoRescanAge}) async {
+    // A scan already running is this rescan's answer; queueing another behind
+    // it would be work the focus did not ask for.
+    final running = _rescan;
+    if (running != null) {
+      await running;
+      return;
+    }
+    final at = lastScan;
+    if (at != null && DateTime.now().difference(at) < maxAge) return;
+    await rescan();
+  }
+
   Future<void> _scanUntilSettled() async {
     try {
       do {
@@ -375,15 +599,43 @@ class LibraryController extends ChangeNotifier {
         sources: _sources,
         onError: (kind, error) => errors.add('${kind.label}: $error'),
       );
-      _discovered = found;
-      games = applyNameOverrides(found, config.nameOverrides);
-      _writeCache(found);
+      // A game its source stopped offering is kept when it has history: the
+      // playtime, favourite or tag is the user's, not the source's. It is
+      // marked missing and can be forgotten from the detail panel.
+      final foundIds = {for (final game in found) game.id};
+      // A forgotten game that came back is no longer forgotten, so a later
+      // uninstall keeps its history again.
+      if (config.forgotten.any(foundIds.contains)) {
+        _apply(
+          config.copyWith(
+            forgotten: config.forgotten
+                .where((id) => !foundIds.contains(id))
+                .toSet(),
+          ),
+        );
+      }
+      final kept = <Game>[
+        for (final old in _discovered)
+          if (!foundIds.contains(old.id) &&
+              !config.isForgotten(old.id) &&
+              (playtime.totalFor(old.id) > Duration.zero ||
+                  config.favorites.contains(old.id) ||
+                  config.tagsFor(old.id).isNotEmpty))
+            old.copyWith(extra: const {'missing': true}),
+      ];
+      final merged = [...found, ...kept];
+      _discovered = merged;
+      games = applyNameOverrides(merged, config.nameOverrides);
+      _writeCache(merged);
       failure = errors.isEmpty ? null : errors.join('; ');
-      notice = '${found.length} games from ${countsBySource.length} sources';
+      notice =
+          '${found.length} games from ${countsBySource.length} sources'
+          '${kept.isEmpty ? '' : ' · ${kept.length} kept from before'}';
     } catch (error) {
       failure = '$error';
     }
     status = LibraryStatus.ready;
+    lastScan = DateTime.now();
     // The selection survives a scan by id; a game the scan no longer offers
     // is gone, and so is its selection.
     selected = selected == null ? null : _findById(selected!.id);
@@ -448,20 +700,130 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<void> launch(Game game) async {
-    final startedAt = DateTime.now();
-    int? pid;
-    try {
-      pid = await Launcher.launch(game);
-      // A launch that works clears an earlier failure (say a scan report),
-      // so it does not resurface once the transient notice fades.
-      failure = null;
-      notice = 'Launched ${game.name}';
-    } catch (error) {
-      failure = 'Could not launch ${game.name}: $error';
+    if (game.missing || game.broken) {
+      notice = game.missing
+          ? '${game.name} is not installed'
+          : '${game.name}: files missing, repair it in Steam';
+      _notify();
+      return;
     }
-    // A launch that failed has nothing to record.
-    if (pid != null) _watchSession(game.id, pid, startedAt);
-    _notify();
+    if (isRunning(game.id)) {
+      notice = '${game.name} is already running';
+      _notify();
+      return;
+    }
+    if (!_launching.add(game.id)) {
+      notice = '${game.name} is already starting';
+      _notify();
+      return;
+    }
+    try {
+      _quickExits.remove(game.id);
+      final hookErrors = await _runHooks(PluginHook.preLaunch, game);
+      // The window may have gone while a hook ran; a disposed controller must
+      // not start a process it can no longer watch.
+      if (_disposed) return;
+      final startedAt = DateTime.now();
+      int? pid;
+      String? launchFailure;
+      try {
+        pid = await Launcher.launch(
+          game,
+          options: config.launchOptionsFor(game.id),
+        );
+      } catch (error) {
+        launchFailure = 'Could not launch ${game.name}: $error';
+      }
+      // The window may have gone while the process was starting; nothing can
+      // watch it now, so no session and no window callback may follow.
+      if (_disposed) return;
+      if (launchFailure != null) {
+        failure = launchFailure;
+      } else if (hookErrors.isNotEmpty) {
+        failure = hookErrors.join('; ');
+      } else {
+        // A launch that works clears an earlier failure (say a scan report),
+        // so it does not resurface once the transient notice fades.
+        failure = null;
+      }
+      if (pid != null) {
+        notice = 'Launched ${game.name}';
+        _watchSession(game, pid, startedAt);
+        onGameStarted?.call(game);
+      }
+      _notify();
+    } finally {
+      _launching.remove(game.id);
+    }
+  }
+
+  /// Whether [gameId]'s process is still running.
+  bool isRunning(String gameId) => _running.containsKey(gameId);
+
+  /// Whether the user asked [gameId] to stop and it has not exited yet.
+  bool isStopping(String gameId) => _stopping.contains(gameId);
+
+  /// Whether any tracked game is running right now.
+  ///
+  /// A hand-off launcher does not count: its exit is never reported, so it
+  /// must not keep the window from coming back after a tracked game ends.
+  bool get hasRunningGames => _running.values.any((game) => game.tracked);
+
+  /// Ask [gameId] to stop: SIGTERM now, SIGKILL if it is still there after
+  /// [stopGrace]. The session watcher ends playtime when the process goes.
+  void stop(Game game) {
+    final running = _running[game.id];
+    if (running == null) return;
+    final snapshot = processSnapshot(running.pid);
+    final same =
+        snapshot != null &&
+        snapshot.running &&
+        (running.startTick == null || snapshot.startTime == running.startTick);
+    if (!same) {
+      // The pid is gone or belongs to another process now. There is nothing
+      // to signal, and no "Stopping…" may be left behind for a game that is
+      // already gone.
+      _running.remove(game.id);
+      _stopping.remove(game.id);
+      _stopTimers.remove(game.id)?.cancel();
+      notifyListeners();
+      return;
+    }
+    _stopping.add(game.id);
+    Process.killPid(running.pid, ProcessSignal.sigterm);
+    notice = 'Stopping ${game.name}…';
+    _stopTimers.remove(game.id)?.cancel();
+    _stopTimers[game.id] = Timer(stopGrace, () {
+      _stopTimers.remove(game.id);
+      final latest = processSnapshot(running.pid);
+      if (latest != null &&
+          latest.running &&
+          (running.startTick == null ||
+              latest.startTime == running.startTick)) {
+        Process.killPid(running.pid, ProcessSignal.sigkill);
+      }
+    });
+    notifyListeners();
+  }
+
+  /// [game]'s effective argv, with the user's launch options folded in.
+  String commandFor(Game game) =>
+      Launcher.formatCommand(game, options: config.launchOptionsFor(game.id));
+
+  /// The last logged output for [game], or the tail of the log when the game
+  /// has no line yet.
+  String? launchLogFor(Game game) =>
+      readLogTail(Launcher.logPath, gameId: game.id);
+
+  /// How long ago [gameId] exited after a quick launch, when it did.
+  Duration? quickExitFor(String gameId) => _quickExits[gameId];
+
+  /// The store page for [game], when its source has one.
+  String? storeUrl(Game game) {
+    if (game.source != SourceKind.steam) return null;
+    final appid = '${game.extra['appid'] ?? game.key}';
+    if (appid.isEmpty) return null;
+    return 'https://store.steampowered.com/app/$appid';
   }
 
   /// Total time played, from closed sessions plus the open one.
@@ -496,6 +858,21 @@ class LibraryController extends ChangeNotifier {
       sawDescendants &&
       quietTicks >= closeAfterQuietTicks;
 
+  /// Whether [game]'s launched process is the game itself.
+  ///
+  /// `steam -applaunch` and the `xdg-open`/`gtk-launch` shims exit as soon as
+  /// they have asked something else to start the game. Treating that exit as
+  /// the game's would fake a quick exit, run the post-exit hooks early and
+  /// bring the window back while the game is still starting.
+  static bool tracksProcess(Game game) {
+    if (game.command.isEmpty) return true;
+    final program = game.command.first;
+    final slash = program.lastIndexOf('/');
+    final name = slash < 0 ? program : program.substring(slash + 1);
+    if (name == 'xdg-open' || name == 'gtk-launch') return false;
+    return !game.command.contains('-applaunch');
+  }
+
   /// Follow a launched game's pid so its session ends when the game does.
   ///
   /// `Launcher` starts the game detached with `exec`, so [pid] is the game's
@@ -505,11 +882,17 @@ class LibraryController extends ChangeNotifier {
   /// The same poll asks a launcher window to close when the game it started is
   /// gone (see [shouldCloseLauncher]) — a launcher that ignores the request
   /// simply stays open.
-  void _watchSession(String gameId, int pid, DateTime startedAt) {
+  void _watchSession(Game game, int pid, DateTime startedAt) {
+    final gameId = game.id;
     _sessions.remove(gameId)?.cancel();
     playtime.begin(gameId, startedAt);
     // Identifies the process we started: a recycled pid must never be signalled.
     final startTick = processStartTime(pid);
+    _running[gameId] = _RunningGame(
+      pid,
+      startTick,
+      tracked: tracksProcess(game),
+    );
     var lastSeen = startedAt;
     var lastTouched = startedAt;
     var sawDescendants = false;
@@ -527,8 +910,27 @@ class LibraryController extends ChangeNotifier {
       if (!alive) {
         timer.cancel();
         _sessions.remove(gameId);
+        _running.remove(gameId);
+        _stopTimers.remove(gameId)?.cancel();
+        final stopped = _stopping.remove(gameId);
         playtime.end(gameId, lastSeen);
-        notifyListeners();
+        // A hand-off launcher's exit says nothing about the game: it must not
+        // fake a quick exit, run the post-exit hooks early, or bring the
+        // window back while the game it handed over to is still starting.
+        if (tracksProcess(game)) {
+          final after = lastSeen.difference(startedAt);
+          if (!stopped && after < quickExitThreshold) {
+            _quickExits[gameId] = after;
+            latestQuickExit = LaunchExit(
+              gameId: gameId,
+              after: after,
+              at: DateTime.now(),
+            );
+          }
+          unawaited(_runHooks(PluginHook.postExit, game));
+          onGameEnded?.call(game);
+        }
+        _notify();
         return;
       }
       lastSeen = now;
@@ -537,12 +939,12 @@ class LibraryController extends ChangeNotifier {
         playtime.touch(gameId, now);
         // The heartbeat moved the totals; the detail panel and the shelf
         // follow the session live rather than freezing until it ends.
-        notifyListeners();
+        _notify();
       }
       if (asked) return;
       // Walking /proc on every tick is only needed to decide when a game
       // launcher has outlived its game; a plain session just polls the pid.
-      if (!config.closesWithGame(gameId)) return;
+      if (!config.closesWithGame(game.source)) return;
       if (descendants(pid).isEmpty) {
         quietTicks++;
       } else {
@@ -552,7 +954,7 @@ class LibraryController extends ChangeNotifier {
         quietTicks = 0;
       }
       if (shouldCloseLauncher(
-        closeWithGame: config.closesWithGame(gameId),
+        closeWithGame: config.closesWithGame(game.source),
         alive: alive,
         sawDescendants: sawDescendants,
         quietTicks: quietTicks,
@@ -570,6 +972,12 @@ class LibraryController extends ChangeNotifier {
       timer.cancel();
     }
     _sessions.clear();
+    for (final timer in _stopTimers.values) {
+      timer.cancel();
+    }
+    _stopTimers.clear();
+    _running.clear();
+    _stopping.clear();
     _noticeTimer?.cancel();
     // A debounced automatic-art write must not be lost with the window.
     _flushArtSave();
@@ -798,12 +1206,14 @@ class LibraryController extends ChangeNotifier {
     if (!_pluginBusy.add(entry.id)) return;
     notice = 'Installing ${entry.name}…';
     notifyListeners();
+    var installedOk = false;
     try {
       await catalogue.installPlugin(
         entry,
         dir: _pluginDir,
         read: _pluginReader,
       );
+      installedOk = true;
       notice = 'Installed ${entry.name}';
     } on catalogue.PluginStoreException catch (error) {
       failure = '${entry.name}: ${error.message}';
@@ -812,6 +1222,27 @@ class LibraryController extends ChangeNotifier {
     }
     _pluginBusy.remove(entry.id);
     await reloadPlugins();
+    // Lookup is what a plugin has always been allowed to do; actions and
+    // launch hooks are the user's decision, made from its permissions after
+    // the manifest is on disk to show them. Only a fresh install seeds it: an
+    // update keeps the grants the user already decided, and a failed install
+    // changes nothing.
+    final installed = plugin(entry.id);
+    if (installedOk &&
+        installed != null &&
+        !config.pluginGrants.containsKey(installed.id)) {
+      _apply(
+        config.copyWith(
+          pluginGrants: {
+            ...config.pluginGrants,
+            installed.id: {
+              if (installed.has(PluginCapability.lookup))
+                PluginCapability.lookup.id,
+            },
+          },
+        ),
+      );
+    }
     _notify();
   }
 
@@ -820,8 +1251,10 @@ class LibraryController extends ChangeNotifier {
     if (!_pluginBusy.add(plugin.id)) return;
     notice = 'Removing ${plugin.name}…';
     notifyListeners();
+    var removedOk = false;
     try {
       await catalogue.removePlugin(plugin.id, dir: _pluginDir);
+      removedOk = true;
       notice = 'Removed ${plugin.name}';
     } on catalogue.PluginStoreException catch (error) {
       failure = '${plugin.name}: ${error.message}';
@@ -830,6 +1263,12 @@ class LibraryController extends ChangeNotifier {
     }
     _pluginBusy.remove(plugin.id);
     await reloadPlugins();
+    // A removed plugin's permissions go with it; a later install asks again.
+    // A failed removal leaves them alone: the plugin is still installed.
+    if (removedOk && config.pluginGrants.containsKey(plugin.id)) {
+      final grants = {...config.pluginGrants}..remove(plugin.id);
+      _apply(config.copyWith(pluginGrants: grants));
+    }
     _notify();
   }
 
@@ -881,6 +1320,153 @@ class LibraryController extends ChangeNotifier {
   /// The round trip [lookUp] makes, split out so a test can make it fail.
   Future<PluginAnswer> askPlugin(Plugin plugin, PluginQuery query) =>
       runPlugin(plugin, query);
+
+  /// The same round trip for an action or a hook; split out for tests.
+  Future<PluginAnswer> askPluginRequest(
+    Plugin plugin,
+    Map<String, Object?> request, {
+    bool requireAnswer = true,
+  }) => runPluginRequest(plugin, request, requireAnswer: requireAnswer);
+
+  /// The capabilities of [plugin] the user allowed.
+  Set<PluginCapability> grantedCapabilities(Plugin plugin) {
+    final grants = config.pluginGrantsFor(plugin.id);
+    return {
+      for (final capability in plugin.capabilities)
+        if (grants.contains(capability.id)) capability,
+    };
+  }
+
+  /// Whether [plugin] may use [capability]: declared and granted.
+  bool pluginGranted(Plugin plugin, PluginCapability capability) =>
+      plugin.has(capability) &&
+      config.pluginGrantsFor(plugin.id).contains(capability.id);
+
+  /// Whether [plugin] has anything to show in the detail panel.
+  bool pluginHasSection(Plugin plugin) =>
+      pluginGranted(plugin, PluginCapability.lookup) ||
+      (pluginGranted(plugin, PluginCapability.actions) &&
+          plugin.actions.isNotEmpty);
+
+  /// Allow or refuse one of [plugin]'s declared capabilities.
+  void setPluginGrant(
+    Plugin plugin,
+    PluginCapability capability,
+    bool allowed,
+  ) {
+    if (!plugin.has(capability)) return;
+    final grants = <String>{
+      for (final current in config.pluginGrantsFor(plugin.id))
+        if (current != capability.id) current,
+      if (allowed) capability.id,
+    };
+    _apply(
+      config.copyWith(
+        pluginGrants: {...config.pluginGrants, plugin.id: grants},
+      ),
+    );
+    notice = allowed
+        ? '${plugin.name}: ${capability.label.toLowerCase()} allowed'
+        : '${plugin.name}: ${capability.label.toLowerCase()} refused';
+    notifyListeners();
+  }
+
+  /// Whether [action] is running for [game] right now.
+  bool isPluginActionRunning(Plugin plugin, PluginAction action, Game game) =>
+      _actionBusy.contains(
+        PluginStore.keyFor(plugin.id, '${action.id}/${game.id}'),
+      );
+
+  /// Run one of [plugin]'s actions on [game], and return what it answered.
+  ///
+  /// The answer is not cached: an action changes something, and a stale
+  /// result would lie about it. Failures are answers too.
+  Future<PluginAnswer?> runPluginAction(
+    Plugin plugin,
+    PluginAction action,
+    Game game,
+  ) async {
+    if (!pluginGranted(plugin, PluginCapability.actions)) {
+      return PluginAnswer.failure(
+        '${plugin.name} does not have permission to run actions',
+      );
+    }
+    final key = PluginStore.keyFor(plugin.id, '${action.id}/${game.id}');
+    if (!_actionBusy.add(key)) return null;
+    notice = '${plugin.name}: ${action.name}…';
+    notifyListeners();
+    PluginAnswer answer;
+    try {
+      answer = await askPluginRequest(plugin, {
+        'action': 'action',
+        'id': action.id,
+        'name': action.name,
+        'game': _pluginGame(game),
+      });
+    } catch (error) {
+      answer = PluginAnswer.failure('${plugin.name}: $error');
+    } finally {
+      _actionBusy.remove(key);
+    }
+    if (answer.ok) {
+      failure = null;
+      notice = '${plugin.name}: ${action.name} finished';
+    } else {
+      failure = answer.error;
+    }
+    _notify();
+    return answer;
+  }
+
+  /// The game shape a plugin receives, including the user's own tags.
+  Map<String, Object?> _pluginGame(Game game) => {
+    'id': game.id,
+    'key': game.key,
+    'name': game.name,
+    'source': game.source.id,
+    'path': game.path,
+    'cwd': game.cwd,
+    'command': game.command,
+    'extra': game.extra,
+    'tags': tagsFor(game),
+  };
+
+  /// Call every plugin that declared [hook] and may use hooks.
+  ///
+  /// Hooks never throw: one plugin's failure is reported and the others still
+  /// run. A pre-launch failure is returned so the launch can say it happened;
+  /// a post-exit one is reported in the status bar.
+  Future<List<String>> _runHooks(PluginHook hook, Game game) async {
+    final errors = <String>[];
+    for (final plugin in plugins) {
+      if (!plugin.hooks.contains(hook) ||
+          !pluginGranted(plugin, PluginCapability.hooks)) {
+        continue;
+      }
+      try {
+        final answer = await askPluginRequest(plugin, {
+          'action': hook.id,
+          'game': _pluginGame(game),
+        }, requireAnswer: false);
+        if (!answer.ok) {
+          errors.add('${plugin.name}: ${answer.error ?? 'hook failed'}');
+        }
+      } catch (error) {
+        errors.add('${plugin.name}: $error');
+      }
+    }
+    if (hook == PluginHook.postExit && errors.isNotEmpty) {
+      _reportHookErrors(errors);
+    }
+    return errors;
+  }
+
+  void _reportHookErrors(List<String> errors) {
+    if (errors.isEmpty) return;
+    failure = errors.join('; ');
+    notice = 'Plugin hook failed';
+    _notify();
+  }
 
   /// Open a URL in whatever the desktop uses for links.
   Future<void> openUrl(String url) async {
@@ -950,17 +1536,97 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Whether the launcher window should close when this game exits.
-  void setCloseWithGame(String gameId, bool value) {
+  /// Whether the launcher behind [source] should close when its game exits.
+  ///
+  /// Only a game launcher client can be closed this way; a direct source has
+  /// no launcher window to name.
+  void setCloseWithGame(SourceKind source, bool value) {
+    if (!source.isLauncher) return;
     final ids = {...config.closeWithGame};
     if (value) {
-      ids.add(gameId);
+      ids.add(source.id);
     } else {
-      ids.remove(gameId);
+      ids.remove(source.id);
     }
     _apply(config.copyWith(closeWithGame: ids));
-    notice = value ? 'Launcher closes with the game' : 'Launcher stays open';
+    notice = value
+        ? '${source.label} closes with its game'
+        : '${source.label} stays open';
     notifyListeners();
+  }
+
+  /// Replace the user's tags for [gameId]. Blank tags and duplicates (by
+  /// letter case) are dropped before saving.
+  void setTags(String gameId, List<String> tags) {
+    final seen = <String>{};
+    final cleaned = <String>[
+      for (final tag in tags)
+        if (tag.trim().isNotEmpty && seen.add(tag.trim().toLowerCase()))
+          tag.trim(),
+    ];
+    final map = {...config.tags};
+    if (cleaned.isEmpty) {
+      map.remove(gameId);
+    } else {
+      map[gameId] = cleaned;
+    }
+    _apply(config.copyWith(tags: map));
+    notice = cleaned.isEmpty ? 'Tags cleared' : 'Tags saved';
+    notifyListeners();
+  }
+
+  /// Replace [gameId]'s launch options; an empty set removes the entry.
+  void setLaunchOptions(String gameId, LaunchOptions options) {
+    final map = {...config.launchOptions};
+    if (options.isEmpty) {
+      map.remove(gameId);
+    } else {
+      map[gameId] = options;
+    }
+    _apply(config.copyWith(launchOptions: map));
+    notice = options.isEmpty
+        ? 'Launch options cleared'
+        : 'Launch options saved';
+    notifyListeners();
+  }
+
+  /// Remove a missing [game] from the library for good, with its history.
+  void forget(Game game) {
+    if (!game.missing) return;
+    _apply(config.copyWith(forgotten: {...config.forgotten, game.id}));
+    _discovered = [
+      for (final entry in _discovered)
+        if (entry.id != game.id) entry,
+    ];
+    games = [
+      for (final entry in games)
+        if (entry.id != game.id) entry,
+    ];
+    if (selected?.id == game.id) selected = null;
+    _writeCache(_discovered);
+    notice = 'Removed ${game.name} from the library';
+    notifyListeners();
+  }
+
+  void setMinimizeOnLaunch(bool value) {
+    _apply(config.copyWith(minimizeOnLaunch: value));
+    notifyListeners();
+  }
+
+  void setTrayIcon(bool value) {
+    _apply(config.copyWith(trayIcon: value));
+    notifyListeners();
+  }
+
+  /// Open [game]'s store page, when its source has one.
+  Future<void> openStore(Game game) async {
+    final url = storeUrl(game);
+    if (url == null) {
+      notice = '${game.name} has no store page';
+      notifyListeners();
+      return;
+    }
+    await openUrl(url);
   }
 
   void setSteamgriddbKey(String value) {

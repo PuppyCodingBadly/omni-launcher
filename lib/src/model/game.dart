@@ -20,6 +20,25 @@ enum SourceKind {
   /// Human readable name shown in the UI.
   final String label;
 
+  /// The sources that are game launcher clients: programs that start games
+  /// and may keep a window of their own open afterwards.
+  ///
+  /// The others are a way of running a game directly — an AppImage, a flatpak
+  /// that is the game, a desktop entry, a command written by hand — so
+  /// "close the launcher with the game" has nothing to name for them.
+  static const Set<SourceKind> launchers = {
+    SourceKind.steam,
+    SourceKind.heroic,
+    SourceKind.epic,
+    SourceKind.lutris,
+    SourceKind.faugus,
+    SourceKind.prism,
+    SourceKind.bottles,
+  };
+
+  /// Whether this source is a game launcher client (see [launchers]).
+  bool get isLauncher => launchers.contains(this);
+
   static SourceKind? byId(String id) {
     for (final kind in values) {
       if (kind.id == id) return kind;
@@ -67,10 +86,29 @@ class Game {
   final Map<String, Object?> extra;
 
   /// False when the source knows the entry but cannot start it.
-  bool get launchable => command.isNotEmpty;
+  bool get launchable => command.isNotEmpty && !missing && !broken;
 
   /// The subtitle, defaulting to the source label.
   String get displaySubtitle => subtitle ?? source.label;
+
+  /// Kept from an earlier scan after its source stopped offering it.
+  bool get missing => extra['missing'] == true;
+
+  /// Steam's own state, when the source reports it.
+  bool get updating => extra['updating'] == true;
+  bool get updateRequired => extra['update_required'] == true;
+  bool get broken => extra['broken'] == true;
+
+  /// Tags the source itself knows, such as Steam collections or Lutris
+  /// categories. The user's own tags live in the config.
+  List<String> get sourceTags {
+    final raw = extra['tags'];
+    if (raw is! List) return const [];
+    return [
+      for (final tag in raw)
+        if (tag is String && tag.trim().isNotEmpty) tag.trim(),
+    ];
+  }
 
   /// [id] is unique across the library, so it is all equality needs.
   @override
@@ -79,9 +117,15 @@ class Game {
   @override
   int get hashCode => id.hashCode;
 
-  /// A copy with the given fields replaced; `id`, `key`, `command` and `extra`
-  /// always carry over.
-  Game copyWith({String? name, String? cover, String? subtitle}) => Game(
+  /// A copy with the given fields replaced; `id`, `key` and `command` always
+  /// carry over. [extra] is merged into the existing map, so a caller can add
+  /// `missing` without dropping what the source recorded.
+  Game copyWith({
+    String? name,
+    String? cover,
+    String? subtitle,
+    Map<String, Object?> extra = const {},
+  }) => Game(
     id: id,
     key: key,
     name: name ?? this.name,
@@ -93,7 +137,7 @@ class Game {
     cover: cover ?? this.cover,
     path: path,
     subtitle: subtitle ?? this.subtitle,
-    extra: extra,
+    extra: {...this.extra, ...extra},
   );
 
   Map<String, Object?> toJson() => {

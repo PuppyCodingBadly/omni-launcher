@@ -138,10 +138,23 @@ class _GameTileState extends State<GameTile> {
     final game = widget.game;
     final hidden = widget.controller.config.isHidden(game.id);
     final palette = context.palette;
+    final running = widget.controller.isRunning(game.id);
+    final status = running
+        ? 'Playing'
+        : game.missing
+        ? 'Missing'
+        : game.updating
+        ? 'Updating'
+        : game.updateRequired
+        ? 'Update'
+        : null;
+    final statusColor = running ? palette.accent : palette.warning;
     return Semantics(
       button: true,
       selected: widget.selected,
-      label: '${game.name}, ${_subtitle(game)}',
+      label:
+          '${game.name}, ${_subtitle(game)}'
+          '${status == null ? '' : ', $status'}',
       child: FocusableActionDetector(
         focusNode: widget.focusNode,
         mouseCursor: SystemMouseCursors.click,
@@ -163,7 +176,11 @@ class _GameTileState extends State<GameTile> {
           ),
           _LaunchIntent: CallbackAction<_LaunchIntent>(
             onInvoke: (_) {
-              widget.controller.launch(game);
+              if (running) {
+                widget.controller.stop(game);
+              } else if (game.launchable) {
+                widget.controller.launch(game);
+              }
               return null;
             },
           ),
@@ -176,7 +193,11 @@ class _GameTileState extends State<GameTile> {
           onExit: (_) => setState(() => _hovered = false),
           child: GestureDetector(
             onTap: () => widget.controller.select(game),
-            onDoubleTap: () => widget.controller.launch(game),
+            // A game the source cannot start has no launch gesture either;
+            // its tile still selects so the panel can explain why.
+            onDoubleTap: game.launchable
+                ? () => widget.controller.launch(game)
+                : null,
             onTapDown: (_) => setState(() => _pressed = true),
             onTapUp: (_) => setState(() => _pressed = false),
             onTapCancel: () => setState(() => _pressed = false),
@@ -211,9 +232,20 @@ class _GameTileState extends State<GameTile> {
                           highlighted: _highlighted,
                           selected: widget.selected,
                           favorite: widget.controller.isFavorite(game.id),
+                          status: status,
+                          statusColor: statusColor,
+                          running: running,
                           themeIcon: widget.controller.covers.themeIconPath,
-                          onPlay: () => widget.controller.launch(game),
-                          menu: _menu(context, game, hidden),
+                          // A game the source cannot start offers no working
+                          // Play: the button stays put as a disabled target
+                          // (the panel explains why), while a running game
+                          // keeps its Stop.
+                          onPlay: running
+                              ? () => widget.controller.stop(game)
+                              : game.launchable
+                              ? () => widget.controller.launch(game)
+                              : null,
+                          menu: _menu(context, game, hidden, running),
                           width: widget.tileWidth,
                           height: widget.tileHeight,
                           compact: widget.compact,
@@ -264,7 +296,7 @@ class _GameTileState extends State<GameTile> {
     return '$played · ${formatLastPlayed(last, DateTime.now())}';
   }
 
-  Widget _menu(BuildContext context, Game game, bool hidden) {
+  Widget _menu(BuildContext context, Game game, bool hidden, bool running) {
     return PopupMenuButton<String>(
       tooltip: 'Actions',
       icon: Icon(Icons.more_vert, size: 18, color: context.palette.onScrim),
@@ -272,6 +304,8 @@ class _GameTileState extends State<GameTile> {
         switch (value) {
           case 'launch':
             widget.controller.launch(game);
+          case 'stop':
+            widget.controller.stop(game);
           case 'rename':
             _rename(context, game);
           case 'folder':
@@ -285,7 +319,12 @@ class _GameTileState extends State<GameTile> {
         }
       },
       itemBuilder: (context) => [
-        const PopupMenuItem(value: 'launch', child: Text('Launch')),
+        if (running)
+          const PopupMenuItem(value: 'stop', child: Text('Stop'))
+        // A missing or broken entry has nothing to start, so the menu does
+        // not pretend otherwise; Rename and Hide still let the user clean up.
+        else if (game.launchable)
+          const PopupMenuItem(value: 'launch', child: Text('Launch')),
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
         const PopupMenuItem(value: 'folder', child: Text('Open folder')),
         PopupMenuItem(value: 'hide', child: Text(hidden ? 'Unhide' : 'Hide')),
@@ -321,6 +360,9 @@ class _Cover extends StatelessWidget {
     required this.highlighted,
     required this.selected,
     required this.favorite,
+    required this.status,
+    required this.statusColor,
+    required this.running,
     required this.themeIcon,
     required this.onPlay,
     required this.menu,
@@ -332,6 +374,11 @@ class _Cover extends StatelessWidget {
   final Artwork artwork;
   final String name;
 
+  /// Playing, missing or updating; null draws no badge.
+  final String? status;
+  final Color statusColor;
+  final bool running;
+
   /// Hovered by the pointer or focused by keyboard/gamepad; both draw the
   /// same lifted cover.
   final bool highlighted;
@@ -340,7 +387,9 @@ class _Cover extends StatelessWidget {
 
   /// Resolves an icon-theme name to a raster file.
   final String? Function(String name) themeIcon;
-  final VoidCallback onPlay;
+
+  /// Null when the game cannot be started: the button draws disabled.
+  final VoidCallback? onPlay;
   final Widget menu;
   final double width;
   final double height;
@@ -369,22 +418,49 @@ class _Cover extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           _artwork(palette, dpr),
-          if (favorite)
+          if (favorite || status != null)
             Positioned(
               top: 8,
               left: 8,
               child: IgnorePointer(
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: palette.scrim.first,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.star_rounded,
-                    size: 14,
-                    color: palette.onScrim,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (favorite)
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: palette.scrim.first,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.star_rounded,
+                          size: 14,
+                          color: palette.onScrim,
+                        ),
+                      ),
+                    if (favorite && status != null) const SizedBox(height: 6),
+                    if (status != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: palette.scrim.first.withValues(alpha: 0.88),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          status!.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 9,
+                            letterSpacing: 0.8,
+                            fontWeight: FontWeight.w800,
+                            color: statusColor,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -436,10 +512,16 @@ class _Cover extends StatelessWidget {
                         // itself is the target there.
                         child: compact
                             ? IconButton.filled(
-                                tooltip: 'Play',
+                                tooltip: running
+                                    ? 'Stop'
+                                    : onPlay == null
+                                    ? 'Cannot launch'
+                                    : 'Play',
                                 onPressed: onPlay,
-                                icon: const Icon(
-                                  Icons.play_arrow_rounded,
+                                icon: Icon(
+                                  running
+                                      ? Icons.stop_rounded
+                                      : Icons.play_arrow_rounded,
                                   size: 20,
                                 ),
                               )
@@ -447,11 +529,13 @@ class _Cover extends StatelessWidget {
                                 width: double.infinity,
                                 child: FilledButton.icon(
                                   onPressed: onPlay,
-                                  icon: const Icon(
-                                    Icons.play_arrow_rounded,
+                                  icon: Icon(
+                                    running
+                                        ? Icons.stop_rounded
+                                        : Icons.play_arrow_rounded,
                                     size: 20,
                                   ),
-                                  label: const Text('Play'),
+                                  label: Text(running ? 'Stop' : 'Play'),
                                   style: FilledButton.styleFrom(
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 10,

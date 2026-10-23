@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'model/game.dart';
+import 'model/launch_options.dart';
 import 'util/shell.dart';
 
 /// Which palette the window uses.
@@ -68,6 +70,12 @@ class AppConfig {
     this.themeMode = AppThemeMode.dark,
     this.accentColor = 'default',
     Set<String>? closeWithGame,
+    Map<String, List<String>>? tags,
+    Map<String, LaunchOptions>? launchOptions,
+    Set<String>? forgotten,
+    Map<String, Set<String>>? pluginGrants,
+    this.minimizeOnLaunch = false,
+    this.trayIcon = false,
     this.coverFetch = true,
     this.showHidden = false,
     this.sidebarCollapsed = false,
@@ -83,6 +91,10 @@ class AppConfig {
        sgdbMisses = sgdbMisses ?? <String, int>{},
        nameOverrides = nameOverrides ?? <String, String>{},
        closeWithGame = closeWithGame ?? <String>{},
+       tags = tags ?? <String, List<String>>{},
+       launchOptions = launchOptions ?? <String, LaunchOptions>{},
+       forgotten = forgotten ?? <String>{},
+       pluginGrants = pluginGrants ?? <String, Set<String>>{},
        favorites = favorites ?? <String>[];
 
   static const List<String> defaultAppimageDirs = [
@@ -128,8 +140,42 @@ class AppConfig {
   /// Accent colour id ([AppAccent.id]); `default` keeps the shipped violet.
   final String accentColor;
 
-  /// Game ids whose launcher should be closed once the game exits.
+  /// [SourceKind.id]s of the game launcher clients (see
+  /// [SourceKind.launchers]) to close once their game exits.
+  ///
+  /// The launcher is the client that started the game (Steam, Heroic,
+  /// Lutris…), not the game, so the choice is made once per launcher rather
+  /// than once per game. Config files written before schema version 2 hold
+  /// game ids and are migrated on load.
   final Set<String> closeWithGame;
+
+  /// Tags the user gave a game, per game id. Tags a source already knows
+  /// (Steam collections, Lutris categories) travel with the game itself and
+  /// are merged with these.
+  final Map<String, List<String>> tags;
+
+  /// What the launcher adds to a game's own argv, per game id.
+  final Map<String, LaunchOptions> launchOptions;
+
+  /// Game ids the user removed from the library after they went missing.
+  ///
+  /// A game that disappears from its source but has playtime is kept, so the
+  /// hours are not lost; forgetting it here is how that entry is removed for
+  /// good.
+  final Set<String> forgotten;
+
+  /// Capabilities the user allowed a plugin, per plugin id.
+  ///
+  /// A plugin that is not listed here keeps the capability it has always had:
+  /// lookup. Actions and launch hooks are opt-in.
+  final Map<String, Set<String>> pluginGrants;
+
+  /// Minimize the launcher window when a game starts.
+  final bool minimizeOnLaunch;
+
+  /// Keep a tray icon that brings the window back.
+  final bool trayIcon;
+
   final bool coverFetch;
   final bool showHidden;
 
@@ -151,7 +197,7 @@ class AppConfig {
 
   /// Schema version of the written file. A missing `version` is version 1;
   /// bump only together with a migration in [load].
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   static AppConfig load(String path) {
     final file = File(path);
@@ -168,6 +214,13 @@ class AppConfig {
       _restrictPermissions(path);
     }
     final window = _window(data['window']);
+    // Files written before versioning count as version 1, which is also what
+    // the migration from per-game to per-launcher close decisions reads.
+    final rawVersion = data['version'];
+    // A hand-edited file may quote the number; `2` and `"2"` mean the same.
+    final version = rawVersion is num
+        ? rawVersion.toInt()
+        : int.tryParse('$rawVersion') ?? 1;
     return AppConfig(
       hidden: _stringList(data['hidden'])?.toSet() ?? <String>{},
       appimageDirs:
@@ -182,7 +235,13 @@ class AppConfig {
       steamgriddbAuto: data['steamgriddb_auto'] == true,
       themeMode: _themeMode(data['theme_mode']),
       accentColor: _accent(data['accent_color']),
-      closeWithGame: _closeWithGame(data['close_with_game']),
+      closeWithGame: _closeWithGame(data['close_with_game'], version),
+      tags: _tags(data['tags']),
+      launchOptions: _launchOptions(data['launch_options']),
+      forgotten: _stringList(data['forgotten'])?.toSet() ?? <String>{},
+      pluginGrants: _pluginGrants(data['plugin_grants']),
+      minimizeOnLaunch: data['minimize_on_launch'] == true,
+      trayIcon: data['tray_icon'] == true,
       coverFetch: data['cover_fetch'] != false,
       showHidden: data['show_hidden'] == true,
       sidebarCollapsed: data['sidebar_collapsed'] == true,
@@ -271,6 +330,62 @@ class AppConfig {
     return result;
   }
 
+  /// `{game id: [tag, …]}`, trimmed and de-duplicated case-insensitively.
+  static Map<String, List<String>> _tags(Object? value) {
+    if (value is! Map) return <String, List<String>>{};
+    final tags = <String, List<String>>{};
+    for (final entry in value.entries) {
+      final id = entry.key;
+      if (id is! String || id.isEmpty) continue;
+      final raw = entry.value;
+      final list = raw is List ? raw : const <Object?>[];
+      final seen = <String>{};
+      final kept = <String>[];
+      for (final item in list) {
+        if (item is! String) continue;
+        final tag = item.trim();
+        if (tag.isEmpty) continue;
+        if (!seen.add(tag.toLowerCase())) continue;
+        kept.add(tag);
+      }
+      if (kept.isNotEmpty) tags[id] = kept;
+    }
+    return tags;
+  }
+
+  /// `{game id: LaunchOptions}`, dropping entries that add nothing.
+  static Map<String, LaunchOptions> _launchOptions(Object? value) {
+    if (value is! Map) return <String, LaunchOptions>{};
+    final options = <String, LaunchOptions>{};
+    for (final entry in value.entries) {
+      final id = entry.key;
+      if (id is! String || id.isEmpty) continue;
+      final parsed = LaunchOptions.fromJson(entry.value);
+      if (parsed.isNotEmpty) options[id] = parsed;
+    }
+    return options;
+  }
+
+  /// `{plugin id: [capability, …]}`, with blanks and duplicates dropped.
+  static Map<String, Set<String>> _pluginGrants(Object? value) {
+    if (value is! Map) return <String, Set<String>>{};
+    final grants = <String, Set<String>>{};
+    for (final entry in value.entries) {
+      final id = entry.key;
+      if (id is! String || id.isEmpty) continue;
+      final raw = entry.value;
+      // A grant whose value is not a list is malformed: leaving the plugin
+      // out of the map keeps the default grants, whereas storing an empty set
+      // would silently revoke them.
+      if (raw is! List) continue;
+      grants[id] = {
+        for (final item in raw)
+          if (item is String && item.trim().isNotEmpty) item.trim(),
+      };
+    }
+    return grants;
+  }
+
   static List<ManualEntry> _manualList(Object? value) {
     if (value is! List) return <ManualEntry>[];
     final entries = value
@@ -331,6 +446,18 @@ class AppConfig {
       'theme_mode': themeMode.id,
       'accent_color': accentColor,
       'close_with_game': closeWithGame.toList()..sort(),
+      'tags': {for (final id in tags.keys.toList()..sort()) id: tags[id]},
+      'launch_options': {
+        for (final id in launchOptions.keys.toList()..sort())
+          id: launchOptions[id]!.toJson(),
+      },
+      'forgotten': forgotten.toList()..sort(),
+      'plugin_grants': {
+        for (final id in pluginGrants.keys.toList()..sort())
+          id: pluginGrants[id]!.toList()..sort(),
+      },
+      'minimize_on_launch': minimizeOnLaunch,
+      'tray_icon': trayIcon,
       'cover_fetch': coverFetch,
       'show_hidden': showHidden,
       'sidebar_collapsed': sidebarCollapsed,
@@ -366,16 +493,48 @@ class AppConfig {
   /// The accent choice as its enum value.
   AppAccent get accent => AppAccent.byId(accentColor);
 
-  /// Game ids whose launcher should be closed with the game.
-  bool closesWithGame(String gameId) => closeWithGame.contains(gameId);
+  /// Whether the launcher behind [source] should be closed with its game.
+  bool closesWithGame(SourceKind source) =>
+      source.isLauncher && closeWithGame.contains(source.id);
 
-  static Set<String> _closeWithGame(Object? value) {
+  /// The closure list, migrated when the file predates the per-launcher form.
+  ///
+  /// Version 1 held game ids (`steam:440`); the launcher those games share is
+  /// the source, so each entry's prefix becomes the one launcher it enables.
+  /// Unknown ids, and sources that are not game launchers, are dropped rather
+  /// than kept as dead settings.
+  static Set<String> _closeWithGame(Object? value, int version) {
     if (value is! List) return <String>{};
-    return {
-      for (final entry in value)
-        if (entry is String && entry.trim().isNotEmpty) entry.trim(),
-    };
+    final launchers = <String>{};
+    for (final entry in value) {
+      if (entry is! String) continue;
+      var text = entry.trim();
+      if (text.isEmpty) continue;
+      if (version < 2) {
+        final cut = text.indexOf(':');
+        if (cut < 0) continue;
+        text = text.substring(0, cut);
+      }
+      final source = SourceKind.byId(text);
+      if (source != null && source.isLauncher) launchers.add(source.id);
+    }
+    return launchers;
   }
+
+  /// Tags the user gave [gameId], or an empty list.
+  List<String> tagsFor(String gameId) => tags[gameId] ?? const [];
+
+  /// What the launcher adds to [gameId]'s argv, or defaults.
+  LaunchOptions launchOptionsFor(String gameId) =>
+      launchOptions[gameId] ?? const LaunchOptions();
+
+  /// Whether [gameId] was removed after it went missing.
+  bool isForgotten(String gameId) => forgotten.contains(gameId);
+
+  /// Capabilities allowed for [pluginId]. A plugin nobody has configured keeps
+  /// the lookup it always had; actions and hooks must be granted.
+  Set<String> pluginGrantsFor(String pluginId) =>
+      pluginGrants[pluginId] ?? const {'lookup'};
 
   AppConfig copyWith({
     Set<String>? hidden,
@@ -390,6 +549,12 @@ class AppConfig {
     AppThemeMode? themeMode,
     String? accentColor,
     Set<String>? closeWithGame,
+    Map<String, List<String>>? tags,
+    Map<String, LaunchOptions>? launchOptions,
+    Set<String>? forgotten,
+    Map<String, Set<String>>? pluginGrants,
+    bool? minimizeOnLaunch,
+    bool? trayIcon,
     bool? coverFetch,
     bool? showHidden,
     bool? sidebarCollapsed,
@@ -410,6 +575,12 @@ class AppConfig {
     themeMode: themeMode ?? this.themeMode,
     accentColor: accentColor ?? this.accentColor,
     closeWithGame: closeWithGame ?? this.closeWithGame,
+    tags: tags ?? this.tags,
+    launchOptions: launchOptions ?? this.launchOptions,
+    forgotten: forgotten ?? this.forgotten,
+    pluginGrants: pluginGrants ?? this.pluginGrants,
+    minimizeOnLaunch: minimizeOnLaunch ?? this.minimizeOnLaunch,
+    trayIcon: trayIcon ?? this.trayIcon,
     coverFetch: coverFetch ?? this.coverFetch,
     showHidden: showHidden ?? this.showHidden,
     sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
