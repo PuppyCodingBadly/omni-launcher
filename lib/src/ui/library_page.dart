@@ -679,6 +679,15 @@ class _LibraryPageState extends State<LibraryPage> {
   /// The recently played shelf: the last few games, newest first, as one
   /// scrolling row of small covers above the wall.
   Widget _shelf(LibraryController controller, List<Game> games) {
+    final strip = GameTile.heightFor(
+      compact: true,
+      textScaler: MediaQuery.textScalerOf(context),
+    );
+    // A hovered shelf tile grows by [_hoverScale], and a list exactly as tall
+    // as the tile clips that growth: the top of the cover — and the selected
+    // ring on it — used to disappear. The strip is that much taller, with the
+    // same room as padding, so the lift stays inside the viewport.
+    final room = GameTile.hoverOverflowFor(strip).ceilToDouble();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -695,13 +704,10 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
         SizedBox(
-          height: GameTile.heightFor(
-            compact: true,
-            textScaler: MediaQuery.textScalerOf(context),
-          ),
+          height: strip + room * 2,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 28),
+            padding: EdgeInsets.fromLTRB(28, room, 28, room),
             itemCount: games.length,
             separatorBuilder: (context, index) => const SizedBox(width: 16),
             itemBuilder: (context, index) {

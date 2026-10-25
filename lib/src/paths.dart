@@ -6,7 +6,7 @@ import 'host.dart';
 class AppPaths {
   static const String appId = 'io.github.PuppyCodingBadly.OmniLauncher';
   static const String appName = 'Omni Launcher';
-  static const String version = '0.3.3';
+  static const String version = '0.3.4';
 
   static String get home => Host.home;
 
@@ -34,7 +34,26 @@ class AppPaths {
 
   static String get configFile => '$configDir/config.json';
   static String get cacheFile => '$cacheDir/games.json';
-  static String get coverDir => '$cacheDir/covers';
+
+  /// Downloaded artwork lives with the launcher's data, not in the cache.
+  ///
+  /// A Steam capsule can be fetched again, but a SteamGridDB pick cannot: the
+  /// grid the user chose is not guaranteed to be in the list any more. Cache
+  /// folders are the first thing an update or a cleanup empties, which is
+  /// exactly what must not happen to a pick, so both kinds live here.
+  static String get coverDir => '${Host.dataHome}/omnilauncher-flutter/covers';
+
+  /// Where earlier builds cached artwork, before it moved out of the cache.
+  static String get legacyCoverDir => '$cacheDir/covers';
+
+  /// Where a sandboxed build cached artwork, when that is this side's view.
+  static String? get sandboxCoverDir {
+    if (!Host.inFlatpak) return null;
+    final cache = Platform.environment['XDG_CACHE_HOME'];
+    if (cache == null || cache.isEmpty) return null;
+    return '$cache/omnilauncher-flutter/covers';
+  }
+
   static String get launchLog => '$stateDir/launch.log';
   static String get playtimeFile => '$stateDir/playtime.json';
   static String get pluginAnswerFile => '$cacheDir/plugin_answers.json';
@@ -82,9 +101,41 @@ class AppPaths {
     return adopted;
   }
 
+  /// The launcher's data location for a file that was cached under one of the
+  /// old cover folders, copying it across when only the old copy exists.
+  ///
+  /// A path outside those folders is returned unchanged: it is not ours to
+  /// move.
+  static String rehomeCover(String path, {String? from, String? to}) {
+    final sandbox = from == null ? sandboxCoverDir : null;
+    final roots = <String>[?from, if (from == null) legacyCoverDir, ?sandbox];
+    String? root;
+    for (final candidate in roots) {
+      if (path.startsWith('$candidate/')) {
+        root = candidate;
+        break;
+      }
+    }
+    if (root == null) return path;
+    final name = path.substring(root.length + 1);
+    final rehomed = '${to ?? coverDir}/$name';
+    if (!File(rehomed).existsSync() && File(path).existsSync()) {
+      try {
+        File(rehomed)
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync(File(path).readAsBytesSync());
+      } on FileSystemException {
+        // A copy that fails leaves the old path in place: the pin can still
+        // be fetched again, so failing here must not lose the reference.
+        return path;
+      }
+    }
+    return rehomed;
+  }
+
   /// Copy the files directly in [from] that [to] does not have yet; returns
-  /// what it wrote. Subfolders, such as the cover cache, are left out: they
-  /// come back on their own.
+  /// what it wrote. Subfolders are left out: the cover folder has its own
+  /// adoption path, and anything else is not the launcher's.
   static List<String> adoptFiles(String from, String to) {
     final source = Directory(from);
     if (!source.existsSync()) return const [];

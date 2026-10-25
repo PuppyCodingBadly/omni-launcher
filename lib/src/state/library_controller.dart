@@ -94,6 +94,7 @@ class LibraryController extends ChangeNotifier {
        covers = covers ?? CoverStore(),
        pluginAnswers = pluginAnswers ?? PluginStore(),
        config = config ?? AppConfig.load(configPath ?? AppPaths.configFile) {
+    _adoptCachedArtPaths();
     this.covers.settings = ArtSettings.from(this.config);
   }
 
@@ -196,6 +197,10 @@ class LibraryController extends ChangeNotifier {
   /// Artwork fetches in flight, by game id.
   final Map<String, Future<Artwork?>> _artFetches =
       <String, Future<Artwork?>>{};
+
+  /// Games whose missing pin was already downloaded again this run: a pick
+  /// that cannot be recovered must not cost a search per tile that shows it.
+  final Set<String> _pinRecovered = <String>{};
 
   /// Debounce for automatic-artwork config writes; see [_scheduleArtSave].
   Timer? _artSaveTimer;
@@ -1011,9 +1016,40 @@ class LibraryController extends ChangeNotifier {
 
   // ------------------------------------------------------------ artwork
 
+  /// Rewrite artwork paths that point into an old cache folder.
+  ///
+  /// Artwork used to be stored under `~/.cache/omnilauncher-flutter/covers`;
+  /// it lives with the launcher's data now, because cache folders are emptied
+  /// by updates and cleanups and a picked grid cannot always be found again.
+  /// A file that is still on disk is copied across, so the pick keeps showing
+  /// with nothing re-downloaded.
+  void _adoptCachedArtPaths() {
+    Map<String, String> rehomed(Map<String, String> paths) => {
+      for (final entry in paths.entries)
+        entry.key: AppPaths.rehomeCover(entry.value),
+    };
+    final overrides = rehomed(config.artOverrides);
+    final autoArt = rehomed(config.autoArt);
+    bool differs(Map<String, String> a, Map<String, String> b) {
+      if (a.length != b.length) return true;
+      for (final entry in a.entries) {
+        if (b[entry.key] != entry.value) return true;
+      }
+      return false;
+    }
+
+    if (!differs(overrides, config.artOverrides) &&
+        !differs(autoArt, config.autoArt)) {
+      return;
+    }
+    _apply(config.copyWith(artOverrides: overrides, autoArt: autoArt));
+  }
+
   /// Artwork for a tile: Steam CDN first, then SteamGridDB when enabled.
   ///
-  /// A SteamGridDB pick is remembered in the config so it survives rescans.
+  /// A SteamGridDB pick is remembered in the config so it survives rescans,
+  /// and its grid id is remembered with it, so a pick whose file was deleted
+  /// is downloaded again instead of being forgotten.
   ///
   /// The wall and the recently played shelf can show one game at the same
   /// moment, and both tiles ask: they get the same answer from one fetch. A
@@ -1036,6 +1072,24 @@ class LibraryController extends ChangeNotifier {
 
   Future<Artwork?> _fetchCoverArt(Game game) async {
     if (covers.overrideFor(game) != null) return null;
+    final pinnedPath = covers.pinnedArtPath(game);
+    if (pinnedPath != null && _pinRecovered.add(game.id)) {
+      final recovered = await covers.refetchPinned(game);
+      if (recovered != null) {
+        // The download may land in the cover folder's new home: keep the pin
+        // pointing at the file that is actually there.
+        if (recovered.value != null && recovered.value != pinnedPath) {
+          _apply(
+            config.copyWith(
+              artOverrides: {...config.artOverrides, game.id: recovered.value!},
+            ),
+          );
+        }
+        return recovered;
+      }
+      // The grid could not be fetched this time (offline, or it is gone). The
+      // pin stays, and the automatic sources cover the tile meanwhile.
+    }
     if (covers.autoArtFor(game) != null) return null;
     final steam = await covers.fetchSteamCover(game);
     if (steam != null) return steam;

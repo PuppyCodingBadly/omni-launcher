@@ -478,10 +478,11 @@ void main() {
       expect(store.resolve(steamGame('900090009')).pending, isFalse);
     });
 
-    test('the first resolve prunes SteamGridDB art no game points at', () {
+    test('picked art is never pruned, even with no game pointing at it', () {
       final covers = Directory('${dir.path}/covers')
         ..createSync(recursive: true);
-      File('${covers.path}/sgdb_steam_1_1.png').writeAsBytesSync([1]);
+      final orphan = File('${covers.path}/sgdb_steam_1_1.png')
+        ..writeAsBytesSync([1]);
       File('${covers.path}/steam_1.jpg').writeAsBytesSync([1]);
       final kept = File('${covers.path}/sgdb_steam_2_2.png')
         ..writeAsBytesSync([1]);
@@ -492,7 +493,9 @@ void main() {
 
       store.resolve(steamGame('900090009'));
 
-      expect(File('${covers.path}/sgdb_steam_1_1.png').existsSync(), isFalse);
+      // A deleted grid cannot be found again for sure, so a file the config
+      // no longer points at is left alone rather than taken with it.
+      expect(orphan.existsSync(), isTrue);
       expect(kept.existsSync(), isTrue);
       // Steam's own capsules stay: a game that comes back finds them waiting.
       expect(File('${covers.path}/steam_1.jpg').existsSync(), isTrue);
@@ -830,6 +833,53 @@ void main() {
         await server.close(force: true);
       },
     );
+
+    test('a missing pin is found under another name match', () async {
+      // The name's first SteamGridDB match is not always the game the pin
+      // came from; the rest of the autocomplete matches are worth asking.
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        final path = request.uri.path;
+        if (path == '/grid/42.png') {
+          request.response
+            ..headers.contentType = ContentType.binary
+            ..add(List<int>.filled(64, 7));
+        } else {
+          final body = switch (path) {
+            '/search/autocomplete/Terraria' =>
+              '{"success":true,"data":[{"id":7,"name":"Terraria"},'
+                  '{"id":8,"name":"Terraria 2"}]}',
+            // The pinned grid belongs to the second match.
+            '/grids/game/7' =>
+              '{"success":true,"data":[{"id":1,'
+                  '"url":"http://127.0.0.1:${server.port}/grid/1.png"}]}',
+            _ =>
+              '{"success":true,"data":[{"id":42,'
+                  '"url":"http://127.0.0.1:${server.port}/grid/42.png"}]}',
+          };
+          request.response
+            ..headers.contentType = ContentType.json
+            ..write(body);
+        }
+        await request.response.close();
+      });
+      final pinned = '${dir.path}/covers/sgdb_flatpak_x_42.png';
+      final store = CoverStore(
+        settings: ArtSettings(sgdbKey: 'key', overrides: {'flatpak:x': pinned}),
+        coverDir: '${dir.path}/covers',
+        sgdbBase: 'http://127.0.0.1:${server.port}',
+      );
+
+      final art = await store.refetchPinned(
+        game('flatpak:x', 'Terraria', SourceKind.flatpak),
+      );
+      store.close();
+      await server.close(force: true);
+
+      expect(art?.kind, ArtworkKind.cover);
+      expect(art?.value, pinned);
+      expect(File(pinned).existsSync(), isTrue);
+    });
   });
 
   group('SteamGridDB failures', () {

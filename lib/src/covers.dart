@@ -129,9 +129,6 @@ class CoverStore {
   /// only when one of the files it read has actually changed.
   final Map<String, _Resolution> _resolutions = {};
 
-  /// Whether the cover folder was already pruned this run.
-  bool _pruned = false;
-
   ArtSettings get settings => _settings;
 
   set settings(ArtSettings value) {
@@ -182,7 +179,6 @@ class CoverStore {
 
   /// Best artwork available right now (never blocks on the network).
   Artwork resolve(Game game) {
-    _prune();
     final stamp = _stampFor(game);
     final cached = _resolutions[game.id];
     if (cached != null && cached.matches(stamp)) return cached.artwork;
@@ -195,30 +191,46 @@ class CoverStore {
   Artwork _resolve(Game game) {
     final override = overrideFor(game);
     if (override != null) return Artwork(ArtworkKind.cover, value: override);
+    // The pin is a fact about the game, not about the file: when the file went
+    // missing, the grid is fetched again rather than the pin being forgotten.
+    final pinPending = canRefetchPin(game);
     final fetched = autoArtFor(game);
     if (fetched != null) return Artwork(ArtworkKind.cover, value: fetched);
     final cover = game.cover;
     if (cover != null && File(cover).existsSync()) {
-      return Artwork(ArtworkKind.cover, value: cover);
+      return Artwork(ArtworkKind.cover, value: cover, pending: pinPending);
     }
     if (game.source == SourceKind.steam) {
       final appid = '${game.extra['appid'] ?? ''}';
       if (appid.isNotEmpty) {
         final local = _steamLocal(appid) ?? _steamCached(appid);
-        if (local != null) return Artwork(ArtworkKind.cover, value: local);
-        return Artwork(ArtworkKind.letter, pending: _pendingFor(appid));
+        if (local != null) {
+          return Artwork(ArtworkKind.cover, value: local, pending: pinPending);
+        }
+        return Artwork(
+          ArtworkKind.letter,
+          pending: _pendingFor(appid) || pinPending,
+        );
       }
     }
     final icon = game.icon;
     if (icon != null && icon.isNotEmpty) {
       if (game.iconIsName) {
-        return Artwork(ArtworkKind.icon, value: icon, isName: true);
+        return Artwork(
+          ArtworkKind.icon,
+          value: icon,
+          isName: true,
+          pending: pinPending,
+        );
       }
       if (File(icon).existsSync()) {
-        return Artwork(ArtworkKind.icon, value: icon);
+        return Artwork(ArtworkKind.icon, value: icon, pending: pinPending);
       }
     }
-    return Artwork(ArtworkKind.letter, pending: _pendingFor(null));
+    return Artwork(
+      ArtworkKind.letter,
+      pending: _pendingFor(null) || pinPending,
+    );
   }
 
   /// The file stamps [_resolve]'s answer for [game] depends on, in a fixed
@@ -263,40 +275,74 @@ class CoverStore {
         : stat.modified.millisecondsSinceEpoch;
   }
 
-  /// Delete cached art that nothing points at any more, once per run.
+  /// The SteamGridDB artwork the user pinned for [game], even when its file
+  /// has gone missing: the path is the pin, and [refetchPinned] can fetch the
+  /// same grid again.
+  String? pinnedArtPath(Game game) {
+    final path = _settings.overrides[game.id];
+    if (path == null || path.isEmpty) return null;
+    return path;
+  }
+
+  static final RegExp _gridSuffix = RegExp(r'_(\d+)\.[A-Za-z0-9]+$');
+
+  /// The SteamGridDB grid id a pinned file was downloaded from, parsed from
+  /// its name (`sgdb_<game id>_<grid id><extension>`).
+  int? pinnedGridId(Game game) {
+    final path = pinnedArtPath(game);
+    if (path == null) return null;
+    final name = path.split('/').last;
+    if (!name.startsWith('sgdb_')) return null;
+    final match = _gridSuffix.firstMatch(name);
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  /// Whether [game] has a pin this launcher can download again: a remembered
+  /// grid id and an API key to ask for it.
+  bool canRefetchPin(Game game) =>
+      pinnedGridId(game) != null && _settings.sgdbEnabled;
+
+  /// Download the grid [game]'s pin names again, after its file went missing.
   ///
-  /// A SteamGridDB pick of a game the library no longer holds would sit in the
-  /// folder forever otherwise. Steam's capsules and the missing markers stay:
-  /// they are keyed by app id, and a game that comes back finds them waiting.
-  /// Anything that is not the launcher's own cache file is left alone.
-  void _prune() {
-    if (_pruned) return;
-    _pruned = true;
-    final folder = Directory(_coverFolder);
-    if (!folder.existsSync()) return;
-    final keep = <String>{
-      ..._settings.overrides.values,
-      ..._settings.autoArt.values,
-    };
-    final List<FileSystemEntity> entries;
-    try {
-      entries = folder.listSync(followLinks: false);
-    } on FileSystemException {
-      return;
-    }
-    for (final entry in entries) {
-      if (entry is! File) continue;
-      // Only the SteamGridDB cache files are pruned: Steam's capsules and
-      // markers are keyed by app id, and anything else is not ours.
-      if (!entry.uri.pathSegments.last.startsWith('sgdb_')) continue;
-      if (keep.contains(entry.path)) continue;
-      try {
-        entry.deleteSync();
-      } on FileSystemException {
-        // Another run of the launcher got there first; a stale file is only
-        // ever disk space.
+  /// The pin is kept even when this fails — there may be no network now, or
+  /// the grid may be gone — so a later run can try again instead of the user's
+  /// pick being forgotten.
+  Future<Artwork?> refetchPinned(Game game) async {
+    final id = pinnedGridId(game);
+    if (id == null || !_settings.sgdbEnabled) return null;
+    final grid = await _pinnedGrid(game, id);
+    if (grid == null) return null;
+    final path = await downloadArt(game, grid);
+    if (path == null) return null;
+    return Artwork(ArtworkKind.cover, value: path);
+  }
+
+  /// The grid [id] among the ones [game] resolves to.
+  ///
+  /// The first lookup is the game's usual one. A name can match several
+  /// SteamGridDB entries and the first is not always the one the pin came
+  /// from, so the rest of the autocomplete matches are searched too before
+  /// saying the grid is gone.
+  Future<SgdbGrid?> _pinnedGrid(Game game, int id) async {
+    Future<SgdbGrid?> find(Iterable<SgdbGrid> grids) async {
+      for (final grid in grids) {
+        if (grid.id == id) return grid;
       }
+      return null;
     }
+
+    try {
+      final usual = await find(await searchArt(game));
+      if (usual != null) return usual;
+      for (final match in (await sgdb.searchGames(game.name)).take(5)) {
+        final grids = await sgdb.gridsForGame(match.id);
+        final pinned = await find(grids);
+        if (pinned != null) return pinned;
+      }
+    } on SteamGridDbException {
+      return null;
+    }
+    return null;
   }
 
   /// Whether a fetch could still produce art for a game whose Steam app id is

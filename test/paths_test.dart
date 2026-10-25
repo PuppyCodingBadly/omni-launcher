@@ -31,6 +31,16 @@ void main() {
         AppPaths.pluginDir,
         '${Host.home}/.local/share/omnilauncher-flutter/plugins',
       );
+      // Downloaded artwork is user data, not cache: an update or a cache
+      // cleanup must not take the grid the user picked.
+      expect(
+        AppPaths.coverDir,
+        '${Host.home}/.local/share/omnilauncher-flutter/covers',
+      );
+      expect(
+        AppPaths.legacyCoverDir,
+        '${Host.home}/.cache/omnilauncher-flutter/covers',
+      );
     });
   });
 
@@ -121,6 +131,28 @@ void main() {
       expect(
         AppPaths.adoptFiles('${dir.path}/gone', '${dir.path}/to'),
         isEmpty,
+      );
+    });
+
+    test('artwork cached by an earlier build moves to the data folder', () {
+      final from = Directory('${dir.path}/cache/covers')
+        ..createSync(recursive: true);
+      final cached = File('${from.path}/sgdb_steam_1_42.png')
+        ..writeAsBytesSync([1, 2, 3]);
+      final to = '${dir.path}/data/covers';
+
+      final rehomed = AppPaths.rehomeCover(
+        cached.path,
+        from: from.path,
+        to: to,
+      );
+
+      expect(rehomed, '$to/sgdb_steam_1_42.png');
+      expect(File(rehomed).readAsBytesSync(), [1, 2, 3]);
+      // A path outside the old folders belongs to somebody else.
+      expect(
+        AppPaths.rehomeCover('${dir.path}/elsewhere/a.png', from: from.path),
+        '${dir.path}/elsewhere/a.png',
       );
     });
 

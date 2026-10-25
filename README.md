@@ -185,7 +185,7 @@ has an answer.
 | --- | --- |
 | `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, forgotten games, which launchers close with their games, plugin permissions, window size and behaviour |
 | `~/.cache/omnilauncher-flutter/games.json` | last scan, for an instant start |
-| `~/.cache/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
+| `~/.local/share/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |
 | `~/.local/state/omnilauncher-flutter/playtime.json` | played time and last played per game |
 | `~/.cache/omnilauncher-flutter/plugin_answers.json` | what the plugins answered, per plugin and game |
@@ -211,7 +211,10 @@ SteamGridDB has no anonymous tier, so it needs your own API key
 (steamgriddb.com → Preferences → API). Paste it under **Settings → Artwork**,
 press *Test*, then either turn on **Fetch SteamGridDB art automatically** or use
 **Find art** on a single game to browse the candidates (thumb, style, size,
-author) and pin one. Picked art is stored per game, so it survives rescans.
+author) and pin one. Picked art is stored per game under the launcher's data
+folder, so updates and cache cleanups leave it alone; its grid id is part of
+the file name, so even a pick whose file goes missing is fetched again instead
+of being forgotten.
 
 ![Picking cover art from SteamGridDB](docs/screenshots/steamgriddb.jpg)
 

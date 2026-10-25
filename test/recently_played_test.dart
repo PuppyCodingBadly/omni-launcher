@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omni_launcher/src/config.dart';
@@ -247,6 +248,43 @@ void main() {
 
       expect(find.text('RECENTLY PLAYED'), findsOneWidget);
       expect(find.byType(GameTile), findsNWidgets(5));
+    });
+
+    testWidgets('a hovered shelf tile lifts inside the strip, ring and all', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final shelfList = find.byWidgetPredicate(
+        (widget) =>
+            widget is ListView && widget.scrollDirection == Axis.horizontal,
+      );
+      final tile = find
+          .descendant(of: shelfList, matching: find.byType(GameTile))
+          .first;
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(tester.getCenter(tile));
+      await tester.pumpAndSettle();
+
+      final scale = tester
+          .widget<AnimatedScale>(
+            find.descendant(of: tile, matching: find.byType(AnimatedScale)),
+          )
+          .scale;
+      expect(scale, greaterThan(1));
+      final box = tester.getRect(tile);
+      final lifted = Rect.fromCenter(
+        center: box.center,
+        width: box.width * scale,
+        height: box.height * scale,
+      );
+      // The strip clips at its own bounds: a lift roomier than the strip took
+      // the top of the cover and the selected cover's ring with it.
+      final strip = tester.getRect(shelfList);
+      expect(lifted.top, greaterThanOrEqualTo(strip.top));
+      expect(lifted.bottom, lessThanOrEqualTo(strip.bottom));
     });
 
     testWidgets('steps aside in a window too short for it', (tester) async {

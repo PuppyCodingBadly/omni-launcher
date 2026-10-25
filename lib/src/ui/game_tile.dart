@@ -66,6 +66,13 @@ class GameTile extends StatefulWidget {
         8;
   }
 
+  /// How far a hovered or focused tile grows past its resting box on each
+  /// side. A strip that is exactly the tile's height would clip that growth
+  /// — and the selected cover's ring with it — so its list leaves this much
+  /// room above and below.
+  static double hoverOverflowFor(double height) =>
+      height * (_hoverScale - 1) / 2;
+
   final Game game;
   final LibraryController controller;
   final bool selected;

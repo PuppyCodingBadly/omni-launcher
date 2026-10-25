@@ -853,6 +853,38 @@ void main() {
       },
     );
 
+    test('a pinned grid whose file vanished is downloaded again', () async {
+      final folder = Directory('${dir.path}/covers')..createSync();
+      // The pin still points at the folder artwork used to be cached in; the
+      // download that revives it lands in the data folder.
+      final stale = '${dir.path}/old-cache/covers/sgdb_steam_1_42.png';
+      final renewed = '${folder.path}/sgdb_steam_1_42.png';
+      final covers = _PinnedGridCovers(folder.path);
+      final controller = artController(
+        covers,
+        config: AppConfig(
+          steamgriddbKey: 'key',
+          coverFetch: false,
+          artOverrides: {'steam:1': stale},
+        ),
+      );
+      addTearDown(controller.dispose);
+      final pinned = game('steam:1', 'Artless', SourceKind.steam);
+
+      // The pin is still a pin: the tile knows it can be fetched again.
+      expect(controller.covers.resolve(pinned).pending, isTrue);
+
+      final art = await controller.requestCoverArt(pinned);
+
+      expect(art?.kind, ArtworkKind.cover);
+      expect(art?.value, renewed);
+      expect(File(renewed).existsSync(), isTrue);
+      expect(controller.config.artOverrides['steam:1'], renewed);
+      // The new path is written down, not left in memory for the next update
+      // to lose.
+      expect(AppConfig.load(configPath).artOverrides['steam:1'], renewed);
+    });
+
     test('a stale miss is asked about again, and remembered afresh', () async {
       final covers = _EmptySearchCovers();
       final stale = DateTime.now()
@@ -1134,6 +1166,37 @@ class _FoundSearchCovers extends CoverStore {
   @override
   Future<String?> downloadArt(Game game, SgdbGrid grid) async =>
       '$folder/${game.key}.jpg';
+}
+
+/// A cover store whose SteamGridDB has exactly the pinned grid, and writes the
+/// "download" to [folder] so the config path can be checked afterwards.
+class _PinnedGridCovers extends CoverStore {
+  _PinnedGridCovers(this.folder);
+
+  final String folder;
+
+  @override
+  Future<Artwork?> fetchSteamCover(Game game) async => null;
+
+  @override
+  Future<List<SgdbGrid>> searchArt(Game game) async => const [
+    SgdbGrid(
+      id: 42,
+      url: 'https://example.invalid/pinned.png',
+      thumb: 'https://example.invalid/pinned-thumb.png',
+    ),
+  ];
+
+  @override
+  String artPath(Game game, SgdbGrid grid) =>
+      '$folder/sgdb_steam_1_${grid.id}.png';
+
+  @override
+  Future<String?> downloadArt(Game game, SgdbGrid grid) async {
+    final path = artPath(game, grid);
+    File(path).writeAsBytesSync([1, 2, 3]);
+    return path;
+  }
 }
 
 /// A source whose library a test can change between scans.
