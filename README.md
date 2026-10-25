@@ -38,10 +38,12 @@ wall first, details on demand.
   tile, and the panel's Launch button becomes Stop (SIGTERM, then SIGKILL after
   five seconds). Two quick clicks cannot start the same game twice. A game that
   exits within ten seconds is reported with a **View log** action instead of
-  looking like a success. These follow the process the launcher starts; a
-  launcher that hands the game to a client and exits (`steam -applaunch`,
-  Heroic/Epic through `xdg-open`) is not reported as a quick exit and does not
-  get a lasting `PLAYING` state.
+  looking like a success. A game the launcher starts itself is followed by its
+  process. A game handed to Steam (`steam -applaunch`, which exits at once) is
+  followed through Steam's own game-process log instead, so it keeps `PLAYING`
+  until Steam reports the game over; Stop signals the game's processes on the
+  host. A launcher that hands the game to a client with no such record
+  (`xdg-open`) is not reported as a quick exit and gets no lasting state.
 * **Tags and collections.** Steam collections and Lutris categories arrive as
   tags; any game can get your own from its cog. **Filters** (the funnel in the
   header) stacks tags with status filters: Unplayed, Not played in 90 days, No
@@ -73,7 +75,10 @@ wall first, details on demand.
   hides every marked one at once.
 * **Recently played**, on a shelf above the wall: the last ten games you
   started, newest first, each with how much and how recently you played it.
-  The shelf follows the wall's filters and steps aside while you search.
+  The shelf follows the wall's filters and steps aside while you search. When
+  it holds more than the window shows, a scrollbar under the row says so and
+  takes you to the rest; choosing a game brings its tile back into the strip
+  after the detail panel narrows it.
 * **Plugins**: a folder with a `plugin.json` in it and a program the launcher
   runs, JSON in and JSON out, in any language. A plugin can answer lookups,
   offer **actions** for a game, and run **pre-launch** and **post-exit** hooks.

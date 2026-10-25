@@ -60,6 +60,28 @@ class _LibraryPageState extends State<LibraryPage> {
   /// somewhere to land.
   final ScrollController _gridScroll = ScrollController();
 
+  /// The shelf's own scroll position.
+  final ScrollController _shelfScroll = ScrollController();
+
+  /// Whether the shelf holds more than it shows: the bar is only drawn when
+  /// scrolling does something.
+  bool _shelfOverflow = false;
+
+  /// Keep the ring's edge off the viewport's clip when a tile is scrolled to.
+  static const double _revealInset = 6;
+
+  /// The strip's side padding and the gap between its tiles.
+  static const double _shelfSidePadding = 28;
+  static const double _shelfGap = 16;
+
+  /// The wall's top padding and the gap between its rows.
+  static const double _gridTopPadding = 6;
+  static const double _gridRowGap = 22;
+
+  /// Room under the shelf for its scrollbar, so the bar never sits on the
+  /// labels.
+  static const double _shelfBarSpace = 10;
+
   /// The wall's column count, refreshed every grid build; the up and down
   /// arrows move by one row.
   int _gridColumns = 1;
@@ -212,6 +234,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _search.dispose();
     _searchFocus.dispose();
     _gridScroll.dispose();
+    _shelfScroll.dispose();
     for (final node in _gridNodes.values) {
       node.dispose();
     }
@@ -344,13 +367,17 @@ class _LibraryPageState extends State<LibraryPage> {
       tween: Tween(end: controller.selected != null ? 1 : 0),
       duration: _motion,
       curve: _motionCurve,
-      builder: (context, t, child) => ClipRect(
-        child: Align(
-          alignment: Alignment.centerLeft,
-          widthFactor: t,
-          child: Opacity(opacity: t, child: child),
-        ),
-      ),
+      // The wall and the shelf have their final width only when this settles.
+      onEnd: _onPanelSettled,
+      builder: (context, t, child) {
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: t,
+            child: Opacity(opacity: t, child: child),
+          ),
+        );
+      },
       child: _lastShown == null
           ? SizedBox(width: panelWidth)
           : DetailPanel(
@@ -683,11 +710,6 @@ class _LibraryPageState extends State<LibraryPage> {
       compact: true,
       textScaler: MediaQuery.textScalerOf(context),
     );
-    // A hovered shelf tile grows by [_hoverScale], and a list exactly as tall
-    // as the tile clips that growth: the top of the cover — and the selected
-    // ring on it — used to disappear. The strip is that much taller, with the
-    // same room as padding, so the lift stays inside the viewport.
-    final room = GameTile.hoverOverflowFor(strip).ceilToDouble();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -704,26 +726,130 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
         SizedBox(
-          height: strip + room * 2,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.fromLTRB(28, room, 28, room),
-            itemCount: games.length,
-            separatorBuilder: (context, index) => const SizedBox(width: 16),
-            itemBuilder: (context, index) {
-              final game = games[index];
-              return GameTile(
-                key: ValueKey('recent:${game.id}'),
-                game: game,
-                controller: controller,
-                selected: controller.selected?.id == game.id,
-                compact: true,
-              );
-            },
+          height: strip + _shelfBarSpace,
+          child: NotificationListener<ScrollMetricsNotification>(
+            onNotification: (notification) =>
+                _shelfMetrics(notification.metrics),
+            child: Scrollbar(
+              controller: _shelfScroll,
+              // The bar is the only way to see that the row goes on: the
+              // strip itself has no edge to hint at it.
+              thumbVisibility: _shelfOverflow,
+              scrollbarOrientation: ScrollbarOrientation.bottom,
+              child: ListView.separated(
+                controller: _shelfScroll,
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(
+                  _shelfSidePadding,
+                  0,
+                  _shelfSidePadding,
+                  _shelfBarSpace,
+                ),
+                itemCount: games.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(width: _shelfGap),
+                itemBuilder: (context, index) {
+                  final game = games[index];
+                  return GameTile(
+                    key: ValueKey('recent:${game.id}'),
+                    game: game,
+                    controller: controller,
+                    selected: controller.selected?.id == game.id,
+                    compact: true,
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ],
     );
+  }
+
+  /// Track whether the shelf actually scrolls, so its bar is only drawn when
+  /// it says something.
+  bool _shelfMetrics(ScrollMetrics metrics) {
+    final overflow = metrics.maxScrollExtent > 0;
+    if (overflow == _shelfOverflow) return false;
+    // This arrives while the sliver lays out; the bar can only change after
+    // the frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _shelfOverflow = overflow);
+    });
+    return false;
+  }
+
+  /// The detail panel has finished taking (or giving back) its width: that is
+  /// when a selected tile can be clipped by the wall or the shelf it was
+  /// clicked in, so bring it back.
+  void _onPanelSettled() {
+    final selected = widget.controller.selected;
+    if (selected == null || !mounted) return;
+    // The tween's last tick completes before that frame is laid out: the
+    // wall still measures the width it had one frame ago. Reveal after the
+    // narrow layout has happened.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reveal(selected.id);
+    });
+  }
+
+  void _reveal(String gameId) {
+    if (!mounted) return;
+    _revealShelf(gameId);
+    _revealWall(gameId);
+  }
+
+  /// Scroll the shelf so [gameId]'s tile is fully inside it.
+  void _revealShelf(String gameId) {
+    if (!_shelfScroll.hasClients) return;
+    final recent = widget.controller.recentlyPlayed(
+      visible: widget.controller.visibleGames,
+    );
+    final index = recent.indexWhere((game) => game.id == gameId);
+    if (index < 0) return;
+    // The strip's own geometry: its side padding and the gap between tiles
+    // are what its list lays out, so the tile's place is arithmetic.
+    final left =
+        _shelfSidePadding + index * (GameTile.compactWidth + _shelfGap);
+    _revealRange(_shelfScroll.position, left, left + GameTile.compactWidth);
+  }
+
+  /// Scroll the wall so [gameId]'s cell is fully inside it.
+  void _revealWall(String gameId) {
+    if (!_gridScroll.hasClients || _gridColumns <= 0 || _gridRowStride <= 0) {
+      return;
+    }
+    final games = widget.controller.visibleGames;
+    final index = games.indexWhere((game) => game.id == gameId);
+    if (index < 0) return;
+    final row = index ~/ _gridColumns;
+    final top = _gridTopPadding + row * _gridRowStride;
+    _revealRange(_gridScroll.position, top, top + _gridRowStride - _gridRowGap);
+  }
+
+  /// Scroll [position] by the least it can so [[start], [end]] is inside the
+  /// viewport with [_revealInset] to spare.
+  ///
+  /// A tile already in view is left where it is: clicking a visible tile must
+  /// not make the wall jump around. The margin is what keeps the tile's lift
+  /// and its ring off the clip edge.
+  void _revealRange(ScrollPosition position, double start, double end) {
+    var target = position.pixels;
+    final viewStart = target + _revealInset;
+    final viewEnd = target + position.viewportDimension - _revealInset;
+    if (end > viewEnd) {
+      target = end - position.viewportDimension + _revealInset;
+    } else if (start < viewStart) {
+      target = start - _revealInset;
+    } else {
+      return;
+    }
+    final clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((clamped - position.pixels).abs() < 0.5) return;
+    position.animateTo(clamped, duration: _motion, curve: _motionCurve);
   }
 
   Widget _grid(LibraryController controller, List<Game> games) {
@@ -785,9 +911,9 @@ class _LibraryPageState extends State<LibraryPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         const spacing = 18.0;
-        const mainAxisSpacing = 22.0;
+        const mainAxisSpacing = _gridRowGap;
         final columns =
-            ((constraints.maxWidth - 28 * 2 + spacing) /
+            ((constraints.maxWidth - _shelfSidePadding * 2 + spacing) /
                     (GameTile.width + spacing))
                 .floor()
                 .clamp(1, 12);
@@ -801,11 +927,19 @@ class _LibraryPageState extends State<LibraryPage> {
         // One row's height plus its gap: an arrow that lands past the built
         // viewport jumps by whole rows.
         final tileWidth =
-            (constraints.maxWidth - 28 * 2 - spacing * (columns - 1)) / columns;
+            (constraints.maxWidth -
+                _shelfSidePadding * 2 -
+                spacing * (columns - 1)) /
+            columns;
         _gridRowStride = tileWidth / aspectRatio + mainAxisSpacing;
         return GridView.builder(
           controller: _gridScroll,
-          padding: const EdgeInsets.fromLTRB(28, 6, 28, 24),
+          padding: const EdgeInsets.fromLTRB(
+            _shelfSidePadding,
+            _gridTopPadding,
+            _shelfSidePadding,
+            24,
+          ),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             mainAxisSpacing: mainAxisSpacing,

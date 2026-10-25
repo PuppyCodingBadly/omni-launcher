@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../art/steamgriddb.dart';
 import '../config.dart';
 import '../covers.dart';
+import '../host.dart';
 import '../launcher.dart';
 import '../model/game.dart';
 import '../model/launch_options.dart';
@@ -20,6 +21,7 @@ import '../sources/source.dart';
 import '../util/log_tail.dart';
 import '../util/proc.dart';
 import '../util/search.dart';
+import '../util/steam_log.dart';
 import 'playtime_store.dart';
 import 'plugin_store.dart';
 
@@ -51,16 +53,24 @@ class LaunchExit {
   final DateTime at;
 }
 
-/// One watched process: the pid and the start tick that prove it is still the
-/// process that was launched.
+/// One watched game: the pid and the start tick that prove it is still the
+/// process that was launched, and — for a hand-off — Steam's own log.
 class _RunningGame {
-  const _RunningGame(this.pid, this.startTick, {required this.tracked});
+  _RunningGame(this.pid, this.startTick, {required this.tracked, this.steam});
 
   final int pid;
   final int? startTick;
 
   /// False for a hand-off launcher whose exit says nothing about the game.
   final bool tracked;
+
+  /// Steam's record of a game the client was asked to start. Null for a game
+  /// whose process is the game itself.
+  final SteamGameLog? steam;
+
+  /// True once the launcher process is gone and [steam] is the only source of
+  /// truth. The badge and the session stay up until Steam says the game ended.
+  bool handedOff = false;
 }
 
 /// Library state: discovery, filtering, artwork, launching and persistence.
@@ -779,6 +789,31 @@ class LibraryController extends ChangeNotifier {
   void stop(Game game) {
     final running = _running[game.id];
     if (running == null) return;
+    final steam = running.steam;
+    if (running.handedOff && steam != null) {
+      // The pid we started was Steam's hand-off and is long gone. The game's
+      // own pids are the ones Steam logged, and they are the host's.
+      if (steam.pids.isEmpty) {
+        _running.remove(game.id);
+        _stopping.remove(game.id);
+        _stopTimers.remove(game.id)?.cancel();
+        notifyListeners();
+        return;
+      }
+      final pids = steam.pids.toList();
+      _stopping.add(game.id);
+      notice = 'Stopping ${game.name}…';
+      unawaited(_signalGame(pids, ProcessSignal.sigterm));
+      _stopTimers.remove(game.id)?.cancel();
+      _stopTimers[game.id] = Timer(stopGrace, () {
+        _stopTimers.remove(game.id);
+        if (identical(_running[game.id], running)) {
+          unawaited(_signalGame(pids, ProcessSignal.sigkill));
+        }
+      });
+      notifyListeners();
+      return;
+    }
     final snapshot = processSnapshot(running.pid);
     final same =
         snapshot != null &&
@@ -809,6 +844,24 @@ class LibraryController extends ChangeNotifier {
       }
     });
     notifyListeners();
+  }
+
+  /// Signal a hand-off game's own processes, on the host they belong to.
+  ///
+  /// The pids came from Steam's log, which names host pids; a sandboxed
+  /// launcher's own namespace would signal strangers, so `kill` runs through
+  /// [Host.command] like every other launch-side command.
+  Future<void> _signalGame(List<int> pids, ProcessSignal signal) async {
+    final argv = Host.command([
+      'kill',
+      signal == ProcessSignal.sigkill ? '-KILL' : '-TERM',
+      for (final pid in pids) '$pid',
+    ]);
+    try {
+      await Process.run(argv.first, argv.sublist(1));
+    } on ProcessException {
+      // Best effort: Steam's log is what says the game is really gone.
+    }
   }
 
   /// [game]'s effective argv, with the user's launch options folded in.
@@ -878,11 +931,21 @@ class LibraryController extends ChangeNotifier {
     return !game.command.contains('-applaunch');
   }
 
+  /// How long a hand-off may stay "asked for but not started" before the
+  /// launch is called a failure. Steam can take a while to show a game's
+  /// process under a fresh Proton prefix, but not this long for nothing.
+  static const Duration _handoffGrace = Duration(seconds: 30);
+
   /// Follow a launched game's pid so its session ends when the game does.
   ///
   /// `Launcher` starts the game detached with `exec`, so [pid] is the game's
   /// own. The session always ends at the last moment the process was seen: a
   /// game that exits between two checks is never credited with the gap.
+  ///
+  /// A hand-off to Steam is different: `steam -applaunch` exits as soon as the
+  /// client takes over, which used to end the session — and take the Playing
+  /// badge with it — a second after the game started. Steam's own game-process
+  /// log takes over there and ends the session when the game really does.
   ///
   /// The same poll asks a launcher window to close when the game it started is
   /// gone (see [shouldCloseLauncher]) — a launcher that ignores the request
@@ -893,52 +956,103 @@ class LibraryController extends ChangeNotifier {
     playtime.begin(gameId, startedAt);
     // Identifies the process we started: a recycled pid must never be signalled.
     final startTick = processStartTime(pid);
-    _running[gameId] = _RunningGame(
+    final handoff = tracksProcess(game) ? null : _steamHandoff(game);
+    final running = _RunningGame(
       pid,
       startTick,
       tracked: tracksProcess(game),
+      steam: handoff,
     );
+    _running[gameId] = running;
     var lastSeen = startedAt;
     var lastTouched = startedAt;
     var sawDescendants = false;
     var quietTicks = 0;
     var asked = false;
-    _sessions[gameId] = Timer.periodic(_pollInterval, (timer) {
+
+    late final Timer timer;
+
+    /// Close the session, telling the app whether the game's own end was
+    /// confirmed ([knownEnd]) or the launcher around it simply went away.
+    void endSession({required DateTime seenAt, required bool knownEnd}) {
+      timer.cancel();
+      _sessions.remove(gameId);
+      _stopTimers.remove(gameId)?.cancel();
+      if (identical(_running[gameId], running)) _running.remove(gameId);
+      final stopped = _stopping.remove(gameId);
+      final endedAt = seenAt.isBefore(startedAt) ? startedAt : seenAt;
+      playtime.end(gameId, endedAt);
+      if (knownEnd) {
+        final after = endedAt.difference(startedAt);
+        if (!stopped && after < quickExitThreshold) {
+          _quickExits[gameId] = after;
+          latestQuickExit = LaunchExit(
+            gameId: gameId,
+            after: after,
+            at: DateTime.now(),
+          );
+        }
+        unawaited(_runHooks(PluginHook.postExit, game));
+        onGameEnded?.call(game);
+      }
+      _notify();
+    }
+
+    timer = Timer.periodic(_pollInterval, (_) {
       final now = DateTime.now();
-      // One read of /proc/<pid>/stat answers both questions: alive, and still
-      // the process we started (a recycled pid gets a new start time).
-      final snapshot = processSnapshot(pid);
-      final alive =
-          snapshot != null &&
-          snapshot.running &&
-          (startTick == null || snapshot.startTime == startTick);
-      if (!alive) {
+      // A session already dropped (Stop with no process left) has nothing to
+      // watch; its time still ends at the last moment it was seen.
+      if (!identical(_running[gameId], running)) {
         timer.cancel();
         _sessions.remove(gameId);
-        _running.remove(gameId);
-        _stopTimers.remove(gameId)?.cancel();
-        final stopped = _stopping.remove(gameId);
         playtime.end(gameId, lastSeen);
-        // A hand-off launcher's exit says nothing about the game: it must not
-        // fake a quick exit, run the post-exit hooks early, or bring the
-        // window back while the game it handed over to is still starting.
-        if (tracksProcess(game)) {
-          final after = lastSeen.difference(startedAt);
-          if (!stopped && after < quickExitThreshold) {
-            _quickExits[gameId] = after;
-            latestQuickExit = LaunchExit(
-              gameId: gameId,
-              after: after,
-              at: DateTime.now(),
-            );
-          }
-          unawaited(_runHooks(PluginHook.postExit, game));
-          onGameEnded?.call(game);
-        }
-        _notify();
         return;
       }
-      lastSeen = now;
+      final steam = running.steam;
+      if (running.handedOff && steam != null) {
+        steam.poll();
+        switch (steam.state) {
+          case SteamGameState.ended:
+            endSession(seenAt: steam.endedAt ?? now, knownEnd: true);
+            return;
+          case SteamGameState.running:
+            lastSeen = now;
+            break;
+          case SteamGameState.starting:
+            if (now.difference(startedAt) >= _handoffGrace) {
+              // Steam never reported a process: the hand-off started nothing.
+              endSession(seenAt: lastSeen, knownEnd: false);
+              return;
+            }
+            break;
+        }
+      } else {
+        // One read of /proc/<pid>/stat answers both questions: alive, and
+        // still the process we started (a recycled pid gets a new start time).
+        final snapshot = processSnapshot(pid);
+        final alive =
+            snapshot != null &&
+            snapshot.running &&
+            (startTick == null || snapshot.startTime == startTick);
+        if (!alive) {
+          if (steam != null) {
+            // The launcher has handed the game to Steam and is gone. Steam's
+            // log says whether the game is up; the session stays open until
+            // it says the game is over.
+            running.handedOff = true;
+            steam.start();
+            if (steam.state == SteamGameState.ended) {
+              endSession(seenAt: steam.endedAt ?? now, knownEnd: true);
+              return;
+            }
+            lastSeen = now;
+            return;
+          }
+          endSession(seenAt: lastSeen, knownEnd: tracksProcess(game));
+          return;
+        }
+        lastSeen = now;
+      }
       if (shouldTouch(lastTouched, now)) {
         lastTouched = now;
         playtime.touch(gameId, now);
@@ -953,14 +1067,14 @@ class LibraryController extends ChangeNotifier {
       if (descendants(pid).isEmpty) {
         quietTicks++;
       } else {
-        // The launcher has its game running; losing it later means the game is
-        // over.
+        // The launcher has its game running; losing it later means the game
+        // is over.
         sawDescendants = true;
         quietTicks = 0;
       }
       if (shouldCloseLauncher(
         closeWithGame: config.closesWithGame(game.source),
-        alive: alive,
+        alive: true,
         sawDescendants: sawDescendants,
         quietTicks: quietTicks,
       )) {
@@ -968,6 +1082,15 @@ class LibraryController extends ChangeNotifier {
         Process.killPid(pid, ProcessSignal.sigterm);
       }
     });
+    _sessions[gameId] = timer;
+  }
+
+  /// Steam's log for [game]'s hand-off, when the launcher asked the client to
+  /// start it; null for every other command.
+  SteamGameLog? _steamHandoff(Game game) {
+    final handoff = SteamHandoff.find(game.command);
+    if (handoff == null) return null;
+    return SteamGameLog(appId: handoff.appId, path: handoff.path);
   }
 
   @override

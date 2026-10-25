@@ -72,6 +72,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.5" date="2026-10-24">
+      <description>
+        <p>A bug-fix release for the wall, the shelf and the playing state. A tile's hover lift stays inside its own box, so the selected cover's ring is no longer cut flat at a scrolled shelf or wall edge; when the detail panel narrows the wall (or the shelf), the game you selected is scrolled back fully into view. The recently played shelf shows a scrollbar whenever it holds more games than fit. A game Steam is asked to start now stays PLAYING until Steam reports the game over instead of a second after the hand-off exits, and Stop signals the game's own processes.</p>
+      </description>
+    </release>
     <release version="0.3.4" date="2026-10-24">
       <description>
         <p>A bug-fix release. Picked SteamGridDB artwork is kept with the launcher's data instead of the cache, is no longer pruned at startup, and is downloaded again when its file goes missing, so a pick survives updates and cache cleanups. The recently played strip leaves room for the hover lift, so the selected cover's ring is no longer clipped.</p>

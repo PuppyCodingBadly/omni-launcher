@@ -9,10 +9,14 @@ import 'package:omni_launcher/src/model/game.dart';
 import 'package:omni_launcher/src/state/library_controller.dart';
 import 'package:omni_launcher/src/state/playtime_store.dart';
 import 'package:omni_launcher/src/util/proc.dart';
+import 'package:omni_launcher/src/util/steam_log.dart';
 import 'package:omni_launcher/src/ui/detail_panel.dart';
 import 'package:omni_launcher/src/ui/playtime.dart';
 import 'package:omni_launcher/src/ui/settings_view.dart';
 import 'package:omni_launcher/src/ui/theme.dart';
+
+/// Two digits, for a Steam log timestamp.
+String _two(int value) => value.toString().padLeft(2, '0');
 
 /// A game that cannot be launched, for the "bookkeeping must not fail" case.
 Game missingGame() => Game(
@@ -360,6 +364,7 @@ void main() {
 
     tearDown(() {
       Launcher.logPathOverrideForTest = null;
+      SteamHandoff.homeOverrideForTest = null;
       dir.deleteSync(recursive: true);
     });
 
@@ -556,6 +561,53 @@ void main() {
       expect(controller.latestQuickExit?.gameId, game.id);
       expect(controller.launchLogFor(game), contains('launched ${game.id}'));
     });
+
+    test(
+      'a Steam hand-off stays running until Steam says it is over',
+      () async {
+        final controller = build(
+          pollInterval: const Duration(milliseconds: 40),
+        );
+        addTearDown(controller.dispose);
+        final log = File('${dir.path}/.steam/steam/logs/gameprocess_log.txt');
+        log.parent.createSync(recursive: true);
+        log.writeAsStringSync('');
+        SteamHandoff.homeOverrideForTest = dir.path;
+
+        const game = Game(
+          id: 'steam:4242',
+          key: '4242',
+          name: 'Handed Off',
+          source: SourceKind.steam,
+          command: ['/bin/true', '-applaunch', '4242'],
+        );
+        String stamp(DateTime time) =>
+            '${time.year}-${_two(time.month)}-${_two(time.day)} '
+            '${_two(time.hour)}:${_two(time.minute)}:${_two(time.second)}';
+
+        await controller.launch(game);
+        expect(controller.isRunning(game.id), isTrue);
+
+        // `steam -applaunch` exits at once. The session must not end with it:
+        // the game, not the hand-off, owns the Playing badge.
+        await Future<void>.delayed(const Duration(milliseconds: 240));
+        expect(controller.isRunning(game.id), isTrue);
+
+        log.writeAsStringSync(
+          '[${stamp(DateTime.now())}] AppID 4242 adding PID 999 as a tracked '
+          'process\n',
+          mode: FileMode.append,
+        );
+        expect(await waitFor(() => controller.isRunning(game.id)), isTrue);
+
+        log.writeAsStringSync(
+          '[${stamp(DateTime.now())}] Remove 4242 from running list\n',
+          mode: FileMode.append,
+        );
+        expect(await waitFor(() => !controller.isRunning(game.id)), isTrue);
+        expect(controller.isStopping(game.id), isFalse);
+      },
+    );
 
     test('a game that did not ask is left alone', () async {
       final controller = build(pollInterval: const Duration(milliseconds: 40));

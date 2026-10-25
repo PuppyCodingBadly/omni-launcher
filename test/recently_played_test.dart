@@ -250,7 +250,7 @@ void main() {
       expect(find.byType(GameTile), findsNWidgets(5));
     });
 
-    testWidgets('a hovered shelf tile lifts inside the strip, ring and all', (
+    testWidgets('a hovered shelf tile grows inside its own box, ring and all', (
       tester,
     ) async {
       await pumpPage(tester);
@@ -261,6 +261,15 @@ void main() {
       final tile = find
           .descendant(of: shelfList, matching: find.byType(GameTile))
           .first;
+      double scale() => tester
+          .widget<AnimatedScale>(
+            find.descendant(of: tile, matching: find.byType(AnimatedScale)),
+          )
+          .scale;
+
+      // At rest the tile gives the lift its room, inside its own box.
+      final resting = scale();
+      expect(resting, lessThan(1));
 
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: Offset.zero);
@@ -268,23 +277,24 @@ void main() {
       await mouse.moveTo(tester.getCenter(tile));
       await tester.pumpAndSettle();
 
-      final scale = tester
-          .widget<AnimatedScale>(
-            find.descendant(of: tile, matching: find.byType(AnimatedScale)),
-          )
-          .scale;
-      expect(scale, greaterThan(1));
+      final lifted = scale();
+      expect(lifted, greaterThan(resting));
+      // The lift may not paint past the tile's box: the strip clips at its
+      // bounds, so a tile scrolled flush to an edge would lose its ring.
       final box = tester.getRect(tile);
-      final lifted = Rect.fromCenter(
+      final painted = Rect.fromCenter(
         center: box.center,
-        width: box.width * scale,
-        height: box.height * scale,
+        width: box.width * lifted,
+        height: box.height * lifted,
       );
-      // The strip clips at its own bounds: a lift roomier than the strip took
-      // the top of the cover and the selected cover's ring with it.
+      expect(painted.top, greaterThanOrEqualTo(box.top));
+      expect(painted.left, greaterThanOrEqualTo(box.left));
+      expect(painted.bottom, lessThanOrEqualTo(box.bottom));
+      expect(painted.right, lessThanOrEqualTo(box.right));
+
       final strip = tester.getRect(shelfList);
-      expect(lifted.top, greaterThanOrEqualTo(strip.top));
-      expect(lifted.bottom, lessThanOrEqualTo(strip.bottom));
+      expect(box.top, greaterThanOrEqualTo(strip.top));
+      expect(box.bottom, lessThanOrEqualTo(strip.bottom));
     });
 
     testWidgets('steps aside in a window too short for it', (tester) async {

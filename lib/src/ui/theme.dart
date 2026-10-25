@@ -328,6 +328,16 @@ class AppTheme {
         color: palette.surfaceHigh,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
+      // The shelf's bar says the row goes on; it is a hint next to the
+      // covers, not a white rule across the page.
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll(
+          palette.textDim.withValues(alpha: 0.65),
+        ),
+        thickness: const WidgetStatePropertyAll(4),
+        radius: const Radius.circular(2),
+        crossAxisMargin: 2,
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: palette.surface,

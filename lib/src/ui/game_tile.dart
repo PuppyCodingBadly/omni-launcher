@@ -24,6 +24,15 @@ const _overlayDuration = Duration(milliseconds: 120);
 const _hoverScale = 1.03;
 const _pressScale = 0.98;
 
+/// The size a tile rests at.
+///
+/// The lift has to stay inside the tile's own box. Growing *out* of it pushed
+/// the cover's ring past the scroll viewport's clip whenever the strip or the
+/// wall was scrolled flush — the selected tile's highlight was cut flat on
+/// the edge. Resting a fraction smaller and growing to the box's own size
+/// keeps the whole ring inside it.
+const _restScale = 1 / _hoverScale;
+
 /// One cover tile: the wall's, or the recently played shelf's small one.
 class GameTile extends StatefulWidget {
   const GameTile({
@@ -65,13 +74,6 @@ class GameTile extends StatefulWidget {
         2 +
         8;
   }
-
-  /// How far a hovered or focused tile grows past its resting box on each
-  /// side. A strip that is exactly the tile's height would clip that growth
-  /// — and the selected cover's ring with it — so its list leaves this much
-  /// room above and below.
-  static double hoverOverflowFor(double height) =>
-      height * (_hoverScale - 1) / 2;
 
   final Game game;
   final LibraryController controller;
@@ -213,10 +215,10 @@ class _GameTileState extends State<GameTile> {
               opacity: hidden ? 0.45 : 1,
               child: AnimatedScale(
                 scale: _pressed
-                    ? _pressScale
+                    ? _restScale * _pressScale
                     : _highlighted
-                    ? _hoverScale
-                    : 1,
+                    ? 1
+                    : _restScale,
                 duration: _motionDuration,
                 curve: _motionCurve,
                 // A tile's hover repaints (shadow, scrim, scale) stay inside the
