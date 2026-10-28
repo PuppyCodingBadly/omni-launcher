@@ -422,11 +422,19 @@ class _Cover extends StatelessWidget {
         ),
         boxShadow: [palette.coverShadow(hovered: highlighted)],
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _artwork(palette, dpr),
+      // The border cannot share a clip with the artwork: a clip on this
+      // container uses the decoration's outer edge, so a full-bleed cover
+      // would paint over the selection ring drawn inside it. The artwork is
+      // clipped on its own, inside the border, at the radius the border's
+      // inner edge leaves it.
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _artwork(palette, dpr),
           if (favorite || status != null)
             Positioned(
               top: 8,
@@ -560,6 +568,8 @@ class _Cover extends StatelessWidget {
             ),
           ),
         ],
+          ),
+        ),
       ),
     );
   }
