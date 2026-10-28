@@ -55,3 +55,6 @@ flatpak/build-dir/
 # flatpak build output
 flatpak/repo/
 *.flatpak
+
+# Mutation testing reports
+/mutation-test-report/

@@ -29,7 +29,7 @@ jobs:
       - name: Test
         run: |
           set +e
-          flutter test --reporter expanded 2>&1 | tee test-output.log
+          flutter test --coverage --reporter expanded 2>&1 | tee test-output.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             # The log itself needs a signed-in reader; a check annotation does
@@ -37,6 +37,13 @@ jobs:
             python3 -c "import sys; lines=open('test-output.log',errors='replace').read().splitlines(); starts=[i for i,l in enumerate(lines) if '[E]' in l]; [print('::error title=Test failure::'+'\n'.join(lines[i:i+10]).replace('%','%25').replace('\r','').replace('\n','%0A')) for i in starts[:10]]"
           fi
           exit "$status"
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore
       - name: Validate the metainfo
         run: |
           sudo apt-get update

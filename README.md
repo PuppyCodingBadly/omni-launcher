@@ -423,7 +423,9 @@ that `plugins/` still matches the sources it was built from before it builds
 the bundle, publishes the repository and the landing page in `site/` to
 GitHub Pages, and attaches the bundle plus the generated `.flatpakref` to the
 release. A tag whose manifest pins a commit it does not contain is refused,
-rather than released as the wrong code.
+rather than released as the wrong code. Locally, `./tool/coverage.sh` runs the
+suite with coverage, prints a per-file line summary, and renders
+`coverage/html` when `genhtml` is installed (`dnf install lcov`).
 
 ## License
 

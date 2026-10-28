@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mutation testing configuration for `dart run mutation_test`. -->
+<!-- Scope: interior logic only. lib/src/ui and lib/main.dart are -->
+<!-- deliberately excluded (slow runs, unkillable widget mutants). -->
+<mutations version="1.2">
+  <files>
+    <file>lib/src/paths.dart</file>
+    <file>lib/src/covers.dart</file>
+    <file>lib/src/config.dart</file>
+    <file>lib/src/launcher.dart</file>
+    <file>lib/src/host.dart</file>
+  </files>
+  <directories>
+    <directory recursive="true">lib/src/model
+      <matching pattern="\.dart$"/>
+    </directory>
+    <directory recursive="true">lib/src/util
+      <matching pattern="\.dart$"/>
+    </directory>
+    <directory recursive="true">lib/src/state
+      <matching pattern="\.dart$"/>
+    </directory>
+    <directory recursive="true">lib/src/sources
+      <matching pattern="\.dart$"/>
+    </directory>
+    <directory recursive="true">lib/src/plugins
+      <matching pattern="\.dart$"/>
+    </directory>
+    <directory recursive="true">lib/src/art
+      <matching pattern="\.dart$"/>
+    </directory>
+  </directories>
+  <commands>
+    <command group="test" expected-return="0" working-directory="." timeout="600">flutter test</command>
+  </commands>
+  <!-- Single-line comments are never mutated. -->
+  <exclude>
+    <token begin="//" end="\n"/>
+  </exclude>
+  <!-- Fail the run when fewer than 70% of mutants are detected. -->
+  <threshold failure="70">
+    <rating over="95" name="A"/>
+    <rating over="80" name="B"/>
+    <rating over="70" name="C"/>
+    <rating over="50" name="D"/>
+    <rating over="30" name="E"/>
+    <rating over="0" name="F"/>
+  </threshold>
+</mutations>

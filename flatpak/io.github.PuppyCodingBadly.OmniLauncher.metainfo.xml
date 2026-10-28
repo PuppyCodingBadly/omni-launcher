@@ -72,6 +72,15 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.3.7" date="2026-10-28">
+      <description>
+        <p>A test and tooling release. The tag dialog now owns and disposes
+        its text controller, and the in-app version string matches the
+        package again. Adds mutation-testing and coverage workflows, and a
+        much larger test suite covering the dialogs, cover pins, Steam
+        libraries, the plugin runner and the window controls.</p>
+      </description>
+    </release>
     <release version="0.3.6" date="2026-10-28">
       <description>
         <p>A bug-fix release. A selected tile's ring was painted over by the cover art itself — the cover's clip reached past the border, so the ring survived only as ragged slivers at the corners. The artwork is now clipped inside the border, and the ring draws whole on selection and on click.</p>
