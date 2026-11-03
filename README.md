@@ -179,19 +179,20 @@ chips under it remove one at a time.
 
 The detail panel keeps *Launch* (or *Stop*) and the game's facts to itself;
 *Open folder*, *Copy* (the exact argv, launch options included), *Launch
-options…*, *Edit tags…*, *Find art*, *Rename*, *Launch log*, *Hide* and *Remove*
-live behind the cog in its header. *Close the launcher with the game* is a
-launcher-wide choice, so it lives in Settings, not on a single game. A game that
-went missing keeps its panel and gains *Not installed*, *Open store page* and
-*Remove from library*. Under the facts, each plugin gets a section with what it
-answered and any actions it may run; the button that asks it is there until it
-has an answer.
+options…*, *Edit tags…*, *Find art*, *Rename*, *Launch log*, *Remove from
+recently played* (or *Show in recently played* when it was taken off the shelf),
+*Hide* and *Remove* live behind the cog in its header. *Close the launcher with
+the game* is a launcher-wide choice, so it lives in Settings, not on a single
+game. A game that went missing keeps its panel and gains *Not installed*, *Open
+store page* and *Remove from library*. Under the facts, each plugin gets a
+section with what it answered and any actions it may run; the button that asks
+it is there until it has an answer.
 
 ## Configuration and files
 
 | Path | Contents |
 | --- | --- |
-| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, forgotten games, which launchers close with their games, plugin permissions, window size and behaviour |
+| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, forgotten games, games taken off the recently played shelf, which launchers close with their games, plugin permissions, window size and behaviour |
 | `~/.cache/omnilauncher-flutter/games.json` | last scan, for an instant start |
 | `~/.local/share/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |
