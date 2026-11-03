@@ -110,6 +110,66 @@ void main() {
       },
     );
 
+    test('a game kept after its files went is not on the shelf', () {
+      final now = DateTime(2026, 10, 15, 12);
+      seed({
+        'steam:1': (3600, now),
+        'steam:2': (60, now.subtract(const Duration(hours: 1))),
+      });
+      final controller = build();
+      addTearDown(controller.dispose);
+      controller.games = [
+        // The wall keeps it for its history, marked missing; the shelf has
+        // nothing to start and must not offer it.
+        game(
+          'steam:1',
+          'Alpha',
+          SourceKind.steam,
+        ).copyWith(extra: const {'missing': true}),
+        game('steam:2', 'Beta', SourceKind.steam),
+      ];
+
+      expect(controller.recentlyPlayed().map((entry) => entry.id).toList(), [
+        'steam:2',
+      ]);
+    });
+
+    test(
+      'a game taken off the shelf stays off until it is played again',
+      () async {
+        final now = DateTime(2026, 10, 15, 12);
+        seed({'steam:1': (60, now.subtract(const Duration(hours: 1)))});
+        final controller = build();
+        addTearDown(controller.dispose);
+        final alpha = game('steam:1', 'Alpha', SourceKind.steam);
+        controller.games = [alpha];
+
+        controller.setRecentlyPlayedHidden(alpha, hidden: true);
+        expect(controller.recentlyPlayed(), isEmpty);
+        expect(controller.notice, 'Removed Alpha from recently played');
+        // The choice is the user's, so it outlives the process.
+        expect(AppConfig.load(configPath).isRecentHidden('steam:1'), isTrue);
+
+        // The same switch puts it back without losing a minute of history.
+        controller.setRecentlyPlayedHidden(alpha, hidden: false);
+        expect(controller.recentlyPlayed().map((entry) => entry.id).toList(), [
+          'steam:1',
+        ]);
+        expect(controller.playtimeOf('steam:1'), const Duration(minutes: 1));
+        expect(AppConfig.load(configPath).isRecentHidden('steam:1'), isFalse);
+
+        // And starting it again is a new reason to offer it.
+        controller.setRecentlyPlayedHidden(alpha, hidden: true);
+        expect(controller.recentlyPlayed(), isEmpty);
+        await controller.launch(alpha);
+        expect(controller.recentlyPlayed().map((entry) => entry.id).toList(), [
+          'steam:1',
+        ]);
+        expect(AppConfig.load(configPath).isRecentHidden('steam:1'), isFalse);
+        controller.notice = null;
+      },
+    );
+
     test('the shelf follows the wall: hidden games and the source filter', () {
       final now = DateTime(2026, 10, 15, 12);
       seed({
@@ -234,6 +294,55 @@ void main() {
       controller.setQuery('gamma');
       await tester.pumpAndSettle();
       expect(find.text('RECENTLY PLAYED'), findsNothing);
+    });
+
+    testWidgets('a shelf entry can be taken off the shelf from its menu', (
+      tester,
+    ) async {
+      final controller = await pumpPage(tester);
+      final shelfList = find.byWidgetPredicate(
+        (widget) =>
+            widget is ListView && widget.scrollDirection == Axis.horizontal,
+      );
+      final tile = find
+          .descendant(of: shelfList, matching: find.byType(GameTile))
+          .first;
+
+      // The menu lives in the tile's hover overlay.
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await tester.pump();
+      await mouse.moveTo(tester.getCenter(tile));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(
+          of: tile,
+          matching: find.byType(PopupMenuButton<String>),
+        ),
+      );
+      // The tile also recognises a double tap, so the tap gesture only wins
+      // once the double-tap timeout has passed.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from recently played'));
+      await tester.pumpAndSettle();
+
+      expect(controller.config.isRecentHidden('steam:1'), isTrue);
+      expect(
+        tester
+            .widgetList<GameTile>(
+              find.descendant(of: shelfList, matching: find.byType(GameTile)),
+            )
+            .map((tile) => tile.game.id)
+            .toList(),
+        ['steam:2'],
+      );
+
+      // addTearDown runs after the pending-timer check, so the notice's
+      // auto-expire timer is put out here instead.
+      controller.notice = null;
     });
 
     testWidgets('grows with the platform text scale rather than clipping', (

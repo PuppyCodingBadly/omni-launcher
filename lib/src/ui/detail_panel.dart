@@ -300,6 +300,11 @@ class DetailPanel extends StatelessWidget {
             );
           case 'hide':
             controller.setHidden(game, hidden: !hidden);
+          case 'unrecent':
+            controller.setRecentlyPlayedHidden(
+              game,
+              hidden: !controller.config.isRecentHidden(game.id),
+            );
           case 'forget':
             controller.forget(game);
           case 'remove':
@@ -327,6 +332,16 @@ class DetailPanel extends StatelessWidget {
           hidden ? Icons.visibility : Icons.visibility_off,
           hidden ? 'Unhide' : 'Hide from library',
         ),
+        if (controller.lastPlayedFor(game.id) != null ||
+            controller.config.isRecentHidden(game.id))
+          _action(
+            context,
+            'unrecent',
+            Icons.history_toggle_off,
+            controller.config.isRecentHidden(game.id)
+                ? 'Show in recently played'
+                : 'Remove from recently played',
+          ),
         if (game.missing)
           _action(
             context,

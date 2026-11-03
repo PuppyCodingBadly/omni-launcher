@@ -78,7 +78,10 @@ wall first, details on demand.
   The shelf follows the wall's filters and steps aside while you search. When
   it holds more than the window shows, a scrollbar under the row says so and
   takes you to the rest; choosing a game brings its tile back into the strip
-  after the detail panel narrows it.
+  after the detail panel narrows it. Any entry can be taken off the shelf from
+  its actions menu: the playtime stays, and starting the game again puts it
+  back. A game whose files are gone drops off the shelf on its own, even while
+  the wall keeps it for its history.
 * **Plugins**: a folder with a `plugin.json` in it and a program the launcher
   runs, JSON in and JSON out, in any language. A plugin can answer lookups,
   offer **actions** for a game, and run **pre-launch** and **post-exit** hooks.

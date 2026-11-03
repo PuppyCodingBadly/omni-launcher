@@ -519,16 +519,49 @@ class LibraryController extends ChangeNotifier {
   ///
   /// Only games still in the library can appear: playtime outlives a game that
   /// was uninstalled or a source that went away, and the history keeps those
-  /// ids. The wall's own rules apply on top, so the shelf never offers a cover
-  /// the wall itself would hide: [visible] is the already-computed visible
-  /// list when the caller has one, and [visibleGames] otherwise.
+  /// ids. A game kept on the wall because it has history is not offered here
+  /// once its files are gone, and a game the user removed from the shelf stays
+  /// off it until it is played again. The wall's own rules apply on top, so the
+  /// shelf never offers a cover the wall itself would hide: [visible] is the
+  /// already-computed visible list when the caller has one, and [visibleGames]
+  /// otherwise.
   List<Game> recentlyPlayed({int limit = recentLimit, List<Game>? visible}) {
     final played = <(DateTime, Game)>[
       for (final game in visible ?? visibleGames)
-        if (playtime.lastPlayedFor(game.id) case final at?) (at, game),
+        if (!game.missing && !config.isRecentHidden(game.id))
+          if (playtime.lastPlayedFor(game.id) case final at?) (at, game),
     ];
     played.sort((a, b) => b.$1.compareTo(a.$1));
     return [for (final (_, game) in played.take(limit)) game];
+  }
+
+  /// Take [game] off the recently played shelf, or put it back.
+  ///
+  /// The shelf is a shortcut, not the playtime: the hours stay, the wall's
+  /// last-played order is untouched, and launching the game again puts it
+  /// back too.
+  void setRecentlyPlayedHidden(Game game, {required bool hidden}) {
+    if (config.isRecentHidden(game.id) == hidden) return;
+    final recentHidden = {...config.recentHidden};
+    if (hidden) {
+      recentHidden.add(game.id);
+    } else {
+      recentHidden.remove(game.id);
+    }
+    _apply(config.copyWith(recentHidden: recentHidden));
+    notice = hidden
+        ? 'Removed ${game.name} from recently played'
+        : '${game.name} is back on the recently played shelf';
+    notifyListeners();
+  }
+
+  /// A freshly started [gameId] belongs on the shelf again, whatever the user
+  /// removed earlier.
+  void _restoreRecentlyPlayed(String gameId) {
+    if (!config.isRecentHidden(gameId)) return;
+    _apply(
+      config.copyWith(recentHidden: {...config.recentHidden}..remove(gameId)),
+    );
   }
 
   /// Load the cached library first, then rescan when asked to.
@@ -763,6 +796,7 @@ class LibraryController extends ChangeNotifier {
       }
       if (pid != null) {
         notice = 'Launched ${game.name}';
+        _restoreRecentlyPlayed(game.id);
         _watchSession(game, pid, startedAt);
         onGameStarted?.call(game);
       }

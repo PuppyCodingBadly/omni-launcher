@@ -296,6 +296,16 @@ void main() {
     expect(rough.forgotten, isEmpty);
   });
 
+  test('removed shelf entries round trip, and junk is ignored', () {
+    AppConfig(recentHidden: {'steam:1'}).save(path);
+
+    final loaded = AppConfig.load(path);
+    expect(loaded.isRecentHidden('steam:1'), isTrue);
+    expect(loaded.isRecentHidden('steam:2'), isFalse);
+
+    expect(loadJson({'recent_hidden': 'not a list'}).recentHidden, isEmpty);
+  });
+
   test('a malformed plugin grant keeps the default grants', () {
     final loaded = loadJson({
       'plugin_grants': {

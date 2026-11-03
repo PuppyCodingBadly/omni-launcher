@@ -323,6 +323,11 @@ class _GameTileState extends State<GameTile> {
             widget.controller.setHidden(game, hidden: !hidden);
           case 'favorite':
             widget.controller.toggleFavorite(game.id);
+          case 'unrecent':
+            widget.controller.setRecentlyPlayedHidden(
+              game,
+              hidden: !widget.controller.config.isRecentHidden(game.id),
+            );
           case 'remove':
             widget.controller.removeManual(game.key);
         }
@@ -345,6 +350,18 @@ class _GameTileState extends State<GameTile> {
                 : 'Pin as favorite',
           ),
         ),
+        // Only a game with history is on the shelf to be taken off it; a
+        // game already removed stays offered so it can be put back.
+        if (widget.controller.lastPlayedFor(game.id) != null ||
+            widget.controller.config.isRecentHidden(game.id))
+          PopupMenuItem(
+            value: 'unrecent',
+            child: Text(
+              widget.controller.config.isRecentHidden(game.id)
+                  ? 'Show in recently played'
+                  : 'Remove from recently played',
+            ),
+          ),
         if (game.source == SourceKind.manual)
           const PopupMenuItem(value: 'remove', child: Text('Remove')),
       ],
