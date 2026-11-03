@@ -2,6 +2,20 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://pub.dev/api/archives/args-2.7.0.tar.gz",
+        "sha256": "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04",
+        "strip-components": 0,
+        "dest": ".pub-cache/hosted/pub.dev/args-2.7.0"
+    },
+    {
+        "type": "inline",
+        "contents": "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04",
+        "dest": ".pub-cache/hosted-hashes/pub.dev",
+        "dest-filename": "args-2.7.0.sha256"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://pub.dev/api/archives/async-2.13.1.tar.gz",
         "sha256": "e2eb0491ba5ddb6177742d2da23904574082139b07c1e33b8503b9f46f3e1a37",
         "strip-components": 0,
@@ -212,6 +226,20 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://pub.dev/api/archives/mutation_test-1.8.1.tar.gz",
+        "sha256": "016d5a217e344c09397d770db244a9a648961d2fd4c1c80b958faf887904ae90",
+        "strip-components": 0,
+        "dest": ".pub-cache/hosted/pub.dev/mutation_test-1.8.1"
+    },
+    {
+        "type": "inline",
+        "contents": "016d5a217e344c09397d770db244a9a648961d2fd4c1c80b958faf887904ae90",
+        "dest": ".pub-cache/hosted-hashes/pub.dev",
+        "dest-filename": "mutation_test-1.8.1.sha256"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://pub.dev/api/archives/path-1.9.1.tar.gz",
         "sha256": "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5",
         "strip-components": 0,
@@ -222,6 +250,20 @@
         "contents": "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5",
         "dest": ".pub-cache/hosted-hashes/pub.dev",
         "dest-filename": "path-1.9.1.sha256"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://pub.dev/api/archives/petitparser-7.0.2.tar.gz",
+        "sha256": "91bd59303e9f769f108f8df05e371341b15d59e995e6806aefab827b58336675",
+        "strip-components": 0,
+        "dest": ".pub-cache/hosted/pub.dev/petitparser-7.0.2"
+    },
+    {
+        "type": "inline",
+        "contents": "91bd59303e9f769f108f8df05e371341b15d59e995e6806aefab827b58336675",
+        "dest": ".pub-cache/hosted-hashes/pub.dev",
+        "dest-filename": "petitparser-7.0.2.sha256"
     },
     {
         "type": "archive",
@@ -338,6 +380,20 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://pub.dev/api/archives/xml-7.0.1.tar.gz",
+        "sha256": "67f0aff7be013d107995e9b75bf4e7f2c3ef2dfdb2c8e68024bba0a7fd5756a4",
+        "strip-components": 0,
+        "dest": ".pub-cache/hosted/pub.dev/xml-7.0.1"
+    },
+    {
+        "type": "inline",
+        "contents": "67f0aff7be013d107995e9b75bf4e7f2c3ef2dfdb2c8e68024bba0a7fd5756a4",
+        "dest": ".pub-cache/hosted-hashes/pub.dev",
+        "dest-filename": "xml-7.0.1.sha256"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://pub.dev/api/archives/_fe_analyzer_shared-95.0.0.tar.gz",
         "sha256": "0e4db51a88671b676adc09e923ffebd765a1f0c2b04dc19b08b35a335de2972c",
         "strip-components": 0,
@@ -376,20 +432,6 @@
         "contents": "cb6a278ef2dbb298455e1a713bda08524a175630ec643a242c399c932a0a1f7d",
         "dest": ".pub-cache/hosted-hashes/pub.dev",
         "dest-filename": "archive-3.6.1.sha256"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://pub.dev/api/archives/args-2.7.0.tar.gz",
-        "sha256": "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04",
-        "strip-components": 0,
-        "dest": ".pub-cache/hosted/pub.dev/args-2.7.0"
-    },
-    {
-        "type": "inline",
-        "contents": "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04",
-        "dest": ".pub-cache/hosted-hashes/pub.dev",
-        "dest-filename": "args-2.7.0.sha256"
     },
     {
         "type": "archive",
@@ -1076,20 +1118,6 @@
         "contents": "f096c55ebb7deb7e384101542bfba8c52696c1b56fca2eb62827989ef2353bbc",
         "dest": ".pub-cache/hosted-hashes/pub.dev",
         "dest-filename": "package_config-2.2.0.sha256"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://pub.dev/api/archives/petitparser-7.0.2.tar.gz",
-        "sha256": "91bd59303e9f769f108f8df05e371341b15d59e995e6806aefab827b58336675",
-        "strip-components": 0,
-        "dest": ".pub-cache/hosted/pub.dev/petitparser-7.0.2"
-    },
-    {
-        "type": "inline",
-        "contents": "91bd59303e9f769f108f8df05e371341b15d59e995e6806aefab827b58336675",
-        "dest": ".pub-cache/hosted-hashes/pub.dev",
-        "dest-filename": "petitparser-7.0.2.sha256"
     },
     {
         "type": "archive",
