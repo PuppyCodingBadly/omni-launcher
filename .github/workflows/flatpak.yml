@@ -99,6 +99,35 @@ jobs:
       - name: Check the plugin catalogue
         run: plugins/build.sh --check
 
+      # The release repository is signed: clients refuse an unsigned summary
+      # once their remote has the public key. The private key lives only in
+      # this repository's FLATPAK_GPG_PRIVATE_KEY secret; the public key is
+      # flatpak/io.github.PuppyCodingBadly.OmniLauncher.gpg.
+      - name: Import the signing key
+        id: signing
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          set -eu
+          if [ -z "${FLATPAK_GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error title=Missing signing key::Set the FLATPAK_GPG_PRIVATE_KEY secret to the armored private key."
+            exit 1
+          fi
+          GNUPGHOME="$RUNNER_TEMP/gnupg"
+          export GNUPGHOME
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s\n' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+          FPR=$(gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+          PUB=$(gpg --batch --show-keys --with-colons flatpak/io.github.PuppyCodingBadly.OmniLauncher.gpg | awk -F: '/^fpr:/ {print $10; exit}')
+          if [ -z "$FPR" ] || [ "$PUB" != "$FPR" ]; then
+            echo "::error title=Signing key mismatch::The secret's key is '$FPR'; the committed public key is '$PUB'."
+            exit 1
+          fi
+          echo "fingerprint=$FPR" >> "$GITHUB_OUTPUT"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          echo "FLATPAK_GPG_HOME=$GNUPGHOME" >> "$GITHUB_ENV"
+
       - name: Build the flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
@@ -106,18 +135,47 @@ jobs:
           manifest-path: io.github.PuppyCodingBadly.OmniLauncher.yml
           runtime-version: '26.08'
           cache-key: flatpak-builder-${{ github.sha }}
+          # Signs the app commit as it is exported; the summary is signed below.
+          gpg-sign: ${{ steps.signing.outputs.fingerprint }}
 
       # The bundle above is the standalone file people can download. A
-      # .flatpakref needs a repository to point at, so build one and publish it
-      # on the Pages site.
-      - name: Build the repository
+      # .flatpakref needs a repository to point at, so build and sign one and
+      # publish it on the Pages site.
+      - name: Build and sign the repository
+        env:
+          FLATPAK_GPG_KEY: ${{ steps.signing.outputs.fingerprint }}
         run: |
+          set -eu
           flatpak-builder --repo=repo --force-clean --disable-rofiles-fuse \
+            --gpg-sign="$FLATPAK_GPG_KEY" \
             build-dir io.github.PuppyCodingBadly.OmniLauncher.yml
-          flatpak build-update-repo repo
+          # The app commit is signed by flatpak-builder. This first pass creates
+          # the appstream branches and signs the summary that names them.
+          flatpak build-update-repo --gpg-sign="$FLATPAK_GPG_KEY" \
+            --gpg-homedir="$FLATPAK_GPG_HOME" --generate-static-deltas repo
+          # build-update-repo only signs the summary, so appstream commits are
+          # signed through a temporary app ref and the summary is written again
+          # with the signed objects, exactly as flatpak's own documentation
+          # describes.
+          for ref in appstream/x86_64 appstream2/x86_64; do
+            [ -f "repo/refs/heads/$ref" ] || continue
+            commit=$(cat "repo/refs/heads/$ref")
+            ostree --repo=repo refs \
+              --create=app/io.github.PuppyCodingBadly.OmniLauncher.Temp/x86_64/master \
+              --force "$commit"
+            flatpak build-sign --gpg-sign="$FLATPAK_GPG_KEY" \
+              --gpg-homedir="$FLATPAK_GPG_HOME" --arch=x86_64 \
+              repo io.github.PuppyCodingBadly.OmniLauncher.Temp master
+            ostree --repo=repo refs \
+              --delete app/io.github.PuppyCodingBadly.OmniLauncher.Temp/x86_64/master
+          done
+          flatpak build-update-repo --gpg-sign="$FLATPAK_GPG_KEY" \
+            --gpg-homedir="$FLATPAK_GPG_HOME" --no-update-appstream \
+            --generate-static-deltas repo
 
-      - name: Write the .flatpakref
+      - name: Write the .flatpakref and .flatpakrepo
         run: |
+          GPG_KEY=$(base64 -w0 flatpak/io.github.PuppyCodingBadly.OmniLauncher.gpg)
           cat > io.github.PuppyCodingBadly.OmniLauncher.flatpakref <<EOF
           [Flatpak Ref]
           Title=Omni Launcher
@@ -127,6 +185,16 @@ jobs:
           RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
           IsRuntime=false
           Comment=One window for every game on this machine
+          GPGKey=$GPG_KEY
+          EOF
+          cat > io.github.PuppyCodingBadly.OmniLauncher.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=Omni Launcher
+          Url=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo
+          Homepage=https://github.com/${{ github.repository }}
+          Comment=One window for every game on this machine
+          Description=Omni Launcher builds and updates
+          GPGKey=$GPG_KEY
           EOF
 
       - name: Assemble the Pages site
@@ -135,6 +203,8 @@ jobs:
           cp -r site/. public/
           cp -r repo public/repo
           cp io.github.PuppyCodingBadly.OmniLauncher.flatpakref public/
+          cp io.github.PuppyCodingBadly.OmniLauncher.flatpakrepo public/
+          cp flatpak/io.github.PuppyCodingBadly.OmniLauncher.gpg public/
           # The page is written with placeholders so it works in any fork.
           sed -i "s|OWNER/REPO|${{ github.repository }}|g" public/index.html
 
@@ -162,4 +232,6 @@ jobs:
           files: |
             OmniLauncher-x86_64.flatpak
             io.github.PuppyCodingBadly.OmniLauncher.flatpakref
+            io.github.PuppyCodingBadly.OmniLauncher.flatpakrepo
+            flatpak/io.github.PuppyCodingBadly.OmniLauncher.gpg
           generate_release_notes: true

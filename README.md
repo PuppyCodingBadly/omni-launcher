@@ -119,8 +119,11 @@ flatpak install --user --from \
 ```
 
 That installs from the project's flatpak repository, so `flatpak update` picks
-up later releases. Each release also carries `OmniLauncher-x86_64.flatpak`, a
-standalone bundle of that release's build, for installing without a repository:
+up later releases. The repository is GPG-signed: the `.flatpakref` carries the
+public key (`F0A72E518F72C8EBC29D4E802BFB8F9679C12CAE`), so clients verify every
+summary and commit before installing it. Each release also carries
+`OmniLauncher-x86_64.flatpak`, a standalone bundle of that release's build, for
+installing without a repository:
 
 ```sh
 flatpak install --user ./OmniLauncher-x86_64.flatpak
@@ -422,9 +425,10 @@ Sharing it with someone else: send them the `.flatpak` file, serve
 points at you, or push a `v*` tag, and `.github/workflows/flatpak.yml` runs
 `flutter analyze`, `flutter test`, validates the AppStream metadata and checks
 that `plugins/` still matches the sources it was built from before it builds
-the bundle, publishes the repository and the landing page in `site/` to
-GitHub Pages, and attaches the bundle plus the generated `.flatpakref` to the
-release. A tag whose manifest pins a commit it does not contain is refused,
+the bundle, signs the repository with the `FLATPAK_GPG_PRIVATE_KEY` repository
+secret and publishes it with the landing page in `site/` to GitHub Pages, and
+attaches the bundle plus the generated `.flatpakref`, `.flatpakrepo` and public
+key to the release. A tag whose manifest pins a commit it does not contain is refused,
 rather than released as the wrong code. Locally, `./tool/coverage.sh` runs the
 suite with coverage, prints a per-file line summary, and renders
 `coverage/html` when `genhtml` is installed (`dnf install lcov`).
