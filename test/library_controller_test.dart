@@ -134,7 +134,7 @@ void main() {
     expect(controller.visibleGames.map((entry) => entry.id), ['steam:3']);
   });
 
-  test('smart filters read playtime and missing state', () {
+  test('smart filters read playtime', () {
     // Its own controller with a temporary playtime file: the setUp one would
     // write the real ~/.local/state history.
     final local = LibraryController(
@@ -144,13 +144,10 @@ void main() {
     );
     addTearDown(local.dispose);
     final played = game('steam:1', 'Alpha', SourceKind.steam);
-    final missing = game(
-      'steam:3',
-      'Beta',
-      SourceKind.steam,
-    ).copyWith(extra: const {'missing': true});
-    local.games = [played, missing];
-    final at = DateTime(2026, 1, 1);
+    final unplayed = game('steam:3', 'Beta', SourceKind.steam);
+    local.games = [played, unplayed];
+    // Played recently, so the "not played in 90 days" filter leaves it in.
+    final at = DateTime.now().subtract(const Duration(days: 1));
     local.playtime.begin(played.id, at);
     local.playtime.end(played.id, at.add(const Duration(hours: 1)));
 
@@ -158,7 +155,7 @@ void main() {
     expect(local.visibleGames.map((entry) => entry.id), ['steam:3']);
 
     local.toggleSmartFilter(SmartFilter.unplayed);
-    local.toggleSmartFilter(SmartFilter.missing);
+    local.toggleSmartFilter(SmartFilter.notRecent);
     expect(local.visibleGames.map((entry) => entry.id), ['steam:3']);
   });
 
@@ -764,52 +761,73 @@ void main() {
     expect(scan.games.map((game) => game.id), ['steam:1']);
   });
 
-  test(
-    'a played game survives a missing source, and can be forgotten',
-    () async {
-      final source = _ListSource([game('steam:1', 'Alpha', SourceKind.steam)]);
-      final scan = LibraryController(
-        configPath: configPath,
-        cachePath: '${dir.path}/missing-games.json',
-        config: AppConfig(appimageDirs: const []),
-        playtime: PlaytimeStore(path: '${dir.path}/missing-playtime.json'),
-        sources: [source],
-      );
-      addTearDown(scan.dispose);
-      await scan.load(refresh: true);
-      final at = DateTime(2026, 1, 1);
-      scan.playtime.begin('steam:1', at);
-      scan.playtime.end('steam:1', at.add(const Duration(hours: 2)));
+  test('a game its source stops offering is delisted, not marked missing', () async {
+    final cachePath = '${dir.path}/delisted-games.json';
+    final source = _ListSource([game('steam:1', 'Alpha', SourceKind.steam)]);
+    final scan = LibraryController(
+      configPath: configPath,
+      cachePath: cachePath,
+      config: AppConfig(appimageDirs: const []),
+      playtime: PlaytimeStore(path: '${dir.path}/delisted-playtime.json'),
+      sources: [source],
+    );
+    addTearDown(scan.dispose);
+    await scan.load(refresh: true);
+    final at = DateTime(2026, 1, 1);
+    scan.playtime.begin('steam:1', at);
+    scan.playtime.end('steam:1', at.add(const Duration(hours: 2)));
+    scan.setName('steam:1', 'My Alpha');
 
-      source.games = [];
-      await scan.rescan();
+    // Uninstalled: the source no longer offers it, so the library drops it.
+    source.games = [];
+    await scan.rescan();
 
-      expect(scan.games, hasLength(1));
-      expect(scan.games.single.id, 'steam:1');
-      expect(scan.games.single.missing, isTrue);
-      expect(scan.games.single.launchable, isFalse);
-      expect(scan.games.single.name, 'Alpha');
+    expect(scan.games, isEmpty);
+    expect(scan.selected, isNull);
+    expect(scan.playtimeOf('steam:1'), const Duration(hours: 2));
+    expect(
+      (jsonDecode(File(cachePath).readAsStringSync()) as Map)['games'],
+      isEmpty,
+    );
 
-      scan.forget(scan.games.single);
-      expect(scan.games, isEmpty);
-      expect(AppConfig.load(configPath).forgotten, {'steam:1'});
+    // The next scan does not resurrect it either.
+    await scan.rescan();
+    expect(scan.games, isEmpty);
 
-      // The next scan does not bring it back.
-      await scan.rescan();
-      expect(scan.games, isEmpty);
+    // Reinstalled: it comes back with its history and its rename.
+    source.games = [game('steam:1', 'Alpha', SourceKind.steam)];
+    await scan.rescan();
+    expect(scan.games.single.name, 'My Alpha');
+    expect(scan.playtimeOf('steam:1'), const Duration(hours: 2));
+  });
 
-      // Reinstalled: it returns, and the forgotten mark goes away so a later
-      // uninstall keeps its history again.
-      source.games = [game('steam:1', 'Alpha', SourceKind.steam)];
-      await scan.rescan();
-      expect(scan.games.single.missing, isFalse);
-      expect(AppConfig.load(configPath).forgotten, isEmpty);
+  test('an old cache entry kept for being missing is dropped on load', () async {
+    final cachePath = '${dir.path}/legacy-games.json';
+    File(cachePath).writeAsStringSync(
+      jsonEncode({
+        'version': 1,
+        'games': [
+          game('steam:1', 'Alpha', SourceKind.steam).toJson(),
+          {
+            ...game('steam:2', 'Beta', SourceKind.steam).toJson(),
+            'extra': {'missing': true},
+          },
+        ],
+      }),
+    );
+    final scan = LibraryController(
+      configPath: configPath,
+      cachePath: cachePath,
+      config: AppConfig(appimageDirs: const []),
+      playtime: PlaytimeStore(path: '${dir.path}/legacy-playtime.json'),
+      sources: [_ListSource(const [])],
+    );
+    addTearDown(scan.dispose);
 
-      source.games = [];
-      await scan.rescan();
-      expect(scan.games.single.missing, isTrue);
-    },
-  );
+    await scan.load(refresh: false);
+
+    expect(scan.games.map((entry) => entry.id), ['steam:1']);
+  });
 
   group('steamgriddb misses', () {
     LibraryController artController(

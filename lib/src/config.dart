@@ -72,7 +72,6 @@ class AppConfig {
     Set<String>? closeWithGame,
     Map<String, List<String>>? tags,
     Map<String, LaunchOptions>? launchOptions,
-    Set<String>? forgotten,
     Set<String>? recentHidden,
     Map<String, Set<String>>? pluginGrants,
     this.minimizeOnLaunch = false,
@@ -94,7 +93,6 @@ class AppConfig {
        closeWithGame = closeWithGame ?? <String>{},
        tags = tags ?? <String, List<String>>{},
        launchOptions = launchOptions ?? <String, LaunchOptions>{},
-       forgotten = forgotten ?? <String>{},
        recentHidden = recentHidden ?? <String>{},
        pluginGrants = pluginGrants ?? <String, Set<String>>{},
        favorites = favorites ?? <String>[];
@@ -158,13 +156,6 @@ class AppConfig {
 
   /// What the launcher adds to a game's own argv, per game id.
   final Map<String, LaunchOptions> launchOptions;
-
-  /// Game ids the user removed from the library after they went missing.
-  ///
-  /// A game that disappears from its source but has playtime is kept, so the
-  /// hours are not lost; forgetting it here is how that entry is removed for
-  /// good.
-  final Set<String> forgotten;
 
   /// Game ids the user took off the recently played shelf.
   ///
@@ -246,7 +237,6 @@ class AppConfig {
       closeWithGame: _closeWithGame(data['close_with_game'], version),
       tags: _tags(data['tags']),
       launchOptions: _launchOptions(data['launch_options']),
-      forgotten: _stringList(data['forgotten'])?.toSet() ?? <String>{},
       recentHidden: _stringList(data['recent_hidden'])?.toSet() ?? <String>{},
       pluginGrants: _pluginGrants(data['plugin_grants']),
       minimizeOnLaunch: data['minimize_on_launch'] == true,
@@ -460,7 +450,6 @@ class AppConfig {
         for (final id in launchOptions.keys.toList()..sort())
           id: launchOptions[id]!.toJson(),
       },
-      'forgotten': forgotten.toList()..sort(),
       'recent_hidden': recentHidden.toList()..sort(),
       'plugin_grants': {
         for (final id in pluginGrants.keys.toList()..sort())
@@ -538,9 +527,6 @@ class AppConfig {
   LaunchOptions launchOptionsFor(String gameId) =>
       launchOptions[gameId] ?? const LaunchOptions();
 
-  /// Whether [gameId] was removed after it went missing.
-  bool isForgotten(String gameId) => forgotten.contains(gameId);
-
   /// Whether [gameId] was taken off the recently played shelf.
   bool isRecentHidden(String gameId) => recentHidden.contains(gameId);
 
@@ -564,7 +550,6 @@ class AppConfig {
     Set<String>? closeWithGame,
     Map<String, List<String>>? tags,
     Map<String, LaunchOptions>? launchOptions,
-    Set<String>? forgotten,
     Set<String>? recentHidden,
     Map<String, Set<String>>? pluginGrants,
     bool? minimizeOnLaunch,
@@ -591,7 +576,6 @@ class AppConfig {
     closeWithGame: closeWithGame ?? this.closeWithGame,
     tags: tags ?? this.tags,
     launchOptions: launchOptions ?? this.launchOptions,
-    forgotten: forgotten ?? this.forgotten,
     recentHidden: recentHidden ?? this.recentHidden,
     pluginGrants: pluginGrants ?? this.pluginGrants,
     minimizeOnLaunch: minimizeOnLaunch ?? this.minimizeOnLaunch,

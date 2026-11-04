@@ -25,16 +25,6 @@ const Game beta = Game(
   command: ['true'],
 );
 
-/// A source entry that outlived its files: the smart filter's only member.
-const Game gone = Game(
-  id: 'steam:3',
-  key: '3',
-  name: 'Gone',
-  source: SourceKind.steam,
-  command: ['true'],
-  extra: {'missing': true},
-);
-
 void main() {
   late Directory dir;
   late LibraryController controller;
@@ -47,7 +37,7 @@ void main() {
       config: AppConfig(appimageDirs: const []),
       playtime: PlaytimeStore(path: '${dir.path}/playtime.json'),
     );
-    controller.games = [alpha, beta, gone];
+    controller.games = [alpha, beta];
     controller.setTags(alpha.id, ['Puzzle']);
     controller.setTags(beta.id, ['Puzzle', 'Co-op']);
     // The saved notice's timer must not outlive the widget test.
@@ -87,7 +77,7 @@ void main() {
 
   testWidgets('tag filters stack as AND and Clear all resets', (tester) async {
     await openFilters(tester, controller);
-    expect(visibleIds(), ['steam:1', 'steam:2', 'steam:3']);
+    expect(visibleIds(), ['steam:1', 'steam:2']);
 
     await tester.tap(find.text('Puzzle'));
     await tester.pumpAndSettle();
@@ -100,7 +90,6 @@ void main() {
           .value,
       isTrue,
     );
-    // Gone has no tags, so it leaves the wall.
     expect(visibleIds(), ['steam:1', 'steam:2']);
 
     // A second tag narrows further: only Beta carries both.
@@ -118,28 +107,28 @@ void main() {
     await tester.tap(find.text('Clear all'));
     await tester.pumpAndSettle();
     expect(controller.tagFilter, isEmpty);
-    expect(visibleIds(), ['steam:1', 'steam:2', 'steam:3']);
+    expect(visibleIds(), ['steam:1', 'steam:2']);
   });
 
   testWidgets('a smart filter stacks with the tag filters', (tester) async {
     await openFilters(tester, controller);
 
-    await tester.tap(find.text('Not installed'));
+    await tester.tap(find.text('Not played in 90 days'));
     await tester.pumpAndSettle();
-    expect(controller.smartFilters, {SmartFilter.missing});
-    expect(visibleIds(), ['steam:3']);
+    expect(controller.smartFilters, {SmartFilter.notRecent});
+    expect(visibleIds(), ['steam:1', 'steam:2']);
 
-    // A tag on top of it finds nothing: Gone carries no tags.
-    await tester.tap(find.text('Puzzle'));
+    // The tag narrows the status filter: only Beta carries both.
+    await tester.tap(find.text('Co-op'));
     await tester.pumpAndSettle();
-    expect(controller.tagFilter, {'Puzzle'});
-    expect(visibleIds(), isEmpty);
+    expect(controller.tagFilter, {'Co-op'});
+    expect(visibleIds(), ['steam:2']);
 
     await tester.tap(find.text('Clear all'));
     await tester.pumpAndSettle();
     expect(controller.smartFilters, isEmpty);
     expect(controller.tagFilter, isEmpty);
-    expect(visibleIds(), ['steam:1', 'steam:2', 'steam:3']);
+    expect(visibleIds(), ['steam:1', 'steam:2']);
   });
 
   testWidgets('a library without tags says so and offers nothing to clear', (

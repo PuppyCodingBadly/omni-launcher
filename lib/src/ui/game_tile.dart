@@ -150,8 +150,6 @@ class _GameTileState extends State<GameTile> {
     final running = widget.controller.isRunning(game.id);
     final status = running
         ? 'Playing'
-        : game.missing
-        ? 'Missing'
         : game.updating
         ? 'Updating'
         : game.updateRequired
@@ -335,8 +333,8 @@ class _GameTileState extends State<GameTile> {
       itemBuilder: (context) => [
         if (running)
           const PopupMenuItem(value: 'stop', child: Text('Stop'))
-        // A missing or broken entry has nothing to start, so the menu does
-        // not pretend otherwise; Rename and Hide still let the user clean up.
+        // A broken entry has nothing to start, so the menu does not pretend
+        // otherwise; Rename and Hide still let the user clean up.
         else if (game.launchable)
           const PopupMenuItem(value: 'launch', child: Text('Launch')),
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
@@ -400,7 +398,7 @@ class _Cover extends StatelessWidget {
   final Artwork artwork;
   final String name;
 
-  /// Playing, missing or updating; null draws no badge.
+  /// Playing, updating or an update pending; null draws no badge.
   final String? status;
   final Color statusColor;
   final bool running;

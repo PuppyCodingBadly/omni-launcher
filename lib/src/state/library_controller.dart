@@ -31,8 +31,7 @@ enum LibraryStatus { loading, ready, failed }
 enum SmartFilter {
   unplayed('Unplayed'),
   notRecent('Not played in 90 days'),
-  noCover('No cover'),
-  missing('Not installed');
+  noCover('No cover');
 
   const SmartFilter(this.label);
 
@@ -360,8 +359,6 @@ class LibraryController extends ChangeNotifier {
           }
         case SmartFilter.noCover:
           if (covers.resolve(game).kind != ArtworkKind.letter) return false;
-        case SmartFilter.missing:
-          if (!game.missing) return false;
       }
     }
     return true;
@@ -519,16 +516,14 @@ class LibraryController extends ChangeNotifier {
   ///
   /// Only games still in the library can appear: playtime outlives a game that
   /// was uninstalled or a source that went away, and the history keeps those
-  /// ids. A game kept on the wall because it has history is not offered here
-  /// once its files are gone, and a game the user removed from the shelf stays
-  /// off it until it is played again. The wall's own rules apply on top, so the
-  /// shelf never offers a cover the wall itself would hide: [visible] is the
-  /// already-computed visible list when the caller has one, and [visibleGames]
-  /// otherwise.
+  /// ids. A game the user removed from the shelf stays off it until it is
+  /// played again. The wall's own rules apply on top, so the shelf never offers
+  /// a cover the wall itself would hide: [visible] is the already-computed
+  /// visible list when the caller has one, and [visibleGames] otherwise.
   List<Game> recentlyPlayed({int limit = recentLimit, List<Game>? visible}) {
     final played = <(DateTime, Game)>[
       for (final game in visible ?? visibleGames)
-        if (!game.missing && !config.isRecentHidden(game.id))
+        if (!config.isRecentHidden(game.id))
           if (playtime.lastPlayedFor(game.id) case final at?) (at, game),
     ];
     played.sort((a, b) => b.$1.compareTo(a.$1));
@@ -647,38 +642,15 @@ class LibraryController extends ChangeNotifier {
         sources: _sources,
         onError: (kind, error) => errors.add('${kind.label}: $error'),
       );
-      // A game its source stopped offering is kept when it has history: the
-      // playtime, favourite or tag is the user's, not the source's. It is
-      // marked missing and can be forgotten from the detail panel.
-      final foundIds = {for (final game in found) game.id};
-      // A forgotten game that came back is no longer forgotten, so a later
-      // uninstall keeps its history again.
-      if (config.forgotten.any(foundIds.contains)) {
-        _apply(
-          config.copyWith(
-            forgotten: config.forgotten
-                .where((id) => !foundIds.contains(id))
-                .toSet(),
-          ),
-        );
-      }
-      final kept = <Game>[
-        for (final old in _discovered)
-          if (!foundIds.contains(old.id) &&
-              !config.isForgotten(old.id) &&
-              (playtime.totalFor(old.id) > Duration.zero ||
-                  config.favorites.contains(old.id) ||
-                  config.tagsFor(old.id).isNotEmpty))
-            old.copyWith(extra: const {'missing': true}),
-      ];
-      final merged = [...found, ...kept];
-      _discovered = merged;
-      games = applyNameOverrides(merged, config.nameOverrides);
-      _writeCache(merged);
+      // A game its source no longer offers is uninstalled, so it is delisted:
+      // the library lists what can be started, and the playtime, favourite,
+      // tags and launch options keyed by its id stay in the config. A reinstall
+      // comes back with all of them.
+      _discovered = found;
+      games = applyNameOverrides(found, config.nameOverrides);
+      _writeCache(found);
       failure = errors.isEmpty ? null : errors.join('; ');
-      notice =
-          '${found.length} games from ${countsBySource.length} sources'
-          '${kept.isEmpty ? '' : ' · ${kept.length} kept from before'}';
+      notice = '${found.length} games from ${countsBySource.length} sources';
     } catch (error) {
       failure = '$error';
     }
@@ -748,10 +720,8 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<void> launch(Game game) async {
-    if (game.missing || game.broken) {
-      notice = game.missing
-          ? '${game.name} is not installed'
-          : '${game.name}: files missing, repair it in Steam';
+    if (game.broken) {
+      notice = '${game.name}: files missing, repair it in Steam';
       _notify();
       return;
     }
@@ -909,14 +879,6 @@ class LibraryController extends ChangeNotifier {
 
   /// How long ago [gameId] exited after a quick launch, when it did.
   Duration? quickExitFor(String gameId) => _quickExits[gameId];
-
-  /// The store page for [game], when its source has one.
-  String? storeUrl(Game game) {
-    if (game.source != SourceKind.steam) return null;
-    final appid = '${game.extra['appid'] ?? game.key}';
-    if (appid.isEmpty) return null;
-    return 'https://store.steampowered.com/app/$appid';
-  }
 
   /// Total time played, from closed sessions plus the open one.
   Duration playtimeOf(String gameId) => playtime.totalFor(gameId);
@@ -1801,24 +1763,6 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Remove a missing [game] from the library for good, with its history.
-  void forget(Game game) {
-    if (!game.missing) return;
-    _apply(config.copyWith(forgotten: {...config.forgotten, game.id}));
-    _discovered = [
-      for (final entry in _discovered)
-        if (entry.id != game.id) entry,
-    ];
-    games = [
-      for (final entry in games)
-        if (entry.id != game.id) entry,
-    ];
-    if (selected?.id == game.id) selected = null;
-    _writeCache(_discovered);
-    notice = 'Removed ${game.name} from the library';
-    notifyListeners();
-  }
-
   void setMinimizeOnLaunch(bool value) {
     _apply(config.copyWith(minimizeOnLaunch: value));
     notifyListeners();
@@ -1827,17 +1771,6 @@ class LibraryController extends ChangeNotifier {
   void setTrayIcon(bool value) {
     _apply(config.copyWith(trayIcon: value));
     notifyListeners();
-  }
-
-  /// Open [game]'s store page, when its source has one.
-  Future<void> openStore(Game game) async {
-    final url = storeUrl(game);
-    if (url == null) {
-      notice = '${game.name} has no store page';
-      notifyListeners();
-      return;
-    }
-    await openUrl(url);
   }
 
   void setSteamgriddbKey(String value) {
@@ -1914,6 +1847,10 @@ class LibraryController extends ChangeNotifier {
           .whereType<Map>()
           .map((entry) => Game.fromJson(entry.cast<String, Object?>()))
           .whereType<Game>()
+          // An older build kept games its source stopped offering, marked
+          // missing. They are delisted now, so a stale cache must not bring
+          // one back for the instant start before the first scan replaces it.
+          .where((game) => game.extra['missing'] != true)
           .toList();
     } on FileSystemException {
       return const [];

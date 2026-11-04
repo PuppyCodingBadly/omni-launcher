@@ -86,13 +86,10 @@ class Game {
   final Map<String, Object?> extra;
 
   /// False when the source knows the entry but cannot start it.
-  bool get launchable => command.isNotEmpty && !missing && !broken;
+  bool get launchable => command.isNotEmpty && !broken;
 
   /// The subtitle, defaulting to the source label.
   String get displaySubtitle => subtitle ?? source.label;
-
-  /// Kept from an earlier scan after its source stopped offering it.
-  bool get missing => extra['missing'] == true;
 
   /// Steam's own state, when the source reports it.
   bool get updating => extra['updating'] == true;
@@ -119,7 +116,7 @@ class Game {
 
   /// A copy with the given fields replaced; `id`, `key` and `command` always
   /// carry over. [extra] is merged into the existing map, so a caller can add
-  /// `missing` without dropping what the source recorded.
+  /// a field without dropping what the source recorded.
   Game copyWith({
     String? name,
     String? cover,

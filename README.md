@@ -46,16 +46,16 @@ wall first, details on demand.
   (`xdg-open`) is not reported as a quick exit and gets no lasting state.
 * **Tags and collections.** Steam collections and Lutris categories arrive as
   tags; any game can get your own from its cog. **Filters** (the funnel in the
-  header) stacks tags with status filters: Unplayed, Not played in 90 days, No
-  cover, Not installed. Search reads tags, paths and commands too, and matches
+  header) stacks tags with status filters: Unplayed, Not played in 90 days and
+  No cover. Search reads tags, paths and commands too, and matches
   acronyms (`tf2` finds Team Fortress 2) and subsequences.
 * **Per-game launch options.** A wrapper (`gamemoderun`, `mangohud`,
   `prime-run`), extra arguments, environment variables and a working folder,
   all under the game's cog and applied only to that game.
 * **Installs that are not ready.** Steam's update flags and download progress
-  show on the tile and in the panel; a game you played that disappears from its
-  source stays in the library as **Not installed**, with its playtime, until
-  you remove it.
+  show on the tile and in the panel. An uninstalled game leaves the library on
+  the next scan: the wall lists what can be started, and the playtime, favorite,
+  tags and launch options tied to its id stay in the config for a reinstall.
 * **A command palette.** `Ctrl+K` searches games and commands from the
   keyboard: Enter opens, Ctrl+Enter launches.
 * **Window behaviour.** A second launch of the app brings the existing window
@@ -183,16 +183,14 @@ options…*, *Edit tags…*, *Find art*, *Rename*, *Launch log*, *Remove from
 recently played* (or *Show in recently played* when it was taken off the shelf),
 *Hide* and *Remove* live behind the cog in its header. *Close the launcher with
 the game* is a launcher-wide choice, so it lives in Settings, not on a single
-game. A game that went missing keeps its panel and gains *Not installed*, *Open
-store page* and *Remove from library*. Under the facts, each plugin gets a
-section with what it answered and any actions it may run; the button that asks
-it is there until it has an answer.
+game. Under the facts, each plugin gets a section with what it answered and any
+actions it may run; the button that asks it is there until it has an answer.
 
 ## Configuration and files
 
 | Path | Contents |
 | --- | --- |
-| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, forgotten games, games taken off the recently played shelf, which launchers close with their games, plugin permissions, window size and behaviour |
+| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, games taken off the recently played shelf, which launchers close with their games, plugin permissions, window size and behaviour |
 | `~/.cache/omnilauncher-flutter/games.json` | last scan, for an instant start |
 | `~/.local/share/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |

@@ -31,14 +31,14 @@ const Game beta = Game(
   command: ['true'],
 );
 
-/// A source entry that outlived its files: not launchable any more.
-const Game gone = Game(
+/// A source entry whose files went away: not launchable any more.
+const Game broken = Game(
   id: 'steam:3',
   key: '3',
-  name: 'Gone Game',
+  name: 'Broken Game',
   source: SourceKind.steam,
   command: ['true'],
-  extra: {'missing': true},
+  extra: {'broken': true},
 );
 
 /// A controller that pretends one game is running.
@@ -227,19 +227,23 @@ void main() {
     settings.notice = null;
   });
 
-  testWidgets('a missing game tile offers no working Play', (tester) async {
+  testWidgets('a broken game tile offers no working Play', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.dark,
         home: Scaffold(
-          body: GameTile(game: gone, controller: controller, selected: false),
+          body: GameTile(
+            game: broken,
+            controller: controller,
+            selected: false,
+          ),
         ),
       ),
     );
     await tester.pump();
 
     // The cover still shows the button, but as a disabled target: the panel
-    // is where the user learns the game is missing.
+    // is where the user learns the damage.
     final play = tester.widget<ButtonStyleButton>(
       find.ancestor(
         of: find.text('Play'),

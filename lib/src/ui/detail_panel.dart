@@ -50,7 +50,6 @@ class DetailPanel extends StatelessWidget {
     final quickExit = controller.quickExitFor(game.id);
     final tags = controller.tagsFor(game);
     final options = controller.config.launchOptionsFor(game.id);
-    final storeUrl = controller.storeUrl(game);
     // The page's row lets the panel pick its own width, so the room a narrow
     // window offers is read from the MediaQuery rather than the constraints;
     // the page can also hand a smaller [width] in when it knows better.
@@ -110,7 +109,6 @@ class DetailPanel extends StatelessWidget {
                     _chip(context, game.displaySubtitle),
                     if (hidden) _chip(context, 'Hidden'),
                     if (running) _statusChip(context, 'Playing', accent: true),
-                    if (game.missing) _statusChip(context, 'Not installed'),
                     if (game.updating) _statusChip(context, 'Updating'),
                     if (game.updateRequired)
                       _statusChip(context, 'Update required'),
@@ -152,31 +150,10 @@ class DetailPanel extends StatelessWidget {
                       onPressed: game.launchable
                           ? () => controller.launch(game)
                           : null,
-                      icon: Icon(
-                        game.missing
-                            ? Icons.download_outlined
-                            : Icons.play_arrow_rounded,
-                      ),
-                      label: Text(
-                        game.missing
-                            ? 'Not installed'
-                            : game.broken
-                            ? 'Files missing'
-                            : 'Launch',
-                      ),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: Text(game.broken ? 'Files missing' : 'Launch'),
                     ),
                   ),
-                if (game.missing && storeUrl != null) ...[
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => controller.openStore(game),
-                      icon: const Icon(Icons.storefront_outlined, size: 18),
-                      label: const Text('Open store page'),
-                    ),
-                  ),
-                ],
                 if (quickExit != null) ...[
                   const SizedBox(height: 12),
                   Row(
@@ -277,8 +254,6 @@ class DetailPanel extends StatelessWidget {
         switch (value) {
           case 'folder':
             await controller.openFolder(game);
-          case 'store':
-            await controller.openStore(game);
           case 'copy':
             await Clipboard.setData(
               ClipboardData(text: controller.commandFor(game)),
@@ -305,20 +280,11 @@ class DetailPanel extends StatelessWidget {
               game,
               hidden: !controller.config.isRecentHidden(game.id),
             );
-          case 'forget':
-            controller.forget(game);
           case 'remove':
             await controller.removeManual(game.key);
         }
       },
       itemBuilder: (context) => [
-        if (controller.storeUrl(game) != null && game.missing)
-          _action(
-            context,
-            'store',
-            Icons.storefront_outlined,
-            'Open store page',
-          ),
         _action(context, 'folder', Icons.folder_open, 'Open folder'),
         _action(context, 'copy', Icons.copy_all, 'Copy command'),
         _action(context, 'options', Icons.tune, 'Launch options…'),
@@ -341,13 +307,6 @@ class DetailPanel extends StatelessWidget {
             controller.config.isRecentHidden(game.id)
                 ? 'Show in recently played'
                 : 'Remove from recently played',
-          ),
-        if (game.missing)
-          _action(
-            context,
-            'forget',
-            Icons.delete_outline,
-            'Remove from library',
           ),
         if (game.source == SourceKind.manual)
           _action(context, 'remove', Icons.delete_outline, 'Remove'),

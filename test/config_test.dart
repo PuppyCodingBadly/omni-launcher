@@ -250,7 +250,6 @@ void main() {
           cwd: '/tmp/game',
         ),
       },
-      forgotten: {'steam:2'},
       pluginGrants: {
         'beats': {'lookup', 'actions'},
       },
@@ -266,7 +265,6 @@ void main() {
     expect(options.env, {'MANGOHUD': '1'});
     expect(options.cwd, '/tmp/game');
     expect(options.summary, contains('gamemoderun'));
-    expect(loaded.isForgotten('steam:2'), isTrue);
     expect(loaded.pluginGrantsFor('beats'), {'lookup', 'actions'});
     expect(loaded.minimizeOnLaunch, isTrue);
     expect(loaded.trayIcon, isTrue);
@@ -288,12 +286,10 @@ void main() {
       'plugin_grants': {
         'beats': ['lookup', '', 3],
       },
-      'forgotten': 'not a list',
     });
     expect(rough.tagsFor('steam:1'), ['Backlog']);
     expect(rough.launchOptionsFor('steam:1').isEmpty, isTrue);
     expect(rough.pluginGrantsFor('beats'), {'lookup'});
-    expect(rough.forgotten, isEmpty);
   });
 
   test('removed shelf entries round trip, and junk is ignored', () {

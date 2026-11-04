@@ -110,30 +110,6 @@ void main() {
       },
     );
 
-    test('a game kept after its files went is not on the shelf', () {
-      final now = DateTime(2026, 10, 15, 12);
-      seed({
-        'steam:1': (3600, now),
-        'steam:2': (60, now.subtract(const Duration(hours: 1))),
-      });
-      final controller = build();
-      addTearDown(controller.dispose);
-      controller.games = [
-        // The wall keeps it for its history, marked missing; the shelf has
-        // nothing to start and must not offer it.
-        game(
-          'steam:1',
-          'Alpha',
-          SourceKind.steam,
-        ).copyWith(extra: const {'missing': true}),
-        game('steam:2', 'Beta', SourceKind.steam),
-      ];
-
-      expect(controller.recentlyPlayed().map((entry) => entry.id).toList(), [
-        'steam:2',
-      ]);
-    });
-
     test(
       'a game taken off the shelf stays off until it is played again',
       () async {
