@@ -265,7 +265,7 @@ void main() {
       expect(shelf.every((tile) => tile.compact), isTrue);
       // A shelf tile says how much and how recently, not which source.
       expect(find.text('1h · today'), findsOneWidget);
-      expect(find.text('10m · 2 days ago'), findsOneWidget);
+      expect(find.text('10m · 2d'), findsOneWidget);
 
       controller.setQuery('gamma');
       await tester.pumpAndSettle();
@@ -423,7 +423,7 @@ void main() {
       // One gap between tiles, whatever the names are.
       expect(lefts[1] - lefts[0], GameTile.compactWidth + 12);
 
-      // The name is ellipsized, not clipped: it takes the tile's width.
+      // The name is ellipsized, not clipped: it stays inside the poster.
       expect(
         tester
             .getSize(
@@ -433,7 +433,7 @@ void main() {
               ),
             )
             .width,
-        GameTile.compactWidth,
+        lessThanOrEqualTo(GameTile.compactWidth),
       );
     });
   });

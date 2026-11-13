@@ -5,5 +5,5 @@
   "author": "PuppyCodingBadly",
   "action": "Look up on HowLongToBeat",
   "command": ["python3", "hltb.py"],
-  "version": 1
+  "version": 2
 }

@@ -68,6 +68,16 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.4.1" date="2026-11-12">
+      <description>
+        <p>A matching release. The HowLongToBeat plugin now removes trademark
+        marks and edition suffixes from its query, converts roman series
+        numerals, and falls back to a similarity match when the site spells a
+        title differently, without sliding to another numbered sequel. The
+        recently played shelf is smaller and prints its name and playtime on
+        the poster, returning vertical room to the wall.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-11-12">
       <description>
         <p>A redesign release. The library now uses a warm graphite and paper

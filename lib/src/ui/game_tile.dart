@@ -50,8 +50,8 @@ class GameTile extends StatefulWidget {
 
   /// The shelf's tile: small enough that a row of them fits above the wall
   /// without taking the wall's room.
-  static const double compactWidth = 108;
-  static const double compactCoverHeight = 162;
+  static const double compactWidth = 96;
+  static const double compactCoverHeight = 144;
 
   /// How tall a tile draws: the cover, then the name and the subtitle under it.
   ///
@@ -63,16 +63,16 @@ class GameTile extends StatefulWidget {
     required bool compact,
     TextScaler textScaler = TextScaler.noScaling,
   }) {
-    final cover = compact ? compactCoverHeight : coverHeight;
-    final name = (compact ? 12.0 : 13.0) * 1.2 * (compact ? 1 : 2);
-    final subtitle = (compact ? 10.5 : 11.5) * 1.2;
+    if (compact) return compactCoverHeight;
+    final name = 13.0 * 1.2 * 2;
+    final subtitle = 11.5 * 1.2;
     // The cover, the air above the label, the two lines, the air below them.
-    return cover +
-        (compact ? 7 : 8) +
+    return coverHeight +
+        8 +
         textScaler.scale(name) +
         textScaler.scale(subtitle) +
         2 +
-        (compact ? 6 : 8);
+        8;
   }
 
   final Game game;
@@ -156,6 +156,31 @@ class _GameTileState extends State<GameTile> {
         ? 'Update'
         : null;
     final statusColor = running ? palette.accent : palette.warning;
+    final cover = _Cover(
+      artwork: _artwork,
+      name: game.name,
+      caption: widget.compact ? game.name : null,
+      detail: widget.compact ? _subtitle(game) : null,
+      highlighted: _highlighted,
+      selected: widget.selected,
+      favorite: widget.controller.isFavorite(game.id),
+      status: status,
+      statusColor: statusColor,
+      running: running,
+      themeIcon: widget.controller.covers.themeIconPath,
+      // A game the source cannot start offers no working Play: the button
+      // stays put as a disabled target (the panel explains why), while a
+      // running game keeps its Stop.
+      onPlay: running
+          ? () => widget.controller.stop(game)
+          : game.launchable
+          ? () => widget.controller.launch(game)
+          : null,
+      menu: _menu(context, game, hidden, running),
+      width: widget.tileWidth,
+      height: widget.tileHeight,
+      compact: widget.compact,
+    );
     return Semantics(
       button: true,
       selected: widget.selected,
@@ -229,60 +254,41 @@ class _GameTileState extends State<GameTile> {
                   // instead of trailing off.
                   child: SizedBox(
                     width: widget.tileWidth,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _Cover(
-                          artwork: _artwork,
-                          name: game.name,
-                          highlighted: _highlighted,
-                          selected: widget.selected,
-                          favorite: widget.controller.isFavorite(game.id),
-                          status: status,
-                          statusColor: statusColor,
-                          running: running,
-                          themeIcon: widget.controller.covers.themeIconPath,
-                          // A game the source cannot start offers no working
-                          // Play: the button stays put as a disabled target
-                          // (the panel explains why), while a running game
-                          // keeps its Stop.
-                          onPlay: running
-                              ? () => widget.controller.stop(game)
-                              : game.launchable
-                              ? () => widget.controller.launch(game)
-                              : null,
-                          menu: _menu(context, game, hidden, running),
-                          width: widget.tileWidth,
-                          height: widget.tileHeight,
-                          compact: widget.compact,
-                        ),
-                        SizedBox(height: widget.compact ? 7 : 8),
-                        Text(
-                          game.name,
-                          maxLines: widget.compact ? 1 : 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: widget.compact ? 12 : 13,
-                            height: 1.2,
-                            color: palette.text,
+                    // The shelf prints its name and playtime on the poster;
+                    // the wall keeps them under it, where there is room.
+                    child: widget.compact
+                        ? cover
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              cover,
+                              const SizedBox(height: 8),
+                              Text(
+                                game.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  height: 1.2,
+                                  color: palette.text,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _subtitle(game),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: palette.textDim,
+                                  fontSize: 11.5,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _subtitle(game),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: palette.textDim,
-                            fontSize: widget.compact ? 10.5 : 11.5,
-                            height: 1.2,
-                          ),
-                        ),
-                        SizedBox(height: widget.compact ? 6 : 8),
-                      ],
-                    ),
                   ),
                 ),
               ),
@@ -302,7 +308,7 @@ class _GameTileState extends State<GameTile> {
     // A shelf entry is always a played game, but the tile itself does not have
     // to be: without a stamp the time played is all there is to say.
     if (last == null) return played;
-    return '$played · ${formatLastPlayed(last, DateTime.now())}';
+    return '$played · ${formatLastPlayed(last, DateTime.now(), short: true)}';
   }
 
   Widget _menu(BuildContext context, Game game, bool hidden, bool running) {
@@ -392,6 +398,8 @@ class _Cover extends StatelessWidget {
   const _Cover({
     required this.artwork,
     required this.name,
+    this.caption,
+    this.detail,
     required this.highlighted,
     required this.selected,
     required this.favorite,
@@ -408,6 +416,10 @@ class _Cover extends StatelessWidget {
 
   final Artwork artwork;
   final String name;
+
+  /// The shelf prints these over the poster instead of under it.
+  final String? caption;
+  final String? detail;
 
   /// Playing, updating or an update pending; null draws no badge.
   final String? status;
@@ -522,6 +534,68 @@ class _Cover extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (caption != null) ...[
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            palette.scrim.last.withValues(alpha: 0),
+                            palette.scrim.last.withValues(alpha: 0.88),
+                          ],
+                          stops: const [0.48, 1],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 8,
+                  right: 8,
+                  bottom: 7,
+                  child: IgnorePointer(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          caption!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.15,
+                            fontWeight: FontWeight.w600,
+                            color: palette.onScrim,
+                            shadows: [
+                              Shadow(
+                                color: palette.shadow.withValues(alpha: 0.8),
+                                blurRadius: 3,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (detail != null && detail!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            detail!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              height: 1.2,
+                              color: palette.onScrim.withValues(alpha: 0.82),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               IgnorePointer(
                 ignoring: !highlighted,
                 child: AnimatedOpacity(
@@ -559,7 +633,9 @@ class _Cover extends StatelessWidget {
                         ),
                       ),
                       Align(
-                        alignment: Alignment.bottomCenter,
+                        alignment: compact
+                            ? Alignment.center
+                            : Alignment.bottomCenter,
                         child: AnimatedSlide(
                           offset: highlighted
                               ? Offset.zero

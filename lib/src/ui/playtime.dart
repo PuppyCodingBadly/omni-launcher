@@ -36,20 +36,29 @@ String formatPlaytime(Duration total) {
 /// When a game was last played, relative to [now]: `today`, `yesterday`,
 /// `3 days ago`, `2 weeks ago`, or `on 12 Mar 2026` past a month.
 ///
+/// [short] is the shelf's version, where the poster has room for `2d` or
+/// `1w` but not for the sentence the detail panel can afford.
+///
 /// Both timestamps are read in the local calendar, so a stored UTC instant
 /// lands on the day the player saw. A timestamp in the future (a clock that
 /// moved backwards) reads as `today` rather than a negative age.
-String formatLastPlayed(DateTime lastPlayed, DateTime now) {
+String formatLastPlayed(
+  DateTime lastPlayed,
+  DateTime now, {
+  bool short = false,
+}) {
   final days = _calendarDaysBetween(lastPlayed.toLocal(), now.toLocal());
   if (days <= 0) return 'today';
-  if (days == 1) return 'yesterday';
-  if (days < 7) return '$days days ago';
+  if (days == 1) return short ? '1d' : 'yesterday';
+  if (days < 7) return short ? '${days}d' : '$days days ago';
   if (days < 30) {
     final weeks = days ~/ 7;
+    if (short) return '${weeks}w';
     return weeks == 1 ? 'a week ago' : '$weeks weeks ago';
   }
   final date = lastPlayed.toLocal();
-  return 'on ${date.day} ${_months[date.month - 1]} ${date.year}';
+  final day = '${date.day} ${_months[date.month - 1]}';
+  return short ? day : 'on $day ${date.year}';
 }
 
 /// Whole calendar days from [from] to [to], counted on the local date.

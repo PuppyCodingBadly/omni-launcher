@@ -115,7 +115,12 @@ void main() {
 
     testWidgets('shows the rest of the row when it goes on', (tester) async {
       final games = [for (var i = 0; i < 12; i++) game('steam:$i', 'Game $i')];
-      await pumpPage(tester, games: games, played: 10);
+      await pumpPage(
+        tester,
+        games: games,
+        played: 12,
+        size: const Size(1100, 900),
+      );
 
       final bar = tester.widget<Scrollbar>(find.byType(Scrollbar));
       expect(bar.thumbVisibility, isTrue);
@@ -173,7 +178,7 @@ void main() {
         played: 10,
         size: const Size(1100, 900),
       );
-      // Ten recent games at this width: the seventh is still built, but once
+      // Ten recent games at this width: the fifth is still built, but once
       // the panel takes its share of the window its right edge, and the ring
       // on it, would be cut.
       final selected = games[4];

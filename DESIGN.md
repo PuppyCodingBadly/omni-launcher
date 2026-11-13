@@ -141,7 +141,7 @@ A warm neutral room with a single burnished copper signal. The accent is deliber
 
 ## Layout
 
-The window is a three-column task surface: a 232px library sidebar (64px when folded), the cover wall, and a 360px detail panel that opens only when a game is selected. The wall uses a 168x252 poster cell with a 16px gap and 24px page margin; the shelf uses a 108x162 compact cell with a 12px gap. The header is one 38px search field capped at 560px with the tool buttons at the right edge; when the detail panel opens, the search gives width back instead of pushing the toolbar out.
+The window is a three-column task surface: a 232px library sidebar (64px when folded), the cover wall, and a 360px detail panel that opens only when a game is selected. The wall uses a 168x252 poster cell with a 16px gap and 24px page margin; the shelf uses a 96x144 compact cell with a 12px gap and prints the name and playtime over the poster. The header is one 38px search field capped at 560px with the tool buttons at the right edge; when the detail panel opens, the search gives width back instead of pushing the toolbar out.
 
 Settings is a single 800px column with the title and content on the same left edge, 28px of inner padding, and 24px between sections. Dense rows are allowed there: 44-48px per switch row, not a card per setting.
 
@@ -191,7 +191,7 @@ A four-step radius scale: 6px chips and small badges, 8px controls and inputs, 1
 - **Header:** icon buttons are 34px ghost targets; the sort mode is a labelled menu, not a mystery icon.
 
 ### Cover Tile
-The signature component. A 2:3 poster with a 2px inner inset, 10px outer radius, game name at 13px semibold, and one dim metadata line. On hover the cover lifts, a top-down scrim appears, a compact Play button sits at the bottom centre, and a 26px actions button sits at the top right. Running games show a static dot and the word Playing; no pulse.
+The signature component. A 2:3 poster with a 2px inner inset and 10px outer radius. On the wall the name sits under it at 13px semibold with one dim metadata line. On the shelf the name (up to two lines) and short playtime/recency sit on the poster over a bottom gradient. On hover the cover lifts, a top-down scrim appears, a compact Play button sits at the bottom centre (centre on the shelf), and a 26px actions button sits at the top right. Running games show a static dot and the word Playing; no pulse.
 
 ### Detail Panel
 A 360px panel with a hairline left edge, a 112px poster beside the title, one primary Launch/Stop button, tags, plugin sections, and quiet key/value facts. Labels sit in a fixed 88px column; values wrap and remain selectable.

@@ -1506,6 +1506,19 @@ void main() {
     }, skip: !hasPython3 ? 'no python3 on this host' : false);
 
     test(
+      'the HowLongToBeat matcher handles editions, numerals and sequels',
+      () async {
+        final result = await Process.run('python3', [
+          'test/fixtures/hltb_best.py',
+          'plugins/howlongtobeat/hltb.py',
+        ]);
+        expect(result.exitCode, 0, reason: '${result.stderr}');
+        expect(result.stdout, contains('ok'));
+      },
+      skip: !hasPython3 ? 'no python3 on this host' : false,
+    );
+
+    test(
       'the HowLongToBeat plugin answers a malformed request in JSON',
       () async {
         Future<Object?> ask(String request) async {
