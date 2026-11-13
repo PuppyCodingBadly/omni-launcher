@@ -71,12 +71,12 @@ class _LibraryPageState extends State<LibraryPage> {
   static const double _revealInset = 6;
 
   /// The strip's side padding and the gap between its tiles.
-  static const double _shelfSidePadding = 28;
-  static const double _shelfGap = 16;
+  static const double _shelfSidePadding = 24;
+  static const double _shelfGap = 12;
 
   /// The wall's top padding and the gap between its rows.
-  static const double _gridTopPadding = 6;
-  static const double _gridRowGap = 22;
+  static const double _gridTopPadding = 8;
+  static const double _gridRowGap = 26;
 
   /// Room under the shelf for its scrollbar, so the bar never sits on the
   /// labels.
@@ -439,13 +439,13 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _filterBar(LibraryController controller) {
     final palette = context.palette;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 0, 28, 10),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
       child: Wrap(
         spacing: 6,
         runSpacing: 6,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Icon(Icons.filter_alt_outlined, size: 16, color: palette.textDim),
+          Icon(Icons.filter_alt_outlined, size: 15, color: palette.textDim),
           for (final tag in controller.tagFilter)
             InputChip(
               label: Text(tag),
@@ -471,51 +471,71 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _header(LibraryController controller) {
-    final search = TextField(
-      controller: _search,
-      focusNode: _searchFocus,
-      onChanged: controller.setQuery,
-      decoration: InputDecoration(
-        hintText: 'Search ${controller.games.length} games (Ctrl+F)',
-        prefixIcon: Tooltip(
-          message: 'Search (Ctrl+F)',
-          child: Icon(Icons.search, color: context.palette.textDim),
+    final palette = context.palette;
+    final search = SizedBox(
+      height: 38,
+      child: TextField(
+        controller: _search,
+        focusNode: _searchFocus,
+        onChanged: controller.setQuery,
+        style: Theme.of(context).textTheme.bodyMedium,
+        cursorHeight: 16,
+        decoration: InputDecoration(
+          hintText: 'Search ${controller.games.length} games',
+          isDense: true,
+          contentPadding: const EdgeInsets.fromLTRB(4, 10, 12, 10),
+          prefixIcon: Icon(Icons.search, size: 17, color: palette.textDim),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 38,
+            minHeight: 38,
+          ),
+          suffixIcon: controller.query.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: Text(
+                    'Ctrl+F',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: palette.textDim.withValues(alpha: 0.75),
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                )
+              : IconButton(
+                  tooltip: 'Clear (Esc)',
+                  icon: const Icon(Icons.close, size: 16),
+                  onPressed: () {
+                    _search.clear();
+                    controller.setQuery('');
+                  },
+                ),
         ),
-        suffixIcon: controller.query.isEmpty
-            ? null
-            : IconButton(
-                tooltip: 'Clear (Esc)',
-                icon: const Icon(Icons.close, size: 18),
-                onPressed: () {
-                  _search.clear();
-                  controller.setQuery('');
-                },
-              ),
       ),
     );
     final activeFilters =
         controller.tagFilter.length + controller.smartFilters.length;
     final actions = <Widget>[
-      IconButton.filledTonal(
+      _headerButton(
         tooltip: activeFilters == 0 ? 'Filters' : 'Filters ($activeFilters)',
-        isSelected: activeFilters > 0,
+        icon: Icons.filter_alt_outlined,
+        active: activeFilters > 0,
         onPressed: () => showFilterDialog(context, controller: controller),
-        icon: const Icon(Icons.filter_alt_outlined),
       ),
       _sortControl(controller),
-      IconButton.filledTonal(
+      _headerButton(
         tooltip: _selecting ? 'Cancel selection (Esc)' : 'Select games',
-        isSelected: _selecting,
+        icon: _selecting ? Icons.close : Icons.checklist,
+        active: _selecting,
         onPressed: _toggleSelecting,
-        icon: const Icon(Icons.checklist),
       ),
-      IconButton.filledTonal(
+      Container(width: 1, height: 18, color: palette.line),
+      _headerButton(
         tooltip: 'Rescan (Ctrl+R)',
+        icon: Icons.refresh,
         onPressed: controller.rescan,
-        icon: const Icon(Icons.refresh),
       ),
-      IconButton.filledTonal(
+      _headerButton(
         tooltip: 'Add a game by hand',
+        icon: Icons.add,
         onPressed: () async {
           final entry = await showAddGameDialog(context);
           if (entry != null) {
@@ -526,43 +546,53 @@ class _LibraryPageState extends State<LibraryPage> {
             );
           }
         },
-        icon: const Icon(Icons.add),
       ),
-      IconButton.filledTonal(
+      _headerButton(
         tooltip: 'Settings',
+        icon: Icons.settings_outlined,
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => SettingsView(controller: controller),
           ),
         ),
-        icon: const Icon(Icons.settings),
       ),
     ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 22, 28, 12),
-      // A narrow wall (a small window with the panel open) cannot fit the
-      // search field and the five buttons on one line: the buttons move under
-      // the field instead of overflowing the column.
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      // A narrow wall (a small window with the panel open) moves the tools
+      // under the field instead of overflowing the column.
       child: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth < 480) {
+          if (constraints.maxWidth < 620) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 search,
-                const SizedBox(height: 10),
-                Wrap(spacing: 8, runSpacing: 8, children: actions),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 2,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: actions,
+                ),
               ],
             );
           }
           return Row(
             children: [
-              Expanded(child: search),
-              const SizedBox(width: 14),
-              for (var i = 0; i < actions.length; i++) ...[
-                if (i > 0) const SizedBox(width: 8),
-                actions[i],
-              ],
+              // The search keeps its compact width when there is room, and
+              // gives width back to the toolbar when the detail panel opens.
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: search,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              for (final action in actions) action,
             ],
           );
         },
@@ -570,31 +600,68 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  /// The wall's ordering, as a menu behind an icon that matches the header's
-  /// other buttons. The check marks the mode in effect.
+  /// A quiet chrome button: the toolbar has six of them, and six filled pills
+  /// would read as six primary actions. The tooltip carries the name.
+  Widget _headerButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+    bool active = false,
+  }) {
+    final palette = context.palette;
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onPressed,
+        iconSize: 18,
+        icon: Icon(icon, color: active ? palette.accent : palette.textDim),
+        style: IconButton.styleFrom(
+          minimumSize: const Size(34, 34),
+          maximumSize: const Size(34, 34),
+          backgroundColor: active ? palette.surfaceHigh : Colors.transparent,
+          hoverColor: palette.surfaceHigh.withValues(alpha: 0.7),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.mediumAll),
+        ),
+      ),
+    );
+  }
+
+  /// The wall's ordering, as a labelled menu. The check marks the mode in
+  /// effect; the current mode stays readable without a tooltip.
   Widget _sortControl(LibraryController controller) {
     const labels = {
       'name': 'Name',
       'lastPlayed': 'Recently played',
       'mostPlayed': 'Most played',
     };
+    final palette = context.palette;
+    final label = labels[controller.sortMode] ?? labels['name']!;
     return MenuAnchor(
       menuChildren: [
         for (final entry in labels.entries)
           MenuItemButton(
             leadingIcon: controller.sortMode == entry.key
-                ? const Icon(Icons.check, size: 18)
-                : const SizedBox(width: 18),
+                ? Icon(Icons.check, size: 16, color: palette.accent)
+                : const SizedBox(width: 16),
             onPressed: () {
               controller.setSortMode(entry.key);
             },
             child: Text(entry.value),
           ),
       ],
-      builder: (context, menu, _) => IconButton.filledTonal(
-        tooltip: 'Sort: ${labels[controller.sortMode] ?? labels['name']}',
-        onPressed: () => menu.isOpen ? menu.close() : menu.open(),
-        icon: const Icon(Icons.sort),
+      builder: (context, menu, _) => Tooltip(
+        message: 'Sort: $label',
+        child: TextButton.icon(
+          onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+          icon: const Icon(Icons.sort, size: 16),
+          label: Text(label),
+          style: TextButton.styleFrom(
+            foregroundColor: palette.textDim,
+            minimumSize: const Size(0, 34),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            textStyle: Theme.of(context).textTheme.labelMedium,
+          ),
+        ),
       ),
     );
   }
@@ -605,25 +672,29 @@ class _LibraryPageState extends State<LibraryPage> {
     final palette = context.palette;
     final count = _marked.length;
     return Container(
-      color: palette.surface,
-      padding: const EdgeInsets.fromLTRB(28, 8, 28, 12),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        border: Border(top: BorderSide(color: palette.line)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
       child: Row(
         children: [
-          Icon(Icons.checklist, size: 18, color: palette.accentSoft),
+          Icon(Icons.checklist, size: 16, color: palette.accent),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               count == 0
                   ? 'Tap games to mark them'
                   : '$count ${count == 1 ? 'game' : 'games'} marked',
-              style: TextStyle(fontSize: 13, color: palette.textDim),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: palette.textDim),
             ),
           ),
           TextButton(onPressed: _toggleSelecting, child: const Text('Cancel')),
           const SizedBox(width: 8),
           FilledButton.icon(
             onPressed: count == 0 ? null : () => _hideMarked(controller),
-            icon: const Icon(Icons.visibility_off_outlined, size: 18),
+            icon: const Icon(Icons.visibility_off_outlined, size: 16),
             label: Text('Hide $count ${count == 1 ? 'game' : 'games'}'),
           ),
         ],
@@ -660,7 +731,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     duration: _motion,
                     curve: _motionCurve,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: AppRadius.xlargeAll,
                       color: marked
                           ? palette.accent.withValues(alpha: 0.22)
                           : Colors.transparent,
@@ -714,15 +785,23 @@ class _LibraryPageState extends State<LibraryPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(28, 4, 28, 10),
-          child: Text(
-            'RECENTLY PLAYED',
-            style: TextStyle(
-              fontSize: 10,
-              letterSpacing: 1.2,
-              color: context.palette.textDim,
-              fontWeight: FontWeight.w700,
-            ),
+          padding: const EdgeInsets.fromLTRB(24, 2, 24, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                'Recently played',
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${games.length}',
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: context.palette.textDim),
+              ),
+            ],
           ),
         ),
         SizedBox(
@@ -875,20 +954,30 @@ class _LibraryPageState extends State<LibraryPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              filtered ? Icons.search_off : Icons.videogame_asset_off,
-              size: 44,
-              color: palette.textDim,
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: palette.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: palette.line),
+              ),
+              child: Icon(
+                filtered ? Icons.search_off : Icons.videogame_asset_off,
+                size: 20,
+                color: palette.textDim,
+              ),
             ),
             const SizedBox(height: 14),
             Text(
               filtered ? 'No matches' : 'No games yet',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               detail,
-              style: TextStyle(color: palette.textDim, fontSize: 13),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: palette.textDim),
             ),
           ],
         ),
@@ -910,7 +999,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        const spacing = 18.0;
+        const spacing = 16.0;
         const mainAxisSpacing = _gridRowGap;
         final columns =
             ((constraints.maxWidth - _shelfSidePadding * 2 + spacing) /
@@ -966,8 +1055,13 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _statusBar(LibraryController controller, int shown) {
     final notice = controller.notice ?? controller.failure;
     final palette = context.palette;
+    final dim = Theme.of(context).textTheme.labelSmall
+        ?.copyWith(color: palette.textDim);
     return Container(
-      padding: const EdgeInsets.fromLTRB(28, 10, 28, 14),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: palette.line)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 7, 24, 9),
       child: Row(
         // Both ends shrink and ellipsize, and `spaceBetween` keeps the notice
         // on the right: a long notice next to the counts used to overflow a
@@ -976,11 +1070,11 @@ class _LibraryPageState extends State<LibraryPage> {
         children: [
           Flexible(
             child: Text(
-              '$shown shown · ${controller.games.length} found · '
+              '$shown of ${controller.games.length} games · '
               '${controller.countsBySource.length} sources',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: palette.textDim, fontSize: 12),
+              style: dim,
             ),
           ),
           if (notice != null)
@@ -992,7 +1086,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     controller.failure == null
                         ? Icons.info_outline
                         : Icons.error_outline,
-                    size: 14,
+                    size: 13,
                     color: controller.failure == null
                         ? palette.textDim
                         : palette.warning,
@@ -1004,8 +1098,7 @@ class _LibraryPageState extends State<LibraryPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.end,
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: dim?.copyWith(
                         color: controller.failure == null
                             ? palette.textDim
                             : palette.warning,
@@ -1045,7 +1138,10 @@ class _Sidebar extends StatelessWidget {
         return Container(
           width: w,
           clipBehavior: Clip.hardEdge,
-          decoration: BoxDecoration(color: context.palette.sidebar),
+          decoration: BoxDecoration(
+            color: context.palette.sidebar,
+            border: Border(right: BorderSide(color: context.palette.line)),
+          ),
           child: showRail ? _rail(context) : _list(context),
         );
       },
@@ -1059,15 +1155,17 @@ class _Sidebar extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(22, 26, 12, 20),
+          padding: const EdgeInsets.fromLTRB(16, 16, 8, 14),
           child: Row(
             children: [
-              Icon(Icons.sports_esports, color: palette.accent),
+              _mark(context),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Omni Launcher',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
               _toggle(context, collapsed: false),
@@ -1076,7 +1174,7 @@ class _Sidebar extends StatelessWidget {
         ),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             children: [
               _row(
                 context,
@@ -1087,15 +1185,11 @@ class _Sidebar extends StatelessWidget {
                 onTap: controller.clearSources,
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 16, 10, 8),
+                padding: const EdgeInsets.fromLTRB(10, 18, 10, 6),
                 child: Text(
-                  'SOURCES',
-                  style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 1.2,
-                    color: palette.textDim,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  'Sources',
+                  style: Theme.of(context).textTheme.labelMedium
+                      ?.copyWith(color: palette.textDim),
                 ),
               ),
               for (final kind in SourceKind.values)
@@ -1111,25 +1205,26 @@ class _Sidebar extends StatelessWidget {
             ],
           ),
         ),
-        Divider(height: 1, color: palette.surfaceHigh),
-        // The rail paints its own colour, so the switch needs a Material of
-        // its own for its ink and thumb to show up.
-        Material(
-          color: Colors.transparent,
-          child: SwitchListTile(
-            dense: true,
-            value: controller.config.showHidden,
-            onChanged: (_) => controller.toggleShowHidden(),
-            title: const Text('Show hidden', style: TextStyle(fontSize: 13)),
-            subtitle: Text(
-              '${controller.hiddenCount} hidden',
-              style: TextStyle(fontSize: 11, color: palette.textDim),
-            ),
-          ),
-        ),
+        Divider(height: 1, color: palette.line),
+        _hiddenRow(context),
       ],
     );
   }
+
+  /// The app mark: a solid accent square, not a glow or an abstract mascot.
+  Widget _mark(BuildContext context) => Container(
+    width: 26,
+    height: 26,
+    decoration: BoxDecoration(
+      color: context.palette.accent,
+      borderRadius: AppRadius.mediumAll,
+    ),
+    child: Icon(
+      Icons.sports_esports_rounded,
+      size: 15,
+      color: context.palette.onAccent,
+    ),
+  );
 
   /// Collapsed: the same filters as icons, with the label and the count in the
   /// tooltip, so the cover wall gets the width back.
@@ -1139,7 +1234,7 @@ class _Sidebar extends StatelessWidget {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.only(top: 26, bottom: 10),
+          padding: const EdgeInsets.only(top: 12, bottom: 8),
           child: _toggle(context, collapsed: true),
         ),
         Expanded(
@@ -1153,7 +1248,7 @@ class _Sidebar extends StatelessWidget {
                 selected: controller.sourceFilter.isEmpty,
                 onTap: controller.clearSources,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               for (final kind in SourceKind.values)
                 if ((counts[kind] ?? 0) > 0)
                   _railRow(
@@ -1166,20 +1261,26 @@ class _Sidebar extends StatelessWidget {
             ],
           ),
         ),
-        Divider(height: 1, color: palette.surfaceHigh),
+        Divider(height: 1, color: palette.line),
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: IconButton(
-            tooltip: controller.config.showHidden
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Tooltip(
+            message: controller.config.showHidden
                 ? 'Hide the hidden games'
                 : 'Show hidden games (${controller.hiddenCount})',
-            isSelected: controller.config.showHidden,
-            icon: Icon(
-              controller.config.showHidden
-                  ? Icons.visibility
-                  : Icons.visibility_off_outlined,
+            child: IconButton(
+              isSelected: controller.config.showHidden,
+              icon: Icon(
+                controller.config.showHidden
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                size: 18,
+                color: controller.config.showHidden
+                    ? palette.accent
+                    : palette.textDim,
+              ),
+              onPressed: controller.toggleShowHidden,
             ),
-            onPressed: controller.toggleShowHidden,
           ),
         ),
       ],
@@ -1190,10 +1291,14 @@ class _Sidebar extends StatelessWidget {
   Widget _toggle(BuildContext context, {required bool collapsed}) {
     return IconButton(
       tooltip: collapsed ? 'Expand the sidebar' : 'Collapse the sidebar',
-      iconSize: 18,
+      iconSize: 17,
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      style: IconButton.styleFrom(
+        minimumSize: const Size(28, 28),
+        maximumSize: const Size(28, 28),
+        foregroundColor: context.palette.textDim,
+      ),
       icon: Icon(collapsed ? Icons.chevron_right : Icons.chevron_left),
       onPressed: controller.toggleSidebar,
     );
@@ -1213,17 +1318,17 @@ class _Sidebar extends StatelessWidget {
         message: tooltip,
         child: Material(
           color: selected ? palette.surfaceHigh : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: AppRadius.mediumAll,
           child: InkWell(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: AppRadius.mediumAll,
             onTap: onTap,
             child: SizedBox(
-              height: 40,
+              height: 38,
               child: Center(
                 child: Icon(
                   icon,
                   size: 18,
-                  color: selected ? palette.accentSoft : palette.textDim,
+                  color: selected ? palette.accent : palette.textDim,
                 ),
               ),
             ),
@@ -1241,41 +1346,90 @@ class _Sidebar extends StatelessWidget {
     required bool selected,
     required VoidCallback onTap,
   }) {
+    final palette = context.palette;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.only(bottom: 1),
       child: Material(
-        color: selected ? context.palette.surfaceHigh : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
+        color: selected ? palette.surfaceHigh : Colors.transparent,
+        borderRadius: AppRadius.mediumAll,
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: AppRadius.mediumAll,
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Row(
               children: [
                 Icon(
                   icon,
-                  size: 17,
-                  color: selected
-                      ? context.palette.accentSoft
-                      : context.palette.textDim,
+                  size: 16,
+                  color: selected ? palette.accent : palette.textDim,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     label,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13.5,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                      color: selected ? palette.text : palette.textDim,
                     ),
                   ),
                 ),
+                const SizedBox(width: 6),
                 Text(
                   '$count',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: context.palette.textDim,
+                  style: Theme.of(context).textTheme.labelSmall
+                      ?.copyWith(color: palette.textDim),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Show hidden: one row and its switch, not a stock list tile with a second
+  /// line of chrome.
+  Widget _hiddenRow(BuildContext context) {
+    final palette = context.palette;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: controller.toggleShowHidden,
+        child: SizedBox(
+          height: 46,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 10, 0),
+            child: Row(
+              children: [
+                Icon(
+                  controller.config.showHidden
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  size: 16,
+                  color: palette.textDim,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Show hidden',
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: palette.textDim),
+                  ),
+                ),
+                Text(
+                  '${controller.hiddenCount}',
+                  style: Theme.of(context).textTheme.labelSmall
+                      ?.copyWith(color: palette.textDim),
+                ),
+                const SizedBox(width: 6),
+                Transform.scale(
+                  scale: 0.8,
+                  child: Switch(
+                    value: controller.config.showHidden,
+                    onChanged: (_) => controller.toggleShowHidden(),
                   ),
                 ),
               ],
@@ -1288,15 +1442,15 @@ class _Sidebar extends StatelessWidget {
 
   static IconData _iconFor(SourceKind kind) => switch (kind) {
     SourceKind.manual => Icons.edit_note,
-    SourceKind.steam => Icons.cloud,
+    SourceKind.steam => Icons.sports_esports_outlined,
     SourceKind.flatpak => Icons.inventory_2_outlined,
     SourceKind.appimage => Icons.terminal,
-    SourceKind.heroic => Icons.auto_awesome,
-    SourceKind.epic => Icons.sports_esports_outlined,
-    SourceKind.lutris => Icons.wine_bar,
-    SourceKind.faugus => Icons.sports_martial_arts,
-    SourceKind.prism => Icons.widgets_outlined,
-    SourceKind.bottles => Icons.liquor,
+    SourceKind.heroic => Icons.rocket_launch_outlined,
+    SourceKind.epic => Icons.storefront_outlined,
+    SourceKind.lutris => Icons.play_circle_outline,
+    SourceKind.faugus => Icons.layers_outlined,
+    SourceKind.prism => Icons.view_in_ar_outlined,
+    SourceKind.bottles => Icons.local_drink_outlined,
     SourceKind.desktop => Icons.desktop_windows_outlined,
   };
 }

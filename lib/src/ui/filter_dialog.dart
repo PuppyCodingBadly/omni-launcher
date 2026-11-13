@@ -101,14 +101,10 @@ bool _isFiltered(LibraryController controller, String tag) =>
     _activeTag(controller, tag) != null;
 
 Widget _header(BuildContext context, String text) => Padding(
-  padding: const EdgeInsets.only(bottom: 4, top: 4),
+  padding: const EdgeInsets.only(bottom: 4, top: 8),
   child: Text(
-    text.toUpperCase(),
-    style: TextStyle(
-      fontSize: 10,
-      letterSpacing: 1.2,
-      color: context.palette.textDim,
-      fontWeight: FontWeight.w700,
-    ),
+    text,
+    style: Theme.of(context).textTheme.labelMedium
+        ?.copyWith(color: context.palette.textDim, fontWeight: FontWeight.w600),
   ),
 );

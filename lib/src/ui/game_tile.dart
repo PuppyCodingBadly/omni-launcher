@@ -50,8 +50,8 @@ class GameTile extends StatefulWidget {
 
   /// The shelf's tile: small enough that a row of them fits above the wall
   /// without taking the wall's room.
-  static const double compactWidth = 116;
-  static const double compactCoverHeight = 174;
+  static const double compactWidth = 108;
+  static const double compactCoverHeight = 162;
 
   /// How tall a tile draws: the cover, then the name and the subtitle under it.
   ///
@@ -64,15 +64,15 @@ class GameTile extends StatefulWidget {
     TextScaler textScaler = TextScaler.noScaling,
   }) {
     final cover = compact ? compactCoverHeight : coverHeight;
-    final name = (compact ? 12.5 : 14.0) * 1.2 * (compact ? 1 : 2);
-    final subtitle = (compact ? 11.0 : 12.0) * 1.2;
+    final name = (compact ? 12.0 : 13.0) * 1.2 * (compact ? 1 : 2);
+    final subtitle = (compact ? 10.5 : 11.5) * 1.2;
     // The cover, the air above the label, the two lines, the air below them.
     return cover +
-        (compact ? 8 : 10) +
+        (compact ? 7 : 8) +
         textScaler.scale(name) +
         textScaler.scale(subtitle) +
         2 +
-        8;
+        (compact ? 6 : 8);
   }
 
   final Game game;
@@ -257,15 +257,16 @@ class _GameTileState extends State<GameTile> {
                           height: widget.tileHeight,
                           compact: widget.compact,
                         ),
-                        SizedBox(height: widget.compact ? 8 : 10),
+                        SizedBox(height: widget.compact ? 7 : 8),
                         Text(
                           game.name,
                           maxLines: widget.compact ? 1 : 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            fontSize: widget.compact ? 12.5 : 14,
+                            fontSize: widget.compact ? 12 : 13,
                             height: 1.2,
+                            color: palette.text,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -275,10 +276,11 @@ class _GameTileState extends State<GameTile> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: palette.textDim,
-                            fontSize: widget.compact ? 11 : 12,
-                            height: widget.compact ? 1.2 : null,
+                            fontSize: widget.compact ? 10.5 : 11.5,
+                            height: 1.2,
                           ),
                         ),
+                        SizedBox(height: widget.compact ? 6 : 8),
                       ],
                     ),
                   ),
@@ -304,9 +306,18 @@ class _GameTileState extends State<GameTile> {
   }
 
   Widget _menu(BuildContext context, Game game, bool hidden, bool running) {
+    final palette = context.palette;
     return PopupMenuButton<String>(
       tooltip: 'Actions',
-      icon: Icon(Icons.more_vert, size: 18, color: context.palette.onScrim),
+      icon: Icon(Icons.more_horiz, size: 16, color: palette.onScrim),
+      style: IconButton.styleFrom(
+        minimumSize: const Size(26, 26),
+        maximumSize: const Size(26, 26),
+        padding: EdgeInsets.zero,
+        backgroundColor: palette.scrim.first.withValues(alpha: 0.55),
+        foregroundColor: palette.onScrim,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.smallAll),
+      ),
       onSelected: (value) {
         switch (value) {
           case 'launch':
@@ -430,7 +441,7 @@ class _Cover extends StatelessWidget {
       height: height,
       decoration: BoxDecoration(
         color: palette.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.largeAll,
         border: Border.all(
           color: selected ? palette.accent : Colors.transparent,
           width: 2,
@@ -445,144 +456,174 @@ class _Cover extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(2),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppRadius.mediumAll,
           child: Stack(
             fit: StackFit.expand,
             children: [
               _artwork(palette, dpr),
-          if (favorite || status != null)
-            Positioned(
-              top: 8,
-              left: 8,
-              child: IgnorePointer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (favorite)
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: palette.scrim.first,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.star_rounded,
-                          size: 14,
-                          color: palette.onScrim,
-                        ),
-                      ),
-                    if (favorite && status != null) const SizedBox(height: 6),
-                    if (status != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: palette.scrim.first.withValues(alpha: 0.88),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          status!.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 9,
-                            letterSpacing: 0.8,
-                            fontWeight: FontWeight.w800,
-                            color: statusColor,
+              if (favorite || status != null)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: IgnorePointer(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (favorite)
+                          Icon(
+                            Icons.star_rounded,
+                            size: 15,
+                            color: palette.onScrim,
+                            shadows: [
+                              Shadow(
+                                color: palette.shadow.withValues(alpha: 0.7),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                        if (favorite && status != null)
+                          const SizedBox(height: 5),
+                        if (status != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: palette.scrim.first.withValues(
+                                alpha: 0.82,
+                              ),
+                              borderRadius: AppRadius.smallAll,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 5,
+                                  height: 5,
+                                  decoration: BoxDecoration(
+                                    color: statusColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  status!,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: palette.onScrim,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              IgnorePointer(
+                ignoring: !highlighted,
+                child: AnimatedOpacity(
+                  duration: _overlayDuration,
+                  curve: _motionCurve,
+                  opacity: highlighted ? 1 : 0,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // The scrim must never swallow a click meant for the tile.
+                      IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: palette.scrim,
+                              stops: const [0, 0.55, 1],
+                            ),
                           ),
                         ),
                       ),
-                  ],
-                ),
-              ),
-            ),
-          IgnorePointer(
-            ignoring: !highlighted,
-            child: AnimatedOpacity(
-              duration: _overlayDuration,
-              curve: _motionCurve,
-              opacity: highlighted ? 1 : 0,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // The scrim must never swallow a click meant for the tile.
-                  IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: palette.scrim,
-                          stops: const [0, 0.45, 1],
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: AnimatedSlide(
+                          offset: highlighted
+                              ? Offset.zero
+                              : const Offset(0, -0.25),
+                          duration: _overlayDuration,
+                          curve: _motionCurve,
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: menu,
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: AnimatedSlide(
-                      offset: highlighted
-                          ? Offset.zero
-                          : const Offset(0, -0.25),
-                      duration: _overlayDuration,
-                      curve: _motionCurve,
-                      child: Padding(
-                        padding: const EdgeInsets.all(2),
-                        child: menu,
-                      ),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: AnimatedSlide(
-                      offset: highlighted ? Offset.zero : const Offset(0, 0.25),
-                      duration: _overlayDuration,
-                      curve: _motionCurve,
-                      child: Padding(
-                        padding: EdgeInsets.all(compact ? 10 : 12),
-                        // A labelled button has no room on a shelf tile: the cover
-                        // itself is the target there.
-                        child: compact
-                            ? IconButton.filled(
-                                tooltip: running
-                                    ? 'Stop'
-                                    : onPlay == null
-                                    ? 'Cannot launch'
-                                    : 'Play',
-                                onPressed: onPlay,
-                                icon: Icon(
-                                  running
-                                      ? Icons.stop_rounded
-                                      : Icons.play_arrow_rounded,
-                                  size: 20,
-                                ),
-                              )
-                            : SizedBox(
-                                width: double.infinity,
-                                child: FilledButton.icon(
-                                  onPressed: onPlay,
-                                  icon: Icon(
-                                    running
-                                        ? Icons.stop_rounded
-                                        : Icons.play_arrow_rounded,
-                                    size: 20,
-                                  ),
-                                  label: Text(running ? 'Stop' : 'Play'),
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 10,
+                      Align(
+                        alignment: Alignment.bottomCenter,
+                        child: AnimatedSlide(
+                          offset: highlighted
+                              ? Offset.zero
+                              : const Offset(0, 0.25),
+                          duration: _overlayDuration,
+                          curve: _motionCurve,
+                          child: Padding(
+                            padding: EdgeInsets.all(compact ? 10 : 12),
+                            // A labelled button has no room on a shelf tile: the cover
+                            // itself is the target there.
+                            child: compact
+                                ? IconButton.filled(
+                                    tooltip: running
+                                        ? 'Stop'
+                                        : onPlay == null
+                                        ? 'Cannot launch'
+                                        : 'Play',
+                                    onPressed: onPlay,
+                                    icon: Icon(
+                                      running
+                                          ? Icons.stop_rounded
+                                          : Icons.play_arrow_rounded,
+                                      size: 18,
+                                    ),
+                                    style: IconButton.styleFrom(
+                                      minimumSize: const Size(30, 30),
+                                      maximumSize: const Size(30, 30),
+                                      padding: EdgeInsets.zero,
+                                      backgroundColor: palette.accent,
+                                      foregroundColor: palette.onAccent,
+                                    ),
+                                  )
+                                : FilledButton.icon(
+                                    onPressed: onPlay,
+                                    icon: Icon(
+                                      running
+                                          ? Icons.stop_rounded
+                                          : Icons.play_arrow_rounded,
+                                      size: 16,
+                                    ),
+                                    label: Text(running ? 'Stop' : 'Play'),
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size(0, 32),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 7,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: AppRadius.mediumAll,
+                                      ),
+                                      textStyle: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
-        ],
+            ],
           ),
         ),
       ),
@@ -652,8 +693,8 @@ class _Cover extends StatelessWidget {
       child: Text(
         name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
         style: TextStyle(
-          fontSize: compact ? 40 : 54,
-          fontWeight: FontWeight.w800,
+          fontSize: compact ? 36 : 46,
+          fontWeight: FontWeight.w700,
           color: palette.tileLetter,
         ),
       ),

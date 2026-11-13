@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'theme.dart';
 
-/// One labelled value: a small uppercase label over the value itself.
+/// One labelled value: a quiet label on the left, the value on the right.
 ///
 /// Shared by the detail panel's own facts and by what the plugins answer with,
 /// so both read the same way.
@@ -22,27 +22,33 @@ class LabelledValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10,
-              letterSpacing: 1.1,
-              color: context.palette.textDim,
-              fontWeight: FontWeight.w600,
+          SizedBox(
+            width: 88,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: palette.textDim),
+              ),
             ),
           ),
-          const SizedBox(height: 4),
-          SelectableText(
-            value,
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.35,
-              fontFamily: mono ? 'monospace' : null,
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: 12,
+                height: 1.4,
+                color: palette.text,
+                fontFamily: mono ? 'monospace' : null,
+              ),
             ),
           ),
         ],

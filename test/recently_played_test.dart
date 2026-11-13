@@ -246,7 +246,7 @@ void main() {
     ) async {
       final controller = await pumpPage(tester);
 
-      expect(find.text('RECENTLY PLAYED'), findsOneWidget);
+      expect(find.text('Recently played'), findsOneWidget);
       // The two played games twice (shelf and wall), the unplayed one once.
       expect(find.byType(GameTile), findsNWidgets(5));
 
@@ -269,7 +269,7 @@ void main() {
 
       controller.setQuery('gamma');
       await tester.pumpAndSettle();
-      expect(find.text('RECENTLY PLAYED'), findsNothing);
+      expect(find.text('Recently played'), findsNothing);
     });
 
     testWidgets('a shelf entry can be taken off the shelf from its menu', (
@@ -331,7 +331,7 @@ void main() {
 
       await pumpPage(tester);
 
-      expect(find.text('RECENTLY PLAYED'), findsOneWidget);
+      expect(find.text('Recently played'), findsOneWidget);
       expect(find.byType(GameTile), findsNWidgets(5));
     });
 
@@ -386,7 +386,7 @@ void main() {
       // The strip and the wall cannot both have room here.
       await pumpPage(tester, size: const Size(1000, 380));
 
-      expect(find.text('RECENTLY PLAYED'), findsNothing);
+      expect(find.text('Recently played'), findsNothing);
       expect(find.byType(GameTile), findsNWidgets(3));
     });
 
@@ -421,7 +421,7 @@ void main() {
         lefts.add(tester.getTopLeft(finder).dx);
       }
       // One gap between tiles, whatever the names are.
-      expect(lefts[1] - lefts[0], GameTile.compactWidth + 16);
+      expect(lefts[1] - lefts[0], GameTile.compactWidth + 12);
 
       // The name is ellipsized, not clipped: it takes the tile's width.
       expect(

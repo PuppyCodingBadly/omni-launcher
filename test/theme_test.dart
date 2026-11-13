@@ -27,7 +27,7 @@ double contrast(Color a, Color b) {
 
 /// The GNOME basic accent palette the appearance setting will offer.
 const Map<String, Color> adwaitaAccents = {
-  'Default': Color(0xFF8A6BFF),
+  'Default': Color(0xFFB87433),
   'Blue': Color(0xFF3584E4),
   'Teal': Color(0xFF2190A4),
   'Green': Color(0xFF3A944A),
@@ -179,37 +179,38 @@ Color probedBackground(WidgetTester tester) =>
 void main() {
   group('palette', () {
     test('the dark palette is byte for byte the old hardcoded one', () {
-      expect(AppPalette.dark.background, const Color(0xFF0E0E13));
-      expect(AppPalette.dark.sidebar, const Color(0xFF14141B));
-      expect(AppPalette.dark.surface, const Color(0xFF1A1A23));
-      expect(AppPalette.dark.surfaceHigh, const Color(0xFF23232E));
-      expect(AppPalette.dark.accent, const Color(0xFF8A6BFF));
-      expect(AppPalette.dark.accentSoft, const Color(0xFFB9A5FF));
-      expect(AppPalette.dark.text, const Color(0xFFEDEDF2));
-      expect(AppPalette.dark.textDim, const Color(0xFF9A9AAB));
-      expect(AppPalette.dark.warning, Colors.orangeAccent);
+      expect(AppPalette.dark.background, const Color(0xFF0F1113));
+      expect(AppPalette.dark.sidebar, const Color(0xFF14171A));
+      expect(AppPalette.dark.surface, const Color(0xFF1A1D20));
+      expect(AppPalette.dark.surfaceHigh, const Color(0xFF24282C));
+      expect(AppPalette.dark.line, const Color(0xFF2B3035));
+      expect(AppPalette.dark.accent, const Color(0xFFB87433));
+      expect(AppPalette.dark.accentSoft, const Color(0xFFD4AC85));
+      expect(AppPalette.dark.text, const Color(0xFFECEDEA));
+      expect(AppPalette.dark.textDim, const Color(0xFF9BA1A6));
+      expect(AppPalette.dark.warning, const Color(0xFFE06C5A));
       expect(AppPalette.dark.tileLetter, const Color(0x66FFFFFF));
       expect(AppPalette.dark.previewLetter, const Color(0x55FFFFFF));
       expect(AppPalette.dark.scrim, const [
         Color(0xCC000000),
-        Color(0x22000000),
+        Color(0x14000000),
         Color(0xE6000000),
       ]);
       expect(AppPalette.dark.shadow, Colors.black);
-      expect(AppPalette.dark.shadowAlpha, 0.25);
-      expect(AppPalette.dark.shadowHoverAlpha, 0.45);
+      expect(AppPalette.dark.shadowAlpha, 0.22);
+      expect(AppPalette.dark.shadowHoverAlpha, 0.48);
     });
 
     test('the dark theme data keeps the old colours', () {
       final theme = AppTheme.dark;
       expect(theme.brightness, Brightness.dark);
-      expect(theme.scaffoldBackgroundColor, const Color(0xFF0E0E13));
-      expect(theme.colorScheme.primary, const Color(0xFF8A6BFF));
-      expect(theme.colorScheme.secondary, const Color(0xFFB9A5FF));
-      expect(theme.colorScheme.surface, const Color(0xFF0E0E13));
-      expect(theme.colorScheme.onSurface, const Color(0xFFEDEDF2));
-      expect(theme.inputDecorationTheme.fillColor, const Color(0xFF1A1A23));
-      expect(theme.popupMenuTheme.color, const Color(0xFF23232E));
+      expect(theme.scaffoldBackgroundColor, const Color(0xFF0F1113));
+      expect(theme.colorScheme.primary, const Color(0xFFB87433));
+      expect(theme.colorScheme.secondary, const Color(0xFFD4AC85));
+      expect(theme.colorScheme.surface, const Color(0xFF0F1113));
+      expect(theme.colorScheme.onSurface, const Color(0xFFECEDEA));
+      expect(theme.inputDecorationTheme.fillColor, const Color(0xFF1A1D20));
+      expect(theme.popupMenuTheme.color, const Color(0xFF1A1D20));
       expect(theme.extension<AppPalette>(), AppPalette.dark);
     });
 
@@ -248,16 +249,14 @@ void main() {
           greaterThan(4.5),
           reason: 'text button label',
         );
-        // 15px semibold on the accent: the dark look ships at 3.7, so only the
-        // large-text floor is a hard requirement.
+        // The label pair, not a particular white: the copper accent takes
+        // dark labels in both modes.
         expect(
-          contrast(Colors.white, palette.accent),
-          greaterThan(3),
+          contrast(palette.onAccent, palette.accent),
+          greaterThan(4.5),
           reason: 'filled button label',
         );
       }
-      // Light mode has no such excuse.
-      expect(contrast(Colors.white, AppPalette.light.accent), greaterThan(4.5));
     });
 
     test('lerp moves between the two palettes', () {
@@ -271,7 +270,15 @@ void main() {
         ),
       );
       expect(half.scrim.length, 3);
-      expect(half.shadowHoverAlpha, closeTo(0.325, 1e-9));
+      expect(
+        half.shadowHoverAlpha,
+        closeTo(
+          (AppPalette.dark.shadowHoverAlpha +
+                  AppPalette.light.shadowHoverAlpha) /
+              2,
+          1e-9,
+        ),
+      );
       expect(AppPalette.dark.lerp(null, 0.5), AppPalette.dark);
     });
 
@@ -351,7 +358,7 @@ void main() {
       );
       expect(
         AppPalette.forMode(Brightness.dark, AppPalette.dark.accent).onAccent,
-        Colors.white,
+        Colors.black,
       );
     });
 
@@ -427,7 +434,7 @@ void main() {
       final cell = tester.getSize(find.byType(GameTile));
       expect(
         cell.height / cell.width,
-        closeTo((GameTile.coverHeight + 68) / GameTile.width, 0.001),
+        closeTo(GameTile.heightFor(compact: false) / GameTile.width, 0.001),
       );
 
       // A square window used to switch the wall to square posters and square
@@ -439,7 +446,7 @@ void main() {
       final square = tester.getSize(find.byType(GameTile));
       expect(
         square.height / square.width,
-        closeTo((GameTile.coverHeight + 68) / GameTile.width, 0.001),
+        closeTo(GameTile.heightFor(compact: false) / GameTile.width, 0.001),
       );
       expect(controller.fetched, ['flatpak:alpha']);
 
@@ -733,6 +740,32 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('the detail panel leaves the toolbar inside the window', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      controller.games = [
+        game('flatpak:alpha', 'Alpha', SourceKind.flatpak),
+        game('flatpak:beta', 'Beta', SourceKind.flatpak),
+      ];
+      controller.status = LibraryStatus.ready;
+
+      await tester.pumpWidget(_AppHarness(controller: controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(GameTile).first);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DetailPanel), findsOneWidget);
+      // The panel narrows the wall; the search field must give width back
+      // instead of pushing the toolbar past the column's edge.
+      expect(tester.takeException(), isNull);
+      expect(find.byTooltip('Settings'), findsOneWidget);
+      expect(find.byTooltip('Rescan (Ctrl+R)'), findsOneWidget);
+    });
+
     testWidgets('the status bar keeps the notice on the right', (tester) async {
       tester.view.physicalSize = const Size(1600, 900);
       tester.view.devicePixelRatio = 1;
@@ -744,7 +777,7 @@ void main() {
       await tester.pumpWidget(_AppHarness(controller: controller));
       await tester.pumpAndSettle();
 
-      final counts = tester.getRect(find.textContaining('shown ·'));
+      final counts = tester.getRect(find.textContaining('games ·'));
       final notice = tester.getRect(find.textContaining('Launched Alpha'));
 
       expect(notice.left, greaterThan(counts.right));
@@ -790,11 +823,11 @@ void main() {
             reason: accent.label,
           );
         }
-        expect(find.text('Accent: Default'), findsOneWidget);
-        expect(tick('Default'), findsOneWidget);
+        expect(find.text('Accent: Copper'), findsOneWidget);
+        expect(tick('Copper'), findsOneWidget);
         expect(tick('Blue'), findsNothing);
         // The active one is ringed, the others keep a hairline outline.
-        expect((swatch('Default').border! as Border).top.width, 3);
+        expect((swatch('Copper').border! as Border).top.width, 2);
         expect((swatch('Blue').border! as Border).top.width, 1);
 
         await tester.tap(find.byTooltip('Blue'));
@@ -803,8 +836,8 @@ void main() {
         expect(controller.config.accent, AppAccent.blue);
         expect(find.text('Accent: Blue'), findsOneWidget);
         expect(tick('Blue'), findsOneWidget);
-        expect(tick('Default'), findsNothing);
-        expect((swatch('Blue').border! as Border).top.width, 3);
+        expect(tick('Copper'), findsNothing);
+        expect((swatch('Blue').border! as Border).top.width, 2);
         expect(AppConfig.load(configPath).accentColor, 'blue');
       },
     );
@@ -824,7 +857,7 @@ void main() {
             tester
                     .widget<Container>(
                       find.descendant(
-                        of: find.byTooltip('Default'),
+                        of: find.byTooltip('Copper'),
                         matching: find.byType(Container),
                       ),
                     )
@@ -833,7 +866,7 @@ void main() {
         expect((box.border! as Border).top.color, palette.text);
         final check = tester.widget<Icon>(
           find.descendant(
-            of: find.byTooltip('Default'),
+            of: find.byTooltip('Copper'),
             matching: find.byIcon(Icons.check),
           ),
         );

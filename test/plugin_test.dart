@@ -1293,7 +1293,7 @@ void main() {
         tester,
         () => controller.isLookingUp('answer', 'steam:1'),
       );
-      expect(find.text('MAIN STORY'), findsOneWidget);
+      expect(find.text('Main story'), findsOneWidget);
       expect(find.text('54h 32m'), findsOneWidget);
       expect(find.text('Open the page'), findsOneWidget);
       // The answer replaces the button that asked for it.

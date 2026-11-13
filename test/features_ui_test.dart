@@ -100,7 +100,7 @@ void main() {
       ),
     );
 
-    expect(find.text('PLAYING'), findsOneWidget);
+    expect(find.text('Playing'), findsOneWidget);
   });
 
   testWidgets('a running game shows Stop in the detail panel', (tester) async {
@@ -334,7 +334,7 @@ void main() {
 
     // Many fields must scroll inside the dialog, not overflow it.
     expect(tester.takeException(), isNull);
-    expect(find.text('FIELD 0'), findsOneWidget);
+    expect(find.text('Field 0'), findsOneWidget);
 
     await tester.drag(
       find.byType(SingleChildScrollView),

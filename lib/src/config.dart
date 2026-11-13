@@ -30,7 +30,7 @@ enum AppThemeMode {
 /// Kept as an ARGB int so this file stays free of Flutter imports; the UI turns
 /// it into a `Color` (see `ui/accent_colors.dart`).
 enum AppAccent {
-  brand('default', 'Default', 0xFF8A6BFF),
+  brand('default', 'Copper', 0xFFB87433),
   blue('blue', 'Blue', 0xFF3584E4),
   teal('teal', 'Teal', 0xFF2190A4),
   green('green', 'Green', 0xFF3A944A),

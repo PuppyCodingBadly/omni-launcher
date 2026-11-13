@@ -1287,7 +1287,7 @@ void main() {
       await pumpPage(tester, controller, const Size(1600, 900));
 
       expect(tiles(tester), isNotEmpty);
-      expect(gridAspect(tester), GameTile.width / (GameTile.coverHeight + 68));
+      expect(gridAspect(tester), GameTile.width / GameTile.heightFor(compact: false));
       expect(
         coverBox(tester),
         const Size(GameTile.width, GameTile.coverHeight),
@@ -1297,7 +1297,7 @@ void main() {
       // A square window used to turn the whole wall into square posters; that
       // experiment is gone, so the geometry has to hold here too.
       await resizeWindow(tester, const Size(1000, 1000));
-      expect(gridAspect(tester), GameTile.width / (GameTile.coverHeight + 68));
+      expect(gridAspect(tester), GameTile.width / GameTile.heightFor(compact: false));
       expect(
         coverBox(tester),
         const Size(GameTile.width, GameTile.coverHeight),

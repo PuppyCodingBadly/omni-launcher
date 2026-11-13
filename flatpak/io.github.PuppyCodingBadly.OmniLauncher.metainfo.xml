@@ -72,6 +72,15 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.4.0" date="2026-11-12">
+      <description>
+        <p>A redesign release. The library now uses a warm graphite and paper
+        system with one copper accent, a single type family, a quieter toolbar,
+        state-only shadows and a compact detail header. Discovery, launching,
+        playtime, tags, filters, plugins, keyboard and gamepad paths, and window
+        behaviour are unchanged.</p>
+      </description>
+    </release>
     <release version="0.3.10" date="2026-11-04">
       <description>
         <p>A signing release. The Flatpak repository published on GitHub Pages,

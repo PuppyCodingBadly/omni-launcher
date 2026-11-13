@@ -173,10 +173,10 @@ void main() {
         played: 10,
         size: const Size(1100, 900),
       );
-      // Ten recent games at this width: the fourth is still built, but once
-      // the panel takes its share of the window its right edge — and the
-      // ring on it — would be cut.
-      final selected = games[3];
+      // Ten recent games at this width: the seventh is still built, but once
+      // the panel takes its share of the window its right edge, and the ring
+      // on it, would be cut.
+      final selected = games[4];
 
       await selectAndOpenPanel(
         tester,

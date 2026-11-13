@@ -184,48 +184,76 @@ class _CommandPaletteState extends State<_CommandPalette> {
     if (_index >= entries.length) _index = 0;
     return Dialog(
       backgroundColor: palette.surface,
+      insetPadding: const EdgeInsets.all(40),
       child: SizedBox(
-        width: 580,
-        height: 540,
+        width: 560,
+        height: 500,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
               child: TextField(
                 controller: _query,
                 focusNode: _focus,
                 autofocus: true,
                 onChanged: (_) => setState(() => _index = 0),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
+                style: Theme.of(context).textTheme.bodyLarge,
+                decoration: InputDecoration(
+                  filled: false,
+                  prefixIcon: Icon(
+                    Icons.search,
+                    size: 18,
+                    color: palette.textDim,
+                  ),
                   hintText: 'Search games and commands',
-                  border: OutlineInputBorder(),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
                 ),
               ),
             ),
+            Divider(height: 1, color: palette.line),
             Expanded(
               child: entries.isEmpty
                   ? Center(
                       child: Text(
                         'Nothing matches',
-                        style: TextStyle(color: palette.textDim),
+                        style: Theme.of(context).textTheme.bodyMedium
+                            ?.copyWith(color: palette.textDim),
                       ),
                     )
                   : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 6,
+                      ),
                       itemCount: entries.length,
                       itemBuilder: (context, index) {
                         final entry = entries[index];
                         final selected = index == _index;
                         return ListTile(
                           selected: selected,
-                          selectedTileColor: palette.accent.withValues(
-                            alpha: 0.14,
+                          selectedTileColor: palette.surfaceHigh,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: AppRadius.smallAll,
                           ),
-                          leading: Icon(entry.icon, color: palette.textDim),
-                          title: Text(entry.title),
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                          ),
+                          leading: Icon(
+                            entry.icon,
+                            size: 16,
+                            color: selected ? palette.accent : palette.textDim,
+                          ),
+                          title: Text(
+                            entry.title,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
                           subtitle: Text(
                             entry.subtitle,
-                            style: TextStyle(color: palette.textDim),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: palette.textDim),
                           ),
                           trailing: entry.launch == null
                               ? null
@@ -233,7 +261,7 @@ class _CommandPaletteState extends State<_CommandPalette> {
                                   tooltip: 'Launch',
                                   icon: const Icon(
                                     Icons.play_arrow_rounded,
-                                    size: 20,
+                                    size: 18,
                                   ),
                                   onPressed: entry.launch,
                                 ),
@@ -245,15 +273,17 @@ class _CommandPaletteState extends State<_CommandPalette> {
                       },
                     ),
             ),
+            Divider(height: 1, color: palette.line),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+              padding: const EdgeInsets.fromLTRB(14, 6, 8, 8),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
-                      '↑↓ choose · Enter open · Ctrl+Enter launch',
+                      '↑↓ choose   Enter open   Ctrl+Enter launch',
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11.5, color: palette.textDim),
+                      style: Theme.of(context).textTheme.labelSmall
+                          ?.copyWith(color: palette.textDim),
                     ),
                   ),
                   TextButton(

@@ -102,7 +102,7 @@ static void theme_method_call_cb(FlMethodChannel* channel,
       g_object_set(gtk_settings_get_default(),
                    "gtk-application-prefer-dark-theme", dark, nullptr);
       GdkRGBA background_color;
-      gdk_rgba_parse(&background_color, dark ? "#0E0E13" : "#F7F7FA");
+      gdk_rgba_parse(&background_color, dark ? "#0F1113" : "#F4F2EE");
       fl_view_set_background_color(view, &background_color);
       fl_method_call_respond_success(method_call, nullptr, nullptr);
       return;
@@ -309,7 +309,7 @@ static void my_application_activate(GApplication* application) {
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
   // for transparent.
-  gdk_rgba_parse(&background_color, "#0E0E13");
+  gdk_rgba_parse(&background_color, "#0F1113");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));

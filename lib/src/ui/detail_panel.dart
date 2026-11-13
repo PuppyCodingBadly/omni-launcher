@@ -42,6 +42,7 @@ class DetailPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     final hidden = controller.config.isHidden(game.id);
     final favorite = controller.isFavorite(game.id);
     final artwork = controller.covers.resolve(game);
@@ -50,6 +51,7 @@ class DetailPanel extends StatelessWidget {
     final quickExit = controller.quickExitFor(game.id);
     final tags = controller.tagsFor(game);
     final options = controller.config.launchOptionsFor(game.id);
+    final played = formatPlaytime(controller.playtimeOf(game.id));
     // The page's row lets the panel pick its own width, so the room a narrow
     // window offers is read from the MediaQuery rather than the constraints;
     // the page can also hand a smaller [width] in when it knows better.
@@ -59,118 +61,190 @@ class DetailPanel extends StatelessWidget {
     );
     return Container(
       width: resolvedWidth,
-      color: context.palette.sidebar,
+      decoration: BoxDecoration(
+        color: palette.sidebar,
+        border: Border(left: BorderSide(color: palette.line)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const Spacer(),
-              IconButton(
-                tooltip: favorite ? 'Unpin favorite' : 'Pin as favorite',
-                icon: Icon(
-                  favorite ? Icons.star_rounded : Icons.star_border_rounded,
-                  size: 20,
-                  color: favorite
-                      ? context.palette.accent
-                      : context.palette.textDim,
-                ),
-                onPressed: () => controller.toggleFavorite(game.id),
+          SizedBox(
+            height: 46,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      game.source.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall
+                          ?.copyWith(color: palette.textDim),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: favorite ? 'Unpin favorite' : 'Pin as favorite',
+                    icon: Icon(
+                      favorite ? Icons.star_rounded : Icons.star_border_rounded,
+                      size: 18,
+                      color: favorite ? palette.accent : palette.textDim,
+                    ),
+                    onPressed: () => controller.toggleFavorite(game.id),
+                  ),
+                  _actionsMenu(context, hidden),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => controller.select(null),
+                  ),
+                ],
               ),
-              _actionsMenu(context, hidden),
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: IconButton(
-                  tooltip: 'Close',
-                  icon: const Icon(Icons.close),
-                  onPressed: () => controller.select(null),
-                ),
-              ),
-            ],
+            ),
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              padding: const EdgeInsets.fromLTRB(18, 2, 18, 20),
               children: [
-                _preview(context, artwork),
-                const SizedBox(height: 18),
-                Text(
-                  game.name,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    _chip(context, game.displaySubtitle),
-                    if (hidden) _chip(context, 'Hidden'),
-                    if (running) _statusChip(context, 'Playing', accent: true),
-                    if (game.updating) _statusChip(context, 'Updating'),
-                    if (game.updateRequired)
-                      _statusChip(context, 'Update required'),
-                    if (game.broken) _statusChip(context, 'Files missing'),
-                  ],
-                ),
-                if (tags.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final tag in tags)
-                        Chip(
-                          label: Text(tag),
-                          visualDensity: VisualDensity.compact,
-                          labelStyle: const TextStyle(fontSize: 11.5),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final identity = Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          game.name,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge,
                         ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 20),
-                if (running)
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: stopping ? null : () => controller.stop(game),
-                      icon: const Icon(Icons.stop_rounded),
-                      label: Text(stopping ? 'Stopping…' : 'Stop'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: context.palette.warning,
-                      ),
-                    ),
-                  )
-                else
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: game.launchable
-                          ? () => controller.launch(game)
-                          : null,
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: Text(game.broken ? 'Files missing' : 'Launch'),
-                    ),
-                  ),
+                        const SizedBox(height: 6),
+                        Text(
+                          game.displaySubtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: palette.textDim),
+                        ),
+                        if (hidden ||
+                            running ||
+                            game.updating ||
+                            game.updateRequired ||
+                            game.broken) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 5,
+                            children: [
+                              if (hidden)
+                                _statusChip(
+                                  context,
+                                  'Hidden',
+                                  color: palette.textDim,
+                                ),
+                              if (running)
+                                _statusChip(
+                                  context,
+                                  'Playing',
+                                  color: palette.accent,
+                                ),
+                              if (game.updating)
+                                _statusChip(context, 'Updating'),
+                              if (game.updateRequired)
+                                _statusChip(context, 'Update required'),
+                              if (game.broken)
+                                _statusChip(context, 'Files missing'),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              size: 13,
+                              color: palette.textDim,
+                            ),
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                '$played played',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: palette.textDim),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                    // A panel in a very narrow window has no room beside the
+                    // poster: the identity block moves under it instead of
+                    // squeezing the title into a sliver.
+                    if (constraints.maxWidth < 300) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: SizedBox(
+                              width: 84,
+                              child: _preview(context, artwork),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          identity,
+                        ],
+                      );
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 112, child: _preview(context, artwork)),
+                        const SizedBox(width: 14),
+                        Expanded(child: identity),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: running
+                      ? FilledButton.icon(
+                          onPressed: stopping
+                              ? null
+                              : () => controller.stop(game),
+                          icon: const Icon(Icons.stop_rounded, size: 18),
+                          label: Text(stopping ? 'Stopping…' : 'Stop'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: palette.warning,
+                            foregroundColor: Colors.white,
+                          ),
+                        )
+                      : FilledButton.icon(
+                          onPressed: game.launchable
+                              ? () => controller.launch(game)
+                              : null,
+                          icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                          label: Text(game.broken ? 'Files missing' : 'Launch'),
+                        ),
+                ),
                 if (quickExit != null) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Icon(
                         Icons.error_outline,
-                        size: 16,
-                        color: context.palette.warning,
+                        size: 15,
+                        color: palette.warning,
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 7),
                       Expanded(
                         child: Text(
                           'Exited after ${_duration(quickExit)}',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: context.palette.warning,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: palette.warning),
                         ),
                       ),
                       TextButton(
@@ -184,7 +258,23 @@ class DetailPanel extends StatelessWidget {
                     ],
                   ),
                 ],
-                const SizedBox(height: 24),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final tag in tags)
+                        Chip(
+                          label: Text(tag),
+                          visualDensity: VisualDensity.compact,
+                          labelStyle: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(fontSize: 11, color: palette.text),
+                        ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 18),
                 for (final plugin in controller.plugins)
                   if (controller.pluginHasSection(plugin)) ...[
                     PluginSection(
@@ -194,10 +284,7 @@ class DetailPanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                   ],
-                LabelledValue(
-                  label: 'Played',
-                  value: formatPlaytime(controller.playtimeOf(game.id)),
-                ),
+                LabelledValue(label: 'Played', value: played),
                 if (controller.lastPlayedFor(game.id) case final last?)
                   LabelledValue(
                     label: 'Last played',
@@ -249,7 +336,7 @@ class DetailPanel extends StatelessWidget {
   Widget _actionsMenu(BuildContext context, bool hidden) {
     return PopupMenuButton<String>(
       tooltip: 'Game actions',
-      icon: Icon(Icons.settings, size: 20, color: context.palette.textDim),
+      icon: Icon(Icons.more_horiz, size: 20, color: context.palette.textDim),
       onSelected: (value) async {
         switch (value) {
           case 'folder':
@@ -362,26 +449,30 @@ class DetailPanel extends StatelessWidget {
     controller.setLaunchOptions(game.id, options);
   }
 
-  Widget _statusChip(
-    BuildContext context,
-    String label, {
-    bool accent = false,
-  }) {
+  Widget _statusChip(BuildContext context, String label, {Color? color}) {
     final palette = context.palette;
-    final color = accent ? palette.accent : palette.warning;
+    final tint = color ?? palette.warning;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(20),
+        color: tint.withValues(alpha: 0.12),
+        borderRadius: AppRadius.smallAll,
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(color: tint, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall
+                ?.copyWith(color: tint, fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }
@@ -400,97 +491,57 @@ class DetailPanel extends StatelessWidget {
                     ? controller.covers.themeIconPath(artwork.value!)
                     : artwork.value)
               : null);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: AppRadius.mediumAll,
+        border: Border.all(color: palette.line),
+      ),
       child: AspectRatio(
-        // The poster's own shape: a wide box would crop the art the tile shows
-        // (and a square one is what this launcher just got rid of).
+        // The poster's own shape: a wide box would crop the art the tile shows.
         aspectRatio: 2 / 3,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final dpr = MediaQuery.devicePixelRatioOf(context);
-            return Container(
-              color: palette.surface,
-              child: path == null
-                  // The panel's heading names the game already; the initial
-                  // would only repeat it.
-                  ? ExcludeSemantics(
-                      child: Center(
-                        child: Text(
-                          game.name.isEmpty
-                              ? '?'
-                              : game.name.substring(0, 1).toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 72,
-                            fontWeight: FontWeight.w800,
-                            color: palette.previewLetter,
-                          ),
-                        ),
-                      ),
-                    )
-                  : Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Image.file(
-                          File(path),
-                          fit: BoxFit.cover,
-                          // Decode at the pixels the preview shows, like the
-                          // tile does.
-                          cacheWidth: (constraints.maxWidth * dpr).round(),
-                          cacheHeight: (constraints.maxHeight * dpr).round(),
-                          semanticLabel: 'Cover art for ${game.name}',
-                          frameBuilder:
-                              (context, child, frame, wasSynchronouslyLoaded) {
-                                // Artwork fades in instead of popping.
-                                if (wasSynchronouslyLoaded) return child;
-                                return AnimatedOpacity(
-                                  opacity: frame == null ? 0 : 1,
-                                  duration: const Duration(milliseconds: 150),
-                                  curve: Curves.easeOutCubic,
-                                  child: child,
-                                );
-                              },
-                          errorBuilder: (context, error, stack) =>
-                              const SizedBox.shrink(),
-                        ),
-                        // The art settles into the panel's surface at the
-                        // bottom, so the name and chips under a busy cover
-                        // keep their footing.
-                        IgnorePointer(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  palette.surface.withValues(alpha: 0),
-                                  palette.surface.withValues(alpha: 0.55),
-                                ],
-                                stops: const [0.55, 1],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+            final letter = ExcludeSemantics(
+              child: Center(
+                child: Text(
+                  game.name.isEmpty ? '?' : game.name.substring(0, 1),
+                  style: TextStyle(
+                    fontSize: 38,
+                    fontWeight: FontWeight.w700,
+                    color: palette.previewLetter,
+                  ),
+                ),
+              ),
+            );
+            if (path == null) return letter;
+            return Image.file(
+              File(path),
+              fit: BoxFit.cover,
+              // Decode at the pixels the preview shows: the full poster is
+              // several times this size and only one panel is open.
+              cacheWidth: (constraints.maxWidth * dpr).round(),
+              cacheHeight: (constraints.maxHeight * dpr).round(),
+              semanticLabel: 'Cover art for ${game.name}',
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                // Artwork fades in instead of popping.
+                if (wasSynchronouslyLoaded) return child;
+                return AnimatedOpacity(
+                  opacity: frame == null ? 0 : 1,
+                  duration: const Duration(milliseconds: 150),
+                  curve: Curves.easeOutCubic,
+                  child: child,
+                );
+              },
+              errorBuilder: (context, error, stack) => letter,
             );
           },
         ),
       ),
     );
   }
-
-  Widget _chip(BuildContext context, String label) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(
-      color: context.palette.surfaceHigh,
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(fontSize: 12, color: context.palette.textDim),
-    ),
-  );
 
   static String _size(Object? bytes) {
     final value = bytes is int ? bytes : int.tryParse('$bytes') ?? 0;

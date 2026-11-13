@@ -101,10 +101,6 @@ class SettingsView extends StatelessWidget {
     final palette = context.palette;
     return Scaffold(
       backgroundColor: palette.background,
-      appBar: AppBar(
-        backgroundColor: palette.background,
-        title: const Text('Settings'),
-      ),
       // The switches and lists below read the config, so they have to follow it.
       body: ListenableBuilder(
         listenable: controller,
@@ -119,187 +115,242 @@ class SettingsView extends StatelessWidget {
               if (game.source.isLauncher) game.source,
             for (final id in config.closeWithGame) ?SourceKind.byId(id),
           }.toList()..sort((a, b) => a.index.compareTo(b.index));
-          return ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-            children: [
-              _section(context, 'Appearance'),
-              SegmentedButton<AppThemeMode>(
-                segments: const [
-                  ButtonSegment(
-                    value: AppThemeMode.system,
-                    label: Text('System'),
-                    icon: Icon(Icons.brightness_auto_outlined),
-                  ),
-                  ButtonSegment(
-                    value: AppThemeMode.dark,
-                    label: Text('Dark'),
-                    icon: Icon(Icons.dark_mode_outlined),
-                  ),
-                  ButtonSegment(
-                    value: AppThemeMode.light,
-                    label: Text('Light'),
-                    icon: Icon(Icons.light_mode_outlined),
-                  ),
-                ],
-                selected: {config.themeMode},
-                onSelectionChanged: (selection) =>
-                    controller.setThemeMode(selection.first),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Appearance: ${config.themeMode.label}',
-                  style: TextStyle(fontSize: 12, color: palette.textDim),
-                ),
-              ),
-              const SizedBox(height: 18),
-              _AccentRow(
-                selected: config.accent,
-                onChanged: controller.setAccentColor,
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  'Accent: ${config.accent.label}',
-                  style: TextStyle(fontSize: 12, color: palette.textDim),
-                ),
-              ),
-              const SizedBox(height: 24),
-              _section(context, 'Library'),
-              SwitchListTile(
-                value: config.showHidden,
-                onChanged: (_) => controller.toggleShowHidden(),
-                title: const Text('Show hidden games'),
-                subtitle: Text('${controller.hiddenCount} hidden'),
-                contentPadding: EdgeInsets.zero,
-              ),
-              SwitchListTile(
-                value: config.coverFetch,
-                onChanged: controller.setCoverFetch,
-                title: const Text('Download Steam cover art'),
-                subtitle: const Text(
-                  'Portrait capsules are fetched once into the cache folder',
-                ),
-                contentPadding: EdgeInsets.zero,
-              ),
-              const SizedBox(height: 8),
-              Row(
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 800),
+              child: Column(
                 children: [
-                  FilledButton.icon(
-                    onPressed: controller.rescan,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Rescan library'),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 8, 20, 8),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Back',
+                          icon: const Icon(Icons.arrow_back, size: 18),
+                          onPressed: () => Navigator.of(context).maybePop(),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Settings',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final entry = await showAddGameDialog(context);
-                      if (entry != null) {
-                        await controller.addManual(
-                          entry.name,
-                          entry.command,
-                          cwd: entry.cwd,
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add game by hand'),
+                  Divider(height: 1, color: palette.line),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(28, 16, 28, 40),
+                      children: [
+                        _section(context, 'Appearance'),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: SegmentedButton<AppThemeMode>(
+                            showSelectedIcon: false,
+                            segments: const [
+                              ButtonSegment(
+                                value: AppThemeMode.system,
+                                label: Text('System'),
+                              ),
+                              ButtonSegment(
+                                value: AppThemeMode.dark,
+                                label: Text('Dark'),
+                              ),
+                              ButtonSegment(
+                                value: AppThemeMode.light,
+                                label: Text('Light'),
+                              ),
+                            ],
+                            selected: {config.themeMode},
+                            onSelectionChanged: (selection) =>
+                                controller.setThemeMode(selection.first),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Appearance: ${config.themeMode.label}',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: palette.textDim),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        _AccentRow(
+                          selected: config.accent,
+                          onChanged: controller.setAccentColor,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Text(
+                            'Accent: ${config.accent.label}',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: palette.textDim),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        _section(context, 'Library'),
+                        SwitchListTile(
+                          value: config.showHidden,
+                          onChanged: (_) => controller.toggleShowHidden(),
+                          title: const Text('Show hidden games'),
+                          subtitle: Text('${controller.hiddenCount} hidden'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        SwitchListTile(
+                          value: config.coverFetch,
+                          onChanged: controller.setCoverFetch,
+                          title: const Text('Download Steam cover art'),
+                          subtitle: const Text(
+                            'Portrait capsules are fetched once into the cache folder',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 8,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: controller.rescan,
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Rescan library'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final entry = await showAddGameDialog(context);
+                                if (entry != null) {
+                                  await controller.addManual(
+                                    entry.name,
+                                    entry.command,
+                                    cwd: entry.cwd,
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('Add game by hand'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        _section(context, 'Launchers'),
+                        if (launchers.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                              'No games from a launcher yet, so there is nothing to '
+                              'close.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: palette.textDim),
+                            ),
+                          ),
+                        for (final source in launchers)
+                          SwitchListTile(
+                            value: config.closesWithGame(source),
+                            onChanged: (value) =>
+                                controller.setCloseWithGame(source, value),
+                            title: Text(source.label),
+                            subtitle: const Text(
+                              'Close it once the game it started exits',
+                            ),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        const SizedBox(height: 24),
+                        _section(context, 'Window'),
+                        SwitchListTile(
+                          value: config.minimizeOnLaunch,
+                          onChanged: controller.setMinimizeOnLaunch,
+                          title: const Text(
+                            'Hide the launcher while a game runs',
+                          ),
+                          subtitle: const Text(
+                            'It comes back when the game exits',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        SwitchListTile(
+                          value: config.trayIcon,
+                          onChanged: controller.setTrayIcon,
+                          title: const Text('Show a tray icon'),
+                          subtitle: const Text(
+                            'Brings the window back; needs a desktop with tray support',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        const SizedBox(height: 24),
+                        _section(context, 'Artwork'),
+                        _SteamGridDbSection(controller: controller),
+                        const SizedBox(height: 24),
+                        _section(context, 'AppImage folders'),
+                        for (final dir in config.appimageDirs)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.folder_outlined,
+                              size: 18,
+                              color: palette.textDim,
+                            ),
+                            title: SelectableText(
+                              dir,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            trailing: IconButton(
+                              tooltip: 'Remove',
+                              icon: const Icon(Icons.close, size: 16),
+                              onPressed: () => controller.setAppimageDirs([
+                                ...config.appimageDirs.where(
+                                  (entry) => entry != dir,
+                                ),
+                              ]),
+                            ),
+                          ),
+                        _AddFolderField(
+                          onAdd: (value) => controller.setAppimageDirs([
+                            ...config.appimageDirs,
+                            value,
+                          ]),
+                        ),
+                        const SizedBox(height: 24),
+                        _section(context, 'Hand added games'),
+                        if (config.manual.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                              'Nothing added by hand yet.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: palette.textDim),
+                            ),
+                          ),
+                        for (final entry in config.manual)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.sports_esports_outlined,
+                              size: 18,
+                              color: palette.textDim,
+                            ),
+                            title: Text(entry.name),
+                            subtitle: Text(entry.command.join(' ')),
+                            trailing: IconButton(
+                              tooltip: 'Remove',
+                              icon: const Icon(Icons.delete_outline, size: 16),
+                              onPressed: () =>
+                                  controller.removeManual(entry.name),
+                            ),
+                          ),
+                        const SizedBox(height: 24),
+                        _section(context, 'Plugins'),
+                        _PluginStore(controller: controller),
+                        const SizedBox(height: 24),
+                        _section(context, 'Files'),
+                        _pathTile('Config', AppPaths.configFile),
+                        _pathTile('Cache', AppPaths.cacheFile),
+                        _pathTile('Launch log', AppPaths.launchLog),
+                      ],
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
-              _section(context, 'Launchers'),
-              if (launchers.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'No games from a launcher yet, so there is nothing to '
-                    'close.',
-                    style: TextStyle(color: palette.textDim),
-                  ),
-                ),
-              for (final source in launchers)
-                SwitchListTile(
-                  value: config.closesWithGame(source),
-                  onChanged: (value) =>
-                      controller.setCloseWithGame(source, value),
-                  title: Text(source.label),
-                  subtitle: const Text(
-                    'Close it once the game it started exits',
-                  ),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              const SizedBox(height: 24),
-              _section(context, 'Window'),
-              SwitchListTile(
-                value: config.minimizeOnLaunch,
-                onChanged: controller.setMinimizeOnLaunch,
-                title: const Text('Hide the launcher while a game runs'),
-                subtitle: const Text('It comes back when the game exits'),
-                contentPadding: EdgeInsets.zero,
-              ),
-              SwitchListTile(
-                value: config.trayIcon,
-                onChanged: controller.setTrayIcon,
-                title: const Text('Show a tray icon'),
-                subtitle: const Text(
-                  'Brings the window back; needs a desktop with tray support',
-                ),
-                contentPadding: EdgeInsets.zero,
-              ),
-              const SizedBox(height: 24),
-              _section(context, 'Artwork'),
-              _SteamGridDbSection(controller: controller),
-              const SizedBox(height: 24),
-              _section(context, 'AppImage folders'),
-              for (final dir in config.appimageDirs)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.folder, color: palette.textDim),
-                  title: Text(dir),
-                  trailing: IconButton(
-                    tooltip: 'Remove',
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => controller.setAppimageDirs([
-                      ...config.appimageDirs.where((entry) => entry != dir),
-                    ]),
-                  ),
-                ),
-              _AddFolderField(
-                onAdd: (value) =>
-                    controller.setAppimageDirs([...config.appimageDirs, value]),
-              ),
-              const SizedBox(height: 24),
-              _section(context, 'Hand added games'),
-              if (config.manual.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'Nothing added by hand yet.',
-                    style: TextStyle(color: palette.textDim),
-                  ),
-                ),
-              for (final entry in config.manual)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.sports_esports, color: palette.textDim),
-                  title: Text(entry.name),
-                  subtitle: Text(entry.command.join(' ')),
-                  trailing: IconButton(
-                    tooltip: 'Remove',
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    onPressed: () => controller.removeManual(entry.name),
-                  ),
-                ),
-              const SizedBox(height: 24),
-              _section(context, 'Plugins'),
-              _PluginStore(controller: controller),
-              const SizedBox(height: 24),
-              _section(context, 'Files'),
-              _pathTile('Config', AppPaths.configFile),
-              _pathTile('Cache', AppPaths.cacheFile),
-              _pathTile('Launch log', AppPaths.launchLog),
-            ],
+            ),
           );
         },
       ),
@@ -309,13 +360,9 @@ class SettingsView extends StatelessWidget {
   Widget _section(BuildContext context, String title) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: Text(
-      title.toUpperCase(),
-      style: TextStyle(
-        fontSize: 11,
-        letterSpacing: 1.2,
-        color: context.palette.textDim,
-        fontWeight: FontWeight.w700,
-      ),
+      title,
+      style: Theme.of(context).textTheme.titleSmall
+          ?.copyWith(fontWeight: FontWeight.w600),
     ),
   );
 }
@@ -756,24 +803,22 @@ class _AccentRow extends StatelessWidget {
               customBorder: const CircleBorder(),
               onTap: () => onChanged(accent),
               child: Container(
-                width: 32,
-                height: 32,
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(
                   color: accent.color,
                   shape: BoxShape.circle,
                   // The ring is the page's own text colour, so it reads in both
                   // modes; the idle outline keeps pale accents off the page.
                   border: Border.all(
-                    color: accent == selected
-                        ? palette.text
-                        : palette.surfaceHigh,
-                    width: accent == selected ? 3 : 1,
+                    color: accent == selected ? palette.text : palette.line,
+                    width: accent == selected ? 2 : 1,
                   ),
                 ),
                 child: accent == selected
                     ? Icon(
                         Icons.check,
-                        size: 16,
+                        size: 13,
                         color: AppPalette.forMode(
                           brightness,
                           accent.color,

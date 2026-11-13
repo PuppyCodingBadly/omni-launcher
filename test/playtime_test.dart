@@ -238,9 +238,9 @@ void main() {
         ),
       );
 
-      expect(find.text('PLAYED'), findsOneWidget);
+      expect(find.text('Played'), findsOneWidget);
       expect(find.text('12h 40m'), findsOneWidget);
-      expect(find.text('LAST PLAYED'), findsOneWidget);
+      expect(find.text('Last played'), findsOneWidget);
       expect(
         find.text(formatLastPlayed(played, DateTime.now())),
         findsOneWidget,
@@ -272,9 +272,9 @@ void main() {
         ),
       );
 
-      expect(find.text('PLAYED'), findsOneWidget);
+      expect(find.text('Played'), findsOneWidget);
       expect(find.text('0m'), findsOneWidget);
-      expect(find.text('LAST PLAYED'), findsNothing);
+      expect(find.text('Last played'), findsNothing);
     });
     testWidgets('settings closes a launcher with its games', (tester) async {
       tester.view.physicalSize = const Size(900, 2400);

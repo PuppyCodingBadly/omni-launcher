@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T18:30:00Z",
+  "title": "Design System: Omni Launcher",
+  "extensions": {
+    "colorMeta": {
+      "copper": {
+        "role": "primary",
+        "displayName": "Burnished Copper",
+        "canonical": "#B87433",
+        "tonalRamp": ["#8A5726", "#A9692F", "#B87433", "#D4AC85", "#E7CDB3"]
+      },
+      "graphite": {
+        "role": "neutral",
+        "displayName": "Graphite",
+        "canonical": "#0F1113",
+        "tonalRamp": ["#0F1113", "#14171A", "#1A1D20", "#24282C", "#2B3035"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#F4F2EE",
+        "tonalRamp": ["#D6D0C6", "#E2DDD4", "#ECE8E1", "#F4F2EE", "#FFFFFF"]
+      }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Detail Title", "purpose": "Selected game title in the detail panel." },
+      "title": { "displayName": "Page Title", "purpose": "Product name and Settings title." },
+      "body": { "displayName": "Body", "purpose": "Navigation, tile names, settings rows." },
+      "label": { "displayName": "Label", "purpose": "Counts, sources, metadata keys, shortcuts." }
+    },
+    "shadows": [
+      {
+        "name": "cover-rest",
+        "value": "0 4px 8px rgba(0,0,0,0.22)",
+        "purpose": "The resting cover tile in dark mode."
+      },
+      {
+        "name": "cover-lift",
+        "value": "0 10px 24px rgba(0,0,0,0.48)",
+        "purpose": "Hover and keyboard focus only."
+      },
+      {
+        "name": "overlay",
+        "value": "0 8px 24px rgba(0,0,0,0.35)",
+        "purpose": "Menus and dialogs."
+      }
+    ],
+    "motion": [
+      { "name": "tile-state", "value": "150ms cubic-bezier(0.215,0.61,0.355,1)", "purpose": "Hover, focus, press, artwork fade-in." },
+      { "name": "panel-reveal", "value": "200ms cubic-bezier(0.215,0.61,0.355,1)", "purpose": "Detail panel slide and sidebar fold." },
+      { "name": "overlay-arrive", "value": "120ms cubic-bezier(0.215,0.61,0.355,1)", "purpose": "Tile menu and Play button overlay." }
+    ],
+    "breakpoints": [
+      { "name": "window-min", "value": "900x600" },
+      { "name": "header-wrap", "value": "620px" },
+      { "name": "panel-cap", "value": "42% of window" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Launch, Stop, Rescan, Install. One per region.",
+      "html": "<button class=\"ds-button-primary\">Launch</button>",
+      "css": ".ds-button-primary { background: #B87433; color: #0F1113; font: 600 13px/1.2 Cantarell, 'Noto Sans', sans-serif; border: 0; border-radius: 8px; padding: 8px 16px; min-height: 36px; }"
+    },
+    {
+      "name": "Cover Tile",
+      "kind": "card",
+      "refersTo": "cover-tile",
+      "description": "2:3 poster with a two-line identity block, hover Play and actions.",
+      "html": "<article class=\"ds-cover-tile\"><img src=\"cover.jpg\" alt=\"\"><h3>Game name</h3><p>Steam</p></article>",
+      "css": ".ds-cover-tile { width: 168px; } .ds-cover-tile img { aspect-ratio: 2/3; width: 100%; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,.22); } .ds-cover-tile h3 { margin: 8px 0 0; color: #ECEDEA; font: 600 13px/1.2 Cantarell, 'Noto Sans', sans-serif; } .ds-cover-tile p { margin: 2px 0 0; color: #9BA1A6; font: 400 11.5px/1.2 Cantarell, 'Noto Sans', sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Graphite Shelf",
+    "overview": "A dark graphite media console where cover art is the only saturated object. Chrome is quiet, close to the content, and warm-tactile inside a precise grid. Light mode is the same room in warm paper.",
+    "keyCharacteristics": [
+      "Warm graphite and paper, not blue-black and not pure white.",
+      "One copper accent for action, selection, and state.",
+      "Covers carry the colour; chrome carries the hierarchy.",
+      "Soft radii, hairline edges, short state shadows.",
+      "Dense in the library, generous only between sections."
+    ],
+    "rules": [
+      { "name": "The Copper Rarity Rule", "body": "Copper appears on one primary action and one selected state per region. It never becomes a background fill or decorative line.", "section": "colors" },
+      { "name": "The No Eyebrow Rule", "body": "A section starts with a heading at its own size. No all-caps, letter-spaced kicker sits above it.", "section": "typography" },
+      { "name": "The Matte-at-Rest Rule", "body": "If nothing is hovered, focused, or elevated, it casts no decorative shadow.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do let cover art provide the colour; keep chrome to graphite, paper, and copper.",
+      "Do use the raised surface plus a hairline to show selection and grouping.",
+      "Do keep one primary action per region and give it an 8px radius, not a pill.",
+      "Do preserve the 4.5:1 contrast floor for body, dim, and button labels in both modes."
+    ],
+    "donts": [
+      "Don't use purple-blue gradients, gradient text, glows, or blurred blobs.",
+      "Don't use all-caps letter-spaced eyebrows or decorative status pulses.",
+      "Don't paint a colored left border on cards, rows, or alerts.",
+      "Don't stack cards inside cards or give every surface a shadow at rest.",
+      "Don't use monospace outside code, commands, paths, and log output."
+    ]
+  }
+}

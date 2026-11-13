@@ -29,7 +29,7 @@ Future<void> showLaunchLogDialog(
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: palette.background,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: AppRadius.largeAll,
             ),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(14),

@@ -52,7 +52,7 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
     return Dialog(
       backgroundColor: context.palette.surface,
       insetPadding: const EdgeInsets.all(40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(borderRadius: AppRadius.xlargeAll),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 900, maxHeight: 700),
         child: Padding(
@@ -68,7 +68,7 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
                       'Artwork for ${widget.game.name}',
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 18,
+                        fontSize: 17,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -217,7 +217,7 @@ class _ArtPickerDialogState extends State<_ArtPickerDialog> {
             ),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: AppRadius.largeAll,
             child: Container(
               color: palette.surfaceHigh,
               child: LayoutBuilder(

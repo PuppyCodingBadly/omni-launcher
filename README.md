@@ -98,9 +98,10 @@ wall first, details on demand.
   which launcher clients (Steam, Heroic, Lutris, …) quit once the game they
   started exits. The choice is per launcher, not per game; a launcher that was
   already running before the game stays alone.
-* **Appearance**: System / Dark / Light, plus an accent colour from the GNOME
-  basic palette. The window's title bar follows the palette too, and the window
-  reopens at the size it was last resized to.
+* **Appearance**: System / Dark / Light, plus a warm accent palette (Copper by
+  default, alongside GNOME's basic accent colours). The window's title bar
+  follows the palette too, and the window reopens at the size it was last
+  resized to.
 
 ![Settings](docs/screenshots/settings.jpg)
 
@@ -226,7 +227,6 @@ folder, so updates and cache cleanups leave it alone; its grid id is part of
 the file name, so even a pick whose file goes missing is fetched again instead
 of being forgotten.
 
-![Picking cover art from SteamGridDB](docs/screenshots/steamgriddb.jpg)
 
 ## Plugins
 

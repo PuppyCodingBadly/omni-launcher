@@ -25,10 +25,10 @@ void main() {
         '/usr/bin/steam',
         '-applaunch',
         '1962700',
-      ], home: '/home/jade');
+      ], home: '/home/u');
 
       expect(handoff?.appId, '1962700');
-      expect(handoff?.path, '/home/jade/.steam/steam/logs/gameprocess_log.txt');
+      expect(handoff?.path, '/home/u/.steam/steam/logs/gameprocess_log.txt');
     });
 
     test('follows the flatpak client to its own home', () {
@@ -38,11 +38,11 @@ void main() {
         'com.valvesoftware.Steam',
         '-applaunch',
         '42',
-      ], home: '/home/jade');
+      ], home: '/home/u');
 
       expect(
         handoff?.path,
-        '/home/jade/.var/app/com.valvesoftware.Steam/.local/share/Steam/logs/'
+        '/home/u/.var/app/com.valvesoftware.Steam/.local/share/Steam/logs/'
         'gameprocess_log.txt',
       );
     });
