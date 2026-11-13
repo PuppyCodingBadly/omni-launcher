@@ -63,10 +63,6 @@
       <caption>Settings</caption>
       <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/docs/screenshots/settings.jpg</image>
     </screenshot>
-    <screenshot>
-      <caption>Picking cover art from SteamGridDB</caption>
-      <image type="source">https://raw.githubusercontent.com/PuppyCodingBadly/omni-launcher/main/docs/screenshots/steamgriddb.jpg</image>
-    </screenshot>
   </screenshots>
 
   <content_rating type="oars-1.1"/>
