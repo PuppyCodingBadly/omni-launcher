@@ -1509,6 +1509,7 @@ void main() {
       'the HowLongToBeat matcher handles editions, numerals and sequels',
       () async {
         final result = await Process.run('python3', [
+          '-B',
           'test/fixtures/hltb_best.py',
           'plugins/howlongtobeat/hltb.py',
         ]);

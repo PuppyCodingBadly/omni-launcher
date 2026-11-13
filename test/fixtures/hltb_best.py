@@ -3,6 +3,11 @@
 import importlib.util
 import sys
 
+# Importing the plugin for its functions must not leave a .pyc in the
+# catalogue source tree; plugins/build.sh --check compares the whole folder.
+sys.dont_write_bytecode = True
+import sys
+
 spec = importlib.util.spec_from_file_location('hltb', sys.argv[1])
 hltb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hltb)

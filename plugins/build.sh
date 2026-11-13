@@ -39,8 +39,13 @@ def folders():
 
 def files(folder):
     """Every file in a plugin, by the name it has inside the archive."""
-    for current, _, names in os.walk(folder):
+    for current, dirs, names in os.walk(folder):
+        # A test run imports the plugin, and Python leaves bytecode behind.
+        # It is not part of the plugin and must not enter the catalogue.
+        dirs[:] = [name for name in dirs if name != '__pycache__']
         for name in sorted(names):
+            if name.endswith('.pyc'):
+                continue
             path = os.path.join(current, name)
             yield os.path.relpath(path, folder), path
 
