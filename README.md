@@ -425,8 +425,10 @@ or the AppImage it just chmodded all execute on the host as you.
 
 Sharing it with someone else: send them the `.flatpak` file, serve
 `flatpak/repo` over the network and hand over a `.flatpakref` whose `Url=`
-points at you, or push a `v*` tag, and `.github/workflows/flatpak.yml` runs
-`flutter analyze`, `flutter test`, validates the AppStream metadata and checks
+points at you, or run `tool/release.sh X.Y.Z` after committing the version
+bump (see [docs/releasing.md](docs/releasing.md)). A `v*` tag runs
+`.github/workflows/flatpak.yml`, which runs `flutter analyze` and
+`flutter test`, validates the AppStream metadata and checks
 that `plugins/` still matches the sources it was built from before it builds
 the bundle, signs the repository with the `FLATPAK_GPG_PRIVATE_KEY` repository
 secret and publishes it with the landing page in `site/` to GitHub Pages, and
