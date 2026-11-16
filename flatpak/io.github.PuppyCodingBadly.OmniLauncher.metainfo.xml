@@ -68,6 +68,14 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.4.2" date="2026-11-15">
+      <description>
+        <p>An entry can now be excluded from search in its actions menu, on
+        its tile or in the detail panel. It stays on the wall when the search
+        field is empty but stops matching queries, so a mod manager or other
+        helper no longer crowds the results.</p>
+      </description>
+    </release>
     <release version="0.4.1" date="2026-11-12">
       <description>
         <p>A matching release. The HowLongToBeat plugin now removes trademark
