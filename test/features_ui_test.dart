@@ -266,6 +266,59 @@ void main() {
     expect(entries, contains('rename'));
   });
 
+  testWidgets('a tile menu excludes a game from search and puts it back', (
+    tester,
+  ) async {
+    Future<PopupMenuButton<String>> pumpTile() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.dark,
+          home: Scaffold(
+            body: GameTile(
+              game: alpha,
+              controller: controller,
+              selected: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      return tester.widget<PopupMenuButton<String>>(
+        find.byType(PopupMenuButton<String>),
+      );
+    }
+
+    var menu = await pumpTile();
+    var entries = menu
+        .itemBuilder(tester.element(find.byType(GameTile)))
+        .whereType<PopupMenuItem<String>>()
+        .toList();
+    final search = entries.where((item) => item.value == 'search').single;
+    expect((search.child as Text).data, 'Exclude from search');
+
+    menu.onSelected!('search');
+    await tester.pump();
+    expect(controller.config.isSearchHidden(alpha.id), isTrue);
+
+    menu = await pumpTile();
+    entries = menu
+        .itemBuilder(tester.element(find.byType(GameTile)))
+        .whereType<PopupMenuItem<String>>()
+        .toList();
+    expect(
+      ((entries.where((item) => item.value == 'search').single).child as Text)
+          .data,
+      'Include in search',
+    );
+
+    menu.onSelected!('search');
+    await tester.pump();
+    expect(controller.config.isSearchHidden(alpha.id), isFalse);
+
+    // The notice's auto-expire timer outlives addTearDown.
+    controller.notice = null;
+  });
+
   testWidgets('a tag filter that matches nothing reads as filtered', (
     tester,
   ) async {

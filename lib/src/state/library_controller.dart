@@ -315,6 +315,7 @@ class LibraryController extends ChangeNotifier {
       if (sourceFilter.isNotEmpty && !sourceFilter.contains(game.source)) {
         continue;
       }
+      if (needle.isNotEmpty && config.isSearchHidden(game.id)) continue;
       if (!_matchesFilters(game)) continue;
       if (needle.isNotEmpty) {
         final score = gameSearchScore(game, needle, tags: tagsFor(game));
@@ -428,6 +429,7 @@ class LibraryController extends ChangeNotifier {
     final scored = <(int, Game)>[];
     for (final game in games) {
       if (!config.showHidden && config.isHidden(game.id)) continue;
+      if (config.isSearchHidden(game.id)) continue;
       final score = gameSearchScore(game, needle, tags: tagsFor(game));
       if (score != null) scored.add((score, game));
     }
@@ -547,6 +549,26 @@ class LibraryController extends ChangeNotifier {
     notice = hidden
         ? 'Removed ${game.name} from recently played'
         : '${game.name} is back on the recently played shelf';
+    notifyListeners();
+  }
+
+  /// Exclude [game] from search results, or put it back.
+  ///
+  /// The wall keeps the entry: only a non-empty query stops matching it, so a
+  /// mod manager or helper that is never searched for stays visible when
+  /// browsing but never crowds the results.
+  void setSearchHidden(Game game, {required bool hidden}) {
+    if (config.isSearchHidden(game.id) == hidden) return;
+    final searchHidden = {...config.searchHidden};
+    if (hidden) {
+      searchHidden.add(game.id);
+    } else {
+      searchHidden.remove(game.id);
+    }
+    _apply(config.copyWith(searchHidden: searchHidden));
+    notice = hidden
+        ? 'Excluded ${game.name} from search'
+        : '${game.name} is searchable again';
     notifyListeners();
   }
 

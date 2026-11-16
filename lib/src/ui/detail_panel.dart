@@ -44,6 +44,7 @@ class DetailPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final hidden = controller.config.isHidden(game.id);
+    final searchHidden = controller.config.isSearchHidden(game.id);
     final favorite = controller.isFavorite(game.id);
     final artwork = controller.covers.resolve(game);
     final running = controller.isRunning(game.id);
@@ -92,7 +93,7 @@ class DetailPanel extends StatelessWidget {
                     ),
                     onPressed: () => controller.toggleFavorite(game.id),
                   ),
-                  _actionsMenu(context, hidden),
+                  _actionsMenu(context, hidden, searchHidden),
                   IconButton(
                     tooltip: 'Close',
                     icon: const Icon(Icons.close, size: 18),
@@ -333,7 +334,7 @@ class DetailPanel extends StatelessWidget {
   ///
   /// The menu keeps the panel's own context, so the dialogs it opens (rename,
   /// the art picker) still have the panel under them once the menu has closed.
-  Widget _actionsMenu(BuildContext context, bool hidden) {
+  Widget _actionsMenu(BuildContext context, bool hidden, bool searchHidden) {
     return PopupMenuButton<String>(
       tooltip: 'Game actions',
       icon: Icon(Icons.more_horiz, size: 20, color: context.palette.textDim),
@@ -362,6 +363,8 @@ class DetailPanel extends StatelessWidget {
             );
           case 'hide':
             controller.setHidden(game, hidden: !hidden);
+          case 'search':
+            controller.setSearchHidden(game, hidden: !searchHidden);
           case 'unrecent':
             controller.setRecentlyPlayedHidden(
               game,
@@ -384,6 +387,12 @@ class DetailPanel extends StatelessWidget {
           'hide',
           hidden ? Icons.visibility : Icons.visibility_off,
           hidden ? 'Unhide' : 'Hide from library',
+        ),
+        _action(
+          context,
+          'search',
+          searchHidden ? Icons.search : Icons.search_off,
+          searchHidden ? 'Include in search' : 'Exclude from search',
         ),
         if (controller.lastPlayedFor(game.id) != null ||
             controller.config.isRecentHidden(game.id))

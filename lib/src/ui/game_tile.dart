@@ -146,6 +146,7 @@ class _GameTileState extends State<GameTile> {
   Widget build(BuildContext context) {
     final game = widget.game;
     final hidden = widget.controller.config.isHidden(game.id);
+    final searchHidden = widget.controller.config.isSearchHidden(game.id);
     final palette = context.palette;
     final running = widget.controller.isRunning(game.id);
     final status = running
@@ -176,7 +177,7 @@ class _GameTileState extends State<GameTile> {
           : game.launchable
           ? () => widget.controller.launch(game)
           : null,
-      menu: _menu(context, game, hidden, running),
+      menu: _menu(context, game, hidden, searchHidden, running),
       width: widget.tileWidth,
       height: widget.tileHeight,
       compact: widget.compact,
@@ -311,7 +312,13 @@ class _GameTileState extends State<GameTile> {
     return '$played · ${formatLastPlayed(last, DateTime.now(), short: true)}';
   }
 
-  Widget _menu(BuildContext context, Game game, bool hidden, bool running) {
+  Widget _menu(
+    BuildContext context,
+    Game game,
+    bool hidden,
+    bool searchHidden,
+    bool running,
+  ) {
     final palette = context.palette;
     return PopupMenuButton<String>(
       tooltip: 'Actions',
@@ -336,6 +343,8 @@ class _GameTileState extends State<GameTile> {
             widget.controller.openFolder(game);
           case 'hide':
             widget.controller.setHidden(game, hidden: !hidden);
+          case 'search':
+            widget.controller.setSearchHidden(game, hidden: !searchHidden);
           case 'favorite':
             widget.controller.toggleFavorite(game.id);
           case 'unrecent':
@@ -357,6 +366,12 @@ class _GameTileState extends State<GameTile> {
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
         const PopupMenuItem(value: 'folder', child: Text('Open folder')),
         PopupMenuItem(value: 'hide', child: Text(hidden ? 'Unhide' : 'Hide')),
+        PopupMenuItem(
+          value: 'search',
+          child: Text(
+            searchHidden ? 'Include in search' : 'Exclude from search',
+          ),
+        ),
         PopupMenuItem(
           value: 'favorite',
           child: Text(

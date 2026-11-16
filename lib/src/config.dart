@@ -73,6 +73,7 @@ class AppConfig {
     Map<String, List<String>>? tags,
     Map<String, LaunchOptions>? launchOptions,
     Set<String>? recentHidden,
+    Set<String>? searchHidden,
     Map<String, Set<String>>? pluginGrants,
     this.minimizeOnLaunch = false,
     this.trayIcon = false,
@@ -94,6 +95,7 @@ class AppConfig {
        tags = tags ?? <String, List<String>>{},
        launchOptions = launchOptions ?? <String, LaunchOptions>{},
        recentHidden = recentHidden ?? <String>{},
+       searchHidden = searchHidden ?? <String>{},
        pluginGrants = pluginGrants ?? <String, Set<String>>{},
        favorites = favorites ?? <String>[];
 
@@ -162,6 +164,13 @@ class AppConfig {
   /// The shelf is a shortcut, not the history: the playtime stays, and
   /// launching the game again puts it back.
   final Set<String> recentHidden;
+
+  /// Game ids the user excluded from search.
+  ///
+  /// The game stays on the wall and in every other list; only a non-empty
+  /// query stops matching it, so an entry that is never wanted in results
+  /// (a mod manager, a helper) does not have to be hidden outright.
+  final Set<String> searchHidden;
 
   /// Capabilities the user allowed a plugin, per plugin id.
   ///
@@ -238,6 +247,7 @@ class AppConfig {
       tags: _tags(data['tags']),
       launchOptions: _launchOptions(data['launch_options']),
       recentHidden: _stringList(data['recent_hidden'])?.toSet() ?? <String>{},
+      searchHidden: _stringList(data['search_hidden'])?.toSet() ?? <String>{},
       pluginGrants: _pluginGrants(data['plugin_grants']),
       minimizeOnLaunch: data['minimize_on_launch'] == true,
       trayIcon: data['tray_icon'] == true,
@@ -451,6 +461,7 @@ class AppConfig {
           id: launchOptions[id]!.toJson(),
       },
       'recent_hidden': recentHidden.toList()..sort(),
+      'search_hidden': searchHidden.toList()..sort(),
       'plugin_grants': {
         for (final id in pluginGrants.keys.toList()..sort())
           id: pluginGrants[id]!.toList()..sort(),
@@ -530,6 +541,9 @@ class AppConfig {
   /// Whether [gameId] was taken off the recently played shelf.
   bool isRecentHidden(String gameId) => recentHidden.contains(gameId);
 
+  /// Whether [gameId] is excluded from search results.
+  bool isSearchHidden(String gameId) => searchHidden.contains(gameId);
+
   /// Capabilities allowed for [pluginId]. A plugin nobody has configured keeps
   /// the lookup it always had; actions and hooks must be granted.
   Set<String> pluginGrantsFor(String pluginId) =>
@@ -551,6 +565,7 @@ class AppConfig {
     Map<String, List<String>>? tags,
     Map<String, LaunchOptions>? launchOptions,
     Set<String>? recentHidden,
+    Set<String>? searchHidden,
     Map<String, Set<String>>? pluginGrants,
     bool? minimizeOnLaunch,
     bool? trayIcon,
@@ -577,6 +592,7 @@ class AppConfig {
     tags: tags ?? this.tags,
     launchOptions: launchOptions ?? this.launchOptions,
     recentHidden: recentHidden ?? this.recentHidden,
+    searchHidden: searchHidden ?? this.searchHidden,
     pluginGrants: pluginGrants ?? this.pluginGrants,
     minimizeOnLaunch: minimizeOnLaunch ?? this.minimizeOnLaunch,
     trayIcon: trayIcon ?? this.trayIcon,

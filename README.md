@@ -161,10 +161,12 @@ details panel.
 
 A running tile says `PLAYING`; `Enter` on it (or its hover button) stops it.
 Search ranks matches, understands acronyms and subsequences, and looks at tags,
-paths and commands. A rescan asked for while one is already running joins it
-rather than starting a second; a source that throws is named in the status bar
-and the rest of the library still arrives. Coming back to the window rescans a
-library older than thirty seconds.
+paths and commands. Any entry can be excluded from search in its actions menu:
+it stays on the wall when the field is empty, but a query no longer matches it,
+which keeps mod managers and other helpers out of the results. A rescan asked
+for while one is already running joins it rather than starting a second; a
+source that throws is named in the status bar and the rest of the library still
+arrives. Coming back to the window rescans a library older than thirty seconds.
 
 The sort button in the header orders the wall by name, recently played or most
 played. Whichever is picked, favorites stay in front. The checklist beside it
@@ -185,7 +187,8 @@ The detail panel keeps *Launch* (or *Stop*) and the game's facts to itself;
 *Open folder*, *Copy* (the exact argv, launch options included), *Launch
 options…*, *Edit tags…*, *Find art*, *Rename*, *Launch log*, *Remove from
 recently played* (or *Show in recently played* when it was taken off the shelf),
-*Hide* and *Remove* live behind the cog in its header. *Close the launcher with
+*Hide*, *Exclude from search* (or *Include in search* when it is out) and
+*Remove* live behind the cog in its header. *Close the launcher with
 the game* is a launcher-wide choice, so it lives in Settings, not on a single
 game. Under the facts, each plugin gets a section with what it answered and any
 actions it may run; the button that asks it is there until it has an answer.
@@ -194,7 +197,7 @@ actions it may run; the button that asks it is there until it has an answer.
 
 | Path | Contents |
 | --- | --- |
-| `~/.config/omnilauncher-flutter/config.json` | hidden games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, games taken off the recently played shelf, which launchers close with their games, plugin permissions, window size and behaviour |
+| `~/.config/omnilauncher-flutter/config.json` | hidden games, search-excluded games, AppImage folders, hand-added games, appearance, the folded sidebar, SteamGridDB key, pinned artwork, renames, favorites, sort order, tags, launch options, games taken off the recently played shelf, which launchers close with their games, plugin permissions, window size and behaviour |
 | `~/.cache/omnilauncher-flutter/games.json` | last scan, for an instant start |
 | `~/.local/share/omnilauncher-flutter/covers/` | downloaded Steam capsules and picked SteamGridDB art |
 | `~/.local/state/omnilauncher-flutter/launch.log` | every launch, with argv, plus the game's own output |

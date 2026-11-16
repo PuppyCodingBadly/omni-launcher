@@ -29,7 +29,7 @@ Desktop Linux, usually GNOME, on X11 or Wayland. Mouse and keyboard are primary;
 ## Capabilities and Constraints
 
 - Discovery is read-only for every store; launching goes through the owning client (`steam -applaunch`, `xdg-open heroic://…`, `lutris lutris:rungameid/…`, `flatpak run`, the AppImage itself, or a user command).
-- The library, playtime, tags, favorites, launch options, hidden set, renames, skips, window size, and plugin grants persist in the user's config, cache, and state directories shared by the native build and the Flatpak.
+- The library, playtime, tags, favorites, launch options, hidden set, search exclusions, renames, skips, window size, and plugin grants persist in the user's config, cache, and state directories shared by the native build and the Flatpak.
 - Playtime only counts observed sessions. A launch handed to a client with no process record is not invented as a quick exit.
 - Plugins are external programs, JSON in and JSON out, with declared and per-capability allowed actions and hooks.
 - Keyboard shortcuts: `Ctrl+F` search, `Ctrl+R` rescan, `Ctrl+K` command palette. Arrow keys/D-pad walk the wall, Enter/A launches, Space/B selects.

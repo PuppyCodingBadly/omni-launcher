@@ -81,6 +81,28 @@ void main() {
     expect(controller.visibleGames, isEmpty);
   });
 
+  test('a game excluded from search stays on the wall but leaves results', () {
+    final alpha = controller.games.first;
+    controller.setSearchHidden(alpha, hidden: true);
+
+    expect(controller.config.isSearchHidden(alpha.id), isTrue);
+    expect(AppConfig.load(configPath).searchHidden, {alpha.id});
+
+    controller.setQuery('Alpha');
+    expect(controller.visibleGames, isEmpty);
+    expect(controller.searchGames('Alpha'), isEmpty);
+
+    controller.setQuery('');
+    expect(
+      controller.visibleGames.map((entry) => entry.id),
+      contains(alpha.id),
+    );
+
+    controller.setSearchHidden(alpha, hidden: false);
+    expect(AppConfig.load(configPath).searchHidden, isEmpty);
+    expect(controller.searchGames('Alpha').single.id, alpha.id);
+  });
+
   test('search ranks an acronym and reaches tags', () {
     controller.games = [
       game('steam:1', 'Team Fortress 2', SourceKind.steam).copyWith(
